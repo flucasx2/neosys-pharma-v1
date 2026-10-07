@@ -4,12 +4,13 @@ FastAPI / Python 3.14 / PostgreSQL / SQLAlchemy / Alembic.
 
 ## P1 : premier incrément vertical
 
-L'écran `/` permet de créer une organisation avec son premier site et son
-premier emplacement, puis d'ajouter des sites et des emplacements. Il permet
-aussi de configurer les postes de vente et caisses par emplacement, et les
-coffres par site. Chaque
-création de structure est atomique. Les entités Organisation et Site du commit
-45ebdbb sont conservées. Les API sont documentées dans `/docs`.
+L'écran `/` propose la connexion, puis l'administration des sites, emplacements,
+équipements, utilisateurs et droits autorisés. Organisation, Site et Emplacement
+restent indépendants ; leur création atomique demeure un cas d'usage applicatif.
+Le premier compte d'une organisation existante est provisionné localement avec
+ses affectations explicites. L'onboarding HTTP de nouvelles organisations est
+réservé à P0. Les entités du commit 45ebdbb sont conservées et les API sont
+documentées dans `/docs`.
 
 Installation : `python -m pip install -e '.[dev]'`.
 Configurer `DATABASE_URL` dans un `.env` local à partir de `.env.example`.
