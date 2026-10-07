@@ -13,6 +13,7 @@ from neosys_pharma.presentation.securite_api import router as securite_router
 
 from neosys_pharma.presentation.authentification_api import router as auth_router
 from neosys_pharma.presentation.acces import require_access
+from neosys_pharma.presentation.catalogue_api import router as catalogue_router
 
 
 def create_app() -> FastAPI:
@@ -24,6 +25,7 @@ def create_app() -> FastAPI:
     app.include_router(equipement_router, dependencies=[Depends(require_access)])
     app.include_router(securite_router, dependencies=[Depends(require_access)])
     app.include_router(auth_router)
+    app.include_router(catalogue_router)
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, exc):
         # Never echo password input in validation responses.

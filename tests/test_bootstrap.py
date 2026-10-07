@@ -14,7 +14,7 @@ from neosys_pharma.infrastructure.organisation_models import OrganisationModel, 
 from neosys_pharma.infrastructure.securite_models import UtilisateurModel, AffectationSiteModel, AffectationEmplacementModel, AffectationRoleModel, RoleModel, RolePermissionModel
 from neosys_pharma.infrastructure.authentification_models import CredentialModel
 from neosys_pharma.domain.organisation.entities import Organisation, Site, Emplacement
-from neosys_pharma.domain.organisation.permissions_systeme import PERMISSIONS, role_id, permission_id
+from neosys_pharma.domain.organisation.permissions_systeme import P1_PERMISSIONS, role_id, permission_id
 
 PASSWORD='Phrase de test bootstrap 2026!'
 DATA=InstallationInitiale(nom_commercial=' NeoPharma ',raison_sociale='NeoPharma SARL',site_code=' lbv ',site_nom='Libreville',emplacement_code=' reserve ',emplacement_nom='Réserve',identifiant=' Alice ',utilisateur_nom='Alice')
@@ -68,8 +68,10 @@ def test_bootstrap_hierarchie_hash_et_droits_explicites(raw_client):
         for name in ('organisations','sites','emplacements','utilisateurs','affectations_site','affectations_emplacement','affectations_role','auth_credentials'):
             assert after[name]==1
         service=SecuriteService(bootstrap.SqlAlchemyBootstrapRepository(session).securite)
-        for code,_ in PERMISSIONS:
+        for code,_ in P1_PERMISSIONS:
             assert service.autorise(user.id_utilisateur,site.id_site,code,date.today(),location.id_emplacement)
+        for code in ('catalogue.consulter','catalogue.gerer'):
+            assert not service.autorise(user.id_utilisateur,site.id_site,code,date.today(),location.id_emplacement)
         # Removing the normal role association removes every grant, even for the initial account.
         session.execute(delete(AffectationRoleModel));session.commit()
         assert not service.autorise(user.id_utilisateur,site.id_site,'organisation.gerer',date.today(),location.id_emplacement)

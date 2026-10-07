@@ -23,6 +23,7 @@ from neosys_pharma.infrastructure.database import Base
 from neosys_pharma.infrastructure import organisation_models  # registers ORM metadata
 from neosys_pharma.infrastructure import securite_models
 from neosys_pharma.infrastructure import authentification_models
+from neosys_pharma.infrastructure import catalogue_models
 
 target_metadata = Base.metadata
 

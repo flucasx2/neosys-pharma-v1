@@ -10,7 +10,7 @@ from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from neosys_pharma.application.bootstrap_service import BootstrapService, InstallationInitiale
 from neosys_pharma.domain.organisation.entities import Organisation, Site, Emplacement
-from neosys_pharma.domain.organisation.permissions_systeme import PERMISSIONS
+from neosys_pharma.domain.organisation.permissions_systeme import P1_PERMISSIONS
 from neosys_pharma.infrastructure.database import SessionLocal, Base
 from neosys_pharma.infrastructure.organisation_repository import SqlAlchemyOrganisationRepository
 from neosys_pharma.infrastructure.securite_repository import SqlAlchemySecuriteRepository
@@ -51,7 +51,7 @@ class SqlAlchemyBootstrapRepository:
         role=self.securite.role(model.id_role)
         if not role.actif:
             raise ValueError('Le rôle système initial doit être actif.')
-        expected={code for code,_ in PERMISSIONS}
+        expected={code for code,_ in P1_PERMISSIONS}
         if not expected.issubset({p.code for p in self.securite.permissions_role(role.id_role)}):
             raise ValueError('Catalogue système incomplet : le rôle initial ne possède pas les permissions P1 attendues.')
         return role

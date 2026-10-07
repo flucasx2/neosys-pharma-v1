@@ -49,3 +49,13 @@ permissions résultantes. Appliquer `alembic upgrade head` dans une base de
 **développement** avant de lancer l'interface. Les règles et limites actuelles
 (notamment le provisionnement initial et les exigences d'exploitation) sont décrites dans
 [docs/P1.md](docs/P1.md).
+
+## P2 : Catalogue de base (première tranche)
+
+La section **Catalogue** permet de gérer produits, catégories hiérarchiques,
+formes pharmaceutiques, laboratoires, conditionnements et références multiples.
+Appliquer la migration additive `20261007_05` sur votre base de développement,
+puis attribuer **explicitement** `catalogue.consulter` et `catalogue.gerer` par
+un rôle et une affectation P1. Aucun rôle existant ne reçoit ces droits par défaut.
+Voir [docs/P2.md](docs/P2.md) pour la recette, les routes et le périmètre de revue.
+La tarification et les autres classifications P2 ne sont pas encore livrées.
