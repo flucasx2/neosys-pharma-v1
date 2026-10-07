@@ -46,6 +46,7 @@ with sync_playwright() as p:
         page.locator('#login-form button').click()
         if accessible:
             expect(page.locator('#app-shell')).to_be_visible()
+            expect(page.locator('#app-loading')).to_be_hidden()
             expect(page.locator('#dashboard')).to_be_visible()
             expect(page.locator('#administration')).to_be_hidden()
     connecter('gestion.qa','incorrect',accessible=False)
@@ -77,6 +78,8 @@ with sync_playwright() as p:
     naviguer('equipements')
     # A valid privileged session still needs CSRF for mutations.
     assert page.request.post('http://127.0.0.1:8000/api/organisation/emplacements/'+fixture['location_id']+'/caisses',headers={'X-Site-ID':fixture['site_id']},data={'code':'SANS-CSRF','nom':'Refusé'}).status==403
+    expect(page.locator('#equipement-emplacement')).to_have_value(fixture['location_id'])
+    expect(page.locator('#poste-form button')).to_be_enabled()
     for form_id,code,nom,liste in [('poste-form','P-QA','Poste QA','postes-list'),('caisse-form','C-QA','Caisse QA','caisses-list'),('coffre-form','F-QA','Coffre QA','coffres-list')]:
         page.locator('details').filter(has=page.locator(f'#{form_id}')).locator('summary').click()
         remplir(page.locator(f'#{form_id}'),{'code':code,'nom':nom})

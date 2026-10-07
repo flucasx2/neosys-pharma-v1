@@ -30,9 +30,13 @@ async function authRefresh(){
   return Boolean(authState.site);
 }
 async function authLoad(){
-  $("administration").hidden=true;
-  if(await authRefresh()){await loadOrganisations(authState.me.organisation.id_organisation);await securityLoadOrg();authGate();}
-  if(authState.me)shellStart();
+  shellState.loading=true;$("app-shell").hidden=true;$("login-panel").hidden=true;$("app-loading").hidden=false;
+  try{
+    if(await authRefresh()){await loadOrganisations(authState.me.organisation.id_organisation);await securityLoadOrg();authGate();}
+  }finally{
+    shellState.loading=false;$("app-loading").hidden=true;
+    if(authState.me)shellStart();else $("login-panel").hidden=false;
+  }
 }
 $("login-form").addEventListener("submit",async event=>{event.preventDefault();const form=event.target;const d=Object.fromEntries(new FormData(form));const button=form.querySelector("button");button.disabled=true;try{const response=await fetch("/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json","X-NeoSys-Request":"1"},body:JSON.stringify({organisation_id:d.organisation_id,identifiant:d.identifiant,password:d.password})});const result=await response.json();form.elements.password.value="";if(!response.ok)throw new Error(typeof result.detail==="string"?result.detail:"Vérifiez les informations de connexion.");$("login-message").textContent="";await authLoad();}catch(e){$("login-message").textContent=e.message;}finally{button.disabled=false;}});
 $("logout-button").addEventListener("click",async()=>{const response=await authFetch("/api/auth/logout",{method:"POST"});if(response.ok||response.status===401){authReset();$("login-form").reset();}else $("session-message").textContent="La déconnexion a échoué. Réessayez.";});

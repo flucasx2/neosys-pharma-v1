@@ -21,14 +21,16 @@ async function loadSites(selected="") {
   if(id)options("sites",authState.me.contextes.map(c=>({id_site:c.site_id,nom:c.nom,code:c.code})),selected||authState.site);
   await loadEmplacements();
 }
+let emplacementVersion=0;
 async function loadEmplacements() {
+  const version=++emplacementVersion;
   const selected=$("equipement-emplacement").value;
   resetEquipements();
   const id=$("sites").value;$("emplacement-form").querySelector("button").disabled=!id;
   $("emplacements").replaceChildren();
   if(!id||!authHas("organisation.consulter")){$("emplacements").textContent="Sélectionnez un site.";return;}
   const values=await api(`/sites/${id}/emplacements`);
-  if($("sites").value!==id)return;
+  if(version!==emplacementVersion||$("sites").value!==id)return;
   for(const item of values){const li=document.createElement("li");li.textContent=`${item.code} · ${item.nom}${item.actif?"":" · Inactif"}`;$("emplacements").append(li);}
   options("equipement-emplacement",values,selected);
   await Promise.all([loadPostesCaisses(),loadCoffres()]);

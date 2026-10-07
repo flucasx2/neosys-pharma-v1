@@ -8,7 +8,7 @@ const shellViews={
   affectations:{title:"Affectations",allowed:()=>authHas("utilisateur.consulter")},
   roles:{title:"Rôles & Permissions",allowed:()=>authHas("role.consulter")||authHas("role.gerer")}
 };
-const shellState={view:"dashboard",lastAdmin:"structure"};
+const shellState={loading:true,view:"dashboard",lastAdmin:"structure"};
 function shellAllowed(view){return Boolean(authState.me&&shellViews[view]&&(view==="dashboard"||shellViews[view].allowed()));}
 function shellMobile(open){
   $("sidebar").classList.toggle("is-open",open);
@@ -17,6 +17,7 @@ function shellMobile(open){
   if(open)$("sidebar-close").focus();
 }
 function shellReset(){
+  shellState.loading=false;$("app-loading").hidden=true;
   shellState.view="dashboard";shellState.lastAdmin="structure";
   $("app-shell").hidden=true;$("dashboard").hidden=true;$("administration").hidden=true;
   shellMobile(false);history.replaceState(null,"",location.pathname+location.search);
@@ -35,7 +36,7 @@ function shellStart(){
   shellNavigate(requested,{focus:false});
 }
 function shellSync(){
-  if(!authState.me)return;
+  if(!authState.me||shellState.loading)return;
   $("app-shell").hidden=false;
   if(!shellAllowed(shellState.view))shellState.view="dashboard";
   const view=shellState.view,isAdmin=view!=="dashboard";
@@ -59,6 +60,7 @@ function shellSync(){
   const currentSiteIds=Array.from($("sites").options).map(o=>o.value).filter(Boolean);
   if(JSON.stringify(currentSiteIds)!==JSON.stringify(siteValues.map(s=>s.id_site)))options("sites",siteValues,authState.site);
   $("sites").value=authState.site;
+  if($("organisations").value!==authState.me.organisation.id_organisation)options("organisations",[authState.me.organisation],authState.me.organisation.id_organisation);
   $("organisations").disabled=true;
   $("sites").disabled=$("security-operation").disabled||!siteValues.length;
   const allowedLocations=new Set(authContext()?.emplacements.map(e=>e.id_emplacement)||[]);
@@ -68,7 +70,7 @@ function shellSync(){
   $("stat-locations").textContent=context?.emplacements.length||0;
   $("stat-permissions").textContent=context?.permissions_site.length||0;
   $("dashboard-organisation").textContent=authState.me.organisation.nom_commercial;
-  $("dashboard-site").textContent=context?`${context.code} · ${context.nom}`:"Aucun site accessible";
+  $("dashboard-site").textContent=context?`${context.code} · ${context.nom}`:siteValues.length?"Sélectionnez un site":"Aucun site accessible";
   $("dashboard-location").textContent=context?.emplacements.find(e=>e.id_emplacement===locationId)?.nom||"Aucun emplacement sélectionné";
   $("dashboard-date").textContent=new Intl.DateTimeFormat("fr-FR",{timeZone:"Africa/Libreville",day:"numeric",month:"long",year:"numeric"}).format(new Date());
   $("organisation-details").textContent=authState.me.organisation.nom_commercial;
