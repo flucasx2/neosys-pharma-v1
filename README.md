@@ -4,8 +4,9 @@ FastAPI / Python 3.14 / PostgreSQL / SQLAlchemy / Alembic.
 
 ## P1 : premier incrément vertical
 
-L'écran `/` propose la connexion, puis l'administration des sites, emplacements,
-équipements, utilisateurs et droits autorisés. Organisation, Site et Emplacement
+L'écran `/` propose la connexion, puis un tableau de bord et un shell avec sidebar.
+Le module Administration comporte cinq vues pour la structure, les équipements,
+les utilisateurs, les affectations et les rôles/permissions autorisés. Organisation, Site et Emplacement
 restent indépendants ; leur création atomique demeure un cas d'usage applicatif.
 Une installation vide s'initialise avec `python -m neosys_pharma.infrastructure.bootstrap`,
 après migration, avec ses affectations explicites. Le provisionnement local

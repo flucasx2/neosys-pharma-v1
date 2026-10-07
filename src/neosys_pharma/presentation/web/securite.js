@@ -59,7 +59,7 @@ async function securityLoadAssignment(){
   $("security-scope-help").textContent=`Affectation au site ${assignment.site_nom}`;$("security-preview-site").value=assignment.site_id;
   authGate();
 }
-function securityLoadRole(){const role=securityState.roles.find(r=>r.id_role===$("security-role-selected").value);securityChecks("security-edit-permissions",role?securityState.permissions:[],"id_permission",p=>`${p.nom} (${p.code})`,role?.permissions.map(p=>p.id_permission)||[]);$("security-role-edit").querySelector("fieldset").disabled=!role||role.type_role==="SYSTEME";}
+function securityLoadRole(){const role=securityState.roles.find(r=>r.id_role===$("security-role-selected").value);securityChecks("security-edit-permissions",role?securityState.permissions:[],"id_permission",p=>`${p.nom} (${p.code})`,role?.permissions.map(p=>p.id_permission)||[]);$("security-role-edit").querySelector("fieldset").disabled=!role||role.type_role==="SYSTEME";authGate();}
 async function securityPreview(){
   const user=$("security-user").value,site=$("security-preview-site").value,jour=$("security-preview-date").value;
   if(site!==authState.site)throw new Error("Choisissez d’abord ce site dans le contexte courant en haut de page.");
