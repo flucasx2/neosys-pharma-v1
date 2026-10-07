@@ -19,7 +19,7 @@ Les migrations ne sont jamais exécutées automatiquement au démarrage.
 
 Cet incrément ne comporte pas encore d'authentification : utilisation locale
 de développement uniquement. Ne pas déployer en démonstration/production ni
-exposer sur le réseau avant l'intégration Utilisateur / rôles / permissions.
+exposer sur le réseau avant l'authentification HTTP et le contrôle d'accès aux routes.
 
 ## Validation
 
@@ -34,8 +34,7 @@ réservées à des bases **jetables** : les tests suppriment leurs tables.
 
 Voir [docs/P1.md](docs/P1.md). Organisation/Site/Emplacement restent des entités
 indépendantes ; le parcours de création atomique relève de l'application.
-Prochain incrément : Utilisateur, AffectationSite, AffectationEmplacement,
-Role et Permission.
+Prochain incrément : authentification HTTP et contrôle des droits sur les services/API.
 
 L'incrément P1 comprend aussi les utilisateurs, leurs affectations à plusieurs
 sites, les emplacements autorisés, les rôles système/personnalisés et l'aperçu des
