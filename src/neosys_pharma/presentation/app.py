@@ -3,6 +3,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from neosys_pharma.presentation.organisation_api import router
+from neosys_pharma.presentation.equipement_api import router as equipement_router
 
 
 def create_app() -> FastAPI:
@@ -11,6 +12,7 @@ def create_app() -> FastAPI:
         version="0.1.0",
     )
     app.include_router(router)
+    app.include_router(equipement_router)
     web = Path(__file__).parent / "web"
     app.mount("/static", StaticFiles(directory=web), name="static")
 

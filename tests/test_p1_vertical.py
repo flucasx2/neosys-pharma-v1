@@ -136,6 +136,18 @@ def test_migration_upgrade_check_downgrade(tmp_path, monkeypatch):
         engine = create_engine(url)
         assert set(inspect(engine).get_table_names()) >= {"organisations", "sites", "emplacements"}
         command.check(config)
+        # Existing hierarchy survives an equipment-only rollback and re-upgrade.
+        org = Organisation(nom_commercial="Migration", raison_sociale="Migration SARL")
+        site = Site(organisation_id=org.id_organisation, code="MIG", nom="Site existant")
+        emplacement = Emplacement(site_id=site.id_site, code="RES", nom="Réserve existante")
+        with sessionmaker(engine)() as session:
+            OrganisationService(SqlAlchemyOrganisationRepository(session)).creer_organisation(org, site, emplacement)
+        command.downgrade(config, "20261007_01")
+        assert "caisses" not in inspect(engine).get_table_names()
+        with sessionmaker(engine)() as session:
+            assert SqlAlchemyOrganisationRepository(session).emplacement(emplacement.id_emplacement) == emplacement
+        command.upgrade(config, "head")
+        command.check(config)
         # This is an isolated test DB; never run this on existing data.
         command.downgrade(config, "29485f21585c")
         assert "organisations" not in inspect(engine).get_table_names()

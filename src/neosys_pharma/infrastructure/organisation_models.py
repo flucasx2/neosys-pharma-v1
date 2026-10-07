@@ -38,3 +38,33 @@ class EmplacementModel(Base):
     code: Mapped[str] = mapped_column(String(80))
     nom: Mapped[str] = mapped_column(String(200))
     actif: Mapped[bool] = mapped_column(default=True)
+
+
+class PosteVenteModel(Base):
+    __tablename__ = "postes_vente"
+    __table_args__ = (UniqueConstraint("emplacement_id", "code", name="uq_poste_emplacement_code"),)
+    id_poste_vente: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    emplacement_id: Mapped[UUID] = mapped_column(ForeignKey("emplacements.id_emplacement"), index=True)
+    code: Mapped[str] = mapped_column(String(80))
+    nom: Mapped[str] = mapped_column(String(200))
+    actif: Mapped[bool] = mapped_column(default=True)
+
+
+class CaisseModel(Base):
+    __tablename__ = "caisses"
+    __table_args__ = (UniqueConstraint("emplacement_id", "code", name="uq_caisse_emplacement_code"),)
+    id_caisse: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    emplacement_id: Mapped[UUID] = mapped_column(ForeignKey("emplacements.id_emplacement"), index=True)
+    code: Mapped[str] = mapped_column(String(80))
+    nom: Mapped[str] = mapped_column(String(200))
+    actif: Mapped[bool] = mapped_column(default=True)
+
+
+class CoffreModel(Base):
+    __tablename__ = "coffres"
+    __table_args__ = (UniqueConstraint("site_id", "code", name="uq_coffre_site_code"),)
+    id_coffre: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    site_id: Mapped[UUID] = mapped_column(ForeignKey("sites.id_site"), index=True)
+    code: Mapped[str] = mapped_column(String(80))
+    nom: Mapped[str] = mapped_column(String(200))
+    actif: Mapped[bool] = mapped_column(default=True)

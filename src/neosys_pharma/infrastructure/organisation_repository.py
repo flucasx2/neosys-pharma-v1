@@ -6,7 +6,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from neosys_pharma.domain.organisation.entities import Emplacement, Organisation, Site
-from neosys_pharma.infrastructure.organisation_models import EmplacementModel, OrganisationModel, SiteModel
+from neosys_pharma.domain.organisation.equipements import Caisse, Coffre, PosteVente
+from neosys_pharma.infrastructure.organisation_models import (
+    EmplacementModel, OrganisationModel, SiteModel, PosteVenteModel, CaisseModel, CoffreModel,
+)
 
 
 class SqlAlchemyOrganisationRepository:
@@ -21,12 +24,17 @@ class SqlAlchemyOrganisationRepository:
         model = self.session.get(SiteModel, identifiant)
         return Site(**self.valeurs(model)) if model else None
 
+    def emplacement(self, identifiant: UUID) -> Emplacement | None:
+        model = self.session.get(EmplacementModel, identifiant)
+        return Emplacement(**self.valeurs(model)) if model else None
+
     @staticmethod
     def valeurs(model) -> dict:
         return {column.key: getattr(model, column.key) for column in model.__table__.columns}
 
-    def ajouter(self, entite: Organisation | Site | Emplacement) -> None:
-        model = {Organisation: OrganisationModel, Site: SiteModel, Emplacement: EmplacementModel}[type(entite)]
+    def ajouter(self, entite: Organisation | Site | Emplacement | PosteVente | Caisse | Coffre) -> None:
+        model = {Organisation: OrganisationModel, Site: SiteModel, Emplacement: EmplacementModel,
+                 PosteVente: PosteVenteModel, Caisse: CaisseModel, Coffre: CoffreModel}[type(entite)]
         self.session.add(model(**asdict(entite)))
         # Flush parents before children without committing the transaction.
         try:

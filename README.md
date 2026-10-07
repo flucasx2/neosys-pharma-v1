@@ -5,7 +5,9 @@ FastAPI / Python 3.14 / PostgreSQL / SQLAlchemy / Alembic.
 ## P1 : premier incrément vertical
 
 L'écran `/` permet de créer une organisation avec son premier site et son
-premier emplacement, puis d'ajouter des sites et des emplacements. Chaque
+premier emplacement, puis d'ajouter des sites et des emplacements. Il permet
+aussi de configurer les postes de vente et caisses par emplacement, et les
+coffres par site. Chaque
 création de structure est atomique. Les entités Organisation et Site du commit
 45ebdbb sont conservées. Les API sont documentées dans `/docs`.
 
@@ -30,5 +32,7 @@ réservées à des bases **jetables** : les tests suppriment leurs tables.
 
 ## Architecture et suite
 
-Voir [docs/P1.md](docs/P1.md). Prochain incrément : PosteVente, Caisse et Coffre,
-puis Utilisateur, AffectationSite, AffectationEmplacement, Role et Permission.
+Voir [docs/P1.md](docs/P1.md). Organisation/Site/Emplacement restent des entités
+indépendantes ; le parcours de création atomique relève de l'application.
+Prochain incrément : Utilisateur, AffectationSite, AffectationEmplacement,
+Role et Permission.
