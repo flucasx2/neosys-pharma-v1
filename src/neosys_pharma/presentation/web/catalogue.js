@@ -5,12 +5,13 @@ function catalogueReset(){
   catalogueState.version++;Object.assign(catalogueState,{products:[],categories:[],formes:[],laboratoires:[],selected:"",packaging:"",site:""});
   for(const id of ["catalogue-products","catalogue-packagings","catalogue-category","catalogue-forme","catalogue-laboratoire","catalogue-data-selected","catalogue-parent","catalogue-packaging-selected","catalogue-reference-packaging","catalogue-reference-selected"])$(id).replaceChildren();
   for(const id of ["catalogue-product-form","catalogue-data-form","catalogue-packaging-form","catalogue-reference-form"])$(id).reset();
-  $("catalogue-detail").hidden=true;$("catalogue-message").textContent="";$("catalogue-ancestors").textContent="";$("catalogue-search").value="";
+  $("catalogue-detail").hidden=true;$("catalogue-message").textContent="";$("catalogue-ancestors").textContent="";$("catalogue-product-summary").textContent="";$("catalogue-product-description").textContent="";$("catalogue-search").value="";
 }
 function catalogueGate(){
   const manage=authHas("catalogue.gerer");
   for(const id of ["catalogue-product-form","catalogue-data-form","catalogue-packaging-form","catalogue-reference-form"])$(id).hidden=!manage;
   $("catalogue-create").hidden=!manage;
+  for(const id of ["catalogue-packaging-selected","catalogue-reference-packaging","catalogue-reference-selected"])$(id).closest("label").hidden=!manage;
   $("catalogue-data-panel").hidden=!manage;
   if(!authHas("catalogue.consulter"))catalogueReset();
 }
@@ -38,7 +39,7 @@ function catalogueDataSelection(){
 }
 function catalogueProductSelection(id){
   catalogueState.selected=id;const row=catalogueState.products.find(r=>r.id_produit===id),form=$("catalogue-product-form");
-  $("catalogue-editor-title").textContent=row?"Modifier le produit":"Créer un produit";
+  $("catalogue-editor-title").textContent=row?(authHas("catalogue.gerer")?"Modifier le produit":"Détail du produit"):(authHas("catalogue.gerer")?"Créer un produit":"Sélectionnez un produit");
   form.reset();form.elements.nom.value=row?.nom||"";form.elements.description.value=row?.description||"";form.elements.actif.checked=row?.actif??true;
   catalogueOptions("catalogue-category",catalogueState.categories,"id_categorie",row?.categorie_id,"Choisir une catégorie");
   catalogueOptions("catalogue-forme",catalogueState.formes,"id_forme",row?.forme_id);
@@ -47,6 +48,8 @@ function catalogueProductSelection(id){
   for(const name of ["premier_code","premier_libelle"])form.elements[name].required=!row;
   $("catalogue-detail").hidden=!row;
   if(row){
+    $("catalogue-product-summary").textContent=`${row.nom} · Forme : ${catalogueState.formes.find(f=>f.id_forme===row.forme_id)?.nom||"Aucune"} · Laboratoire : ${catalogueState.laboratoires.find(l=>l.id_laboratoire===row.laboratoire_id)?.nom||"Aucun"}`;
+    $("catalogue-product-description").textContent=row.description||"";
     $("catalogue-ancestors").textContent="Catégorie et parents : "+row.categories.map(c=>c.nom).reverse().join(" → ");
     catalogueOptions("catalogue-packaging-selected",row.conditionnements,"id_conditionnement",catalogueState.packaging,"Nouveau conditionnement");
     cataloguePackagingSelection();
