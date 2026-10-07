@@ -17,7 +17,10 @@ from neosys_pharma.presentation.app import create_app
 
 
 @pytest.fixture
-def client():
+def raw_client(monkeypatch):
+    monkeypatch.setenv("AUTH_COOKIE_SECURE", "false")
+    from neosys_pharma.infrastructure.config import get_settings
+    get_settings.cache_clear()
     url = os.getenv("TEST_DATABASE_URL", "sqlite+pysqlite://")
     options = {"connect_args": {"check_same_thread": False}, "poolclass": StaticPool} if url.startswith("sqlite") else {}
     engine = create_engine(url, **options)
@@ -40,6 +43,20 @@ def client():
         yield test_client
     Base.metadata.drop_all(engine)
     engine.dispose()
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+def client(raw_client):
+    # Legacy business/ORM tests isolate the HTTP policy. Auth tests use raw_client.
+    from neosys_pharma.presentation.acces import require_access
+    from fastapi import Request
+    def business_only(request: Request):
+        request.state.visible_organisation = lambda item: True
+        request.state.visible_site = lambda identifiant, permission=None: True
+        request.state.visible_emplacement = lambda item: True
+    raw_client.app.dependency_overrides[require_access] = business_only
+    yield raw_client
 
 
 def organisation_payload():
@@ -149,6 +166,13 @@ def test_migration_upgrade_check_downgrade(tmp_path, monkeypatch):
         with engine.connect() as connection:
             assert connection.execute(text("SELECT count(*) FROM permissions")).scalar() == 7
             assert connection.execute(text("SELECT count(*) FROM roles")).scalar() == 2
+        command.downgrade(config, "20261007_03")
+        assert "auth_credentials" not in inspect(engine).get_table_names()
+        assert "utilisateurs" in inspect(engine).get_table_names()
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT count(*) FROM permissions")).scalar() == 7
+        command.upgrade(config, "head")
+        command.check(config)
         command.downgrade(config, "20261007_02")
         assert "utilisateurs" not in inspect(engine).get_table_names()
         assert "caisses" in inspect(engine).get_table_names()

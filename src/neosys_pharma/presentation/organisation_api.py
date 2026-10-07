@@ -1,7 +1,7 @@
 from dataclasses import asdict
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
@@ -59,8 +59,8 @@ def executer(operation):
 
 
 @router.get("/organisations")
-def organisations(repo=Depends(repository)):
-    return repo.lister(OrganisationModel)
+def organisations(request: Request, repo=Depends(repository)):
+    return [item for item in repo.lister(OrganisationModel) if request.state.visible_organisation(item)]
 
 
 @router.post("/organisations", status_code=201)
@@ -72,10 +72,10 @@ def creer_organisation(data: OrganisationInput, repo=Depends(repository)):
 
 
 @router.get("/organisations/{organisation_id}/sites")
-def sites(organisation_id: UUID, repo=Depends(repository)):
+def sites(organisation_id: UUID, request: Request, repo=Depends(repository)):
     if repo.organisation(organisation_id) is None:
         raise HTTPException(404, "Organisation introuvable.")
-    return repo.lister(SiteModel, organisation_id=organisation_id)
+    return [item for item in repo.lister(SiteModel, organisation_id=organisation_id) if request.state.visible_site(item["id_site"])]
 
 
 @router.post("/organisations/{organisation_id}/sites", status_code=201)
@@ -86,10 +86,10 @@ def creer_site(organisation_id: UUID, data: SiteInput, repo=Depends(repository))
 
 
 @router.get("/sites/{site_id}/emplacements")
-def emplacements(site_id: UUID, repo=Depends(repository)):
+def emplacements(site_id: UUID, request: Request, repo=Depends(repository)):
     if repo.site(site_id) is None:
         raise HTTPException(404, "Site introuvable.")
-    return repo.lister(EmplacementModel, site_id=site_id)
+    return [item for item in repo.lister(EmplacementModel, site_id=site_id) if request.state.visible_emplacement(item)]
 
 
 @router.post("/sites/{site_id}/emplacements", status_code=201)

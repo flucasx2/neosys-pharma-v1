@@ -10,7 +10,7 @@ from neosys_pharma.domain.organisation.equipements import PosteVente, Caisse, Co
 from neosys_pharma.infrastructure.database import Base
 from neosys_pharma.infrastructure.organisation_models import SiteModel, EmplacementModel, PosteVenteModel, CaisseModel, CoffreModel
 from neosys_pharma.infrastructure.organisation_repository import SqlAlchemyOrganisationRepository
-from test_p1_vertical import client, structure
+from test_p1_vertical import client, raw_client, structure
 
 
 def test_entites_independantes_domaine_et_persistance():

@@ -17,9 +17,10 @@ Sur la base de **développement uniquement**, appliquer `alembic upgrade head`,
 puis lancer `uvicorn neosys_pharma.presentation.app:app --host 127.0.0.1 --port 8000`.
 Les migrations ne sont jamais exécutées automatiquement au démarrage.
 
-Cet incrément ne comporte pas encore d'authentification : utilisation locale
-de développement uniquement. Ne pas déployer en démonstration/production ni
-exposer sur le réseau avant l'authentification HTTP et le contrôle d'accès aux routes.
+Connexion HTTP et contrôle d'accès sont intégrés. Provisionner le premier compte
+local avec ses affectations explicites (voir docs/P1.md). Pour HTTP loopback
+uniquement : AUTH_COOKIE_SECURE=false ; garder true sous HTTPS. Aucun mot de passe
+n'est créé par migration. Aucun déploiement démonstration/production n'est effectué.
 
 ## Validation
 
@@ -34,11 +35,12 @@ réservées à des bases **jetables** : les tests suppriment leurs tables.
 
 Voir [docs/P1.md](docs/P1.md). Organisation/Site/Emplacement restent des entités
 indépendantes ; le parcours de création atomique relève de l'application.
-Prochain incrément : authentification HTTP et contrôle des droits sur les services/API.
+P1 inclut maintenant l’authentification, les sessions révocables et le contrôle des
+droits sur les API et l’interface.
 
 L'incrément P1 comprend aussi les utilisateurs, leurs affectations à plusieurs
 sites, les emplacements autorisés, les rôles système/personnalisés et l'aperçu des
 permissions résultantes. Appliquer `alembic upgrade head` dans une base de
 **développement** avant de lancer l'interface. Les règles et limites actuelles
-(notamment l'authentification HTTP restant à intégrer) sont décrites dans
+(notamment le provisionnement initial et les exigences d'exploitation) sont décrites dans
 [docs/P1.md](docs/P1.md).

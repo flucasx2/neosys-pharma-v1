@@ -1,7 +1,9 @@
 <!doctype html>
-<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NeoSys Pharma · Organisation</title><link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script><script src="/static/securite.js" defer></script></head>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NeoSys Pharma · Organisation</title><link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script><script src="/static/securite.js" defer></script><script src="/static/auth.js" defer></script></head>
 <body><header><strong>NeoSys Pharma <small>V1</small></strong><span>P1 · Organisation & Sécurité</span></header><main>
-<p class="eyebrow">ADMINISTRATION · ENVIRONNEMENT DE DÉVELOPPEMENT</p><h1>Votre organisation, site par site.</h1><p>Structurez vos sites et leurs emplacements. Gérez aussi les utilisateurs, leurs affectations et les droits associés.</p>
+<article id="login-panel"><h1>Connexion NeoSys Pharma</h1><form id="login-form"><label>Identifiant de l’organisation<input name="organisation_id" required autocomplete="off" placeholder="UUID de votre organisation"></label><label>Identifiant utilisateur<input name="identifiant" required maxlength="80" autocomplete="username"></label><label>Mot de passe<input name="password" type="password" required maxlength="128" autocomplete="current-password"></label><button>Se connecter</button></form><p id="login-message" role="alert"></p></article>
+<section id="session-panel" hidden><strong id="identity-name"></strong> <button id="logout-button" type="button">Se déconnecter</button><p id="session-message" role="status"></p></section><p id="no-access" hidden role="alert">Connexion réussie, mais aucune affectation active avec des permissions ne donne accès à un site.</p>
+<div id="administration" hidden><p class="eyebrow">ADMINISTRATION · ENVIRONNEMENT DE DÉVELOPPEMENT</p><h1>Votre organisation, site par site.</h1><p>Structurez vos sites et leurs emplacements. Gérez aussi les utilisateurs, leurs affectations et les droits associés.</p>
 <div id="message" role="status" aria-live="polite"></div>
 <section class="grid">
 <article><h2>1. Organisation</h2><label>Organisation sélectionnée<select id="organisations"><option value="">Choisir une organisation</option></select></label><div id="organisation-details"></div>
@@ -27,7 +29,7 @@
 <div class="grid">
 <article><h2>4. Utilisateurs</h2><label>Utilisateur sélectionné<select id="security-user" disabled><option value="">Choisir un utilisateur</option></select></label>
 <form id="security-user-edit" hidden><label>Nom<input name="nom" required maxlength="200"></label><label>Email<input name="email" type="email" maxlength="254"></label><label class="check"><input name="actif" type="checkbox">Utilisateur actif</label><button>Enregistrer l’utilisateur</button></form>
-<details><summary>Créer un utilisateur</summary><form id="security-user-create"><label>Identifiant<input name="identifiant" required maxlength="80" autocomplete="off"></label><label>Nom<input name="nom" required maxlength="200"></label><label>Email<input name="email" type="email" maxlength="254"></label><button disabled>Créer l’utilisateur</button></form></details></article>
+<details><summary>Définir le mot de passe</summary><form id="security-password"><label>Nouveau mot de passe<input name="password" type="password" required minlength="12" maxlength="128" autocomplete="new-password"></label><p>Les sessions existantes de cet utilisateur seront révoquées.</p><button>Enregistrer le mot de passe</button></form></details><details><summary>Créer un utilisateur</summary><form id="security-user-create"><label>Identifiant<input name="identifiant" required maxlength="80" autocomplete="off"></label><label>Nom<input name="nom" required maxlength="200"></label><label>Email<input name="email" type="email" maxlength="254"></label><button disabled>Créer l’utilisateur</button></form></details></article>
 <article><h2>5. Affectations aux sites</h2><label>Affectation sélectionnée<select id="security-assignment" disabled><option value="">Choisir une affectation</option></select></label>
 <details><summary>Affecter à un site</summary><form id="security-assignment-create"><label>Site<select name="site_id" id="security-new-site" required disabled></select></label><label>Début<input name="date_debut" type="date" required></label><label>Fin facultative<input name="date_fin" type="date"></label><button disabled>Créer l’affectation</button></form></details>
 <form id="security-assignment-edit" hidden><label>Début<input name="date_debut" type="date" required></label><label>Fin facultative<input name="date_fin" type="date"></label><label class="check"><input name="actif" type="checkbox">Affectation active</label><button>Enregistrer la période</button></form></article>
@@ -40,4 +42,4 @@
 <article><h2>Créer un rôle personnalisé</h2><form id="security-role-create"><label>Code<input name="code" required maxlength="80"></label><label>Nom<input name="nom" required maxlength="200"></label><fieldset><legend>Permissions système</legend><div id="security-new-permissions"></div></fieldset><button disabled>Créer le rôle</button></form></article>
 </div></section>
 
-</main></body></html>
+</div></main></body></html>

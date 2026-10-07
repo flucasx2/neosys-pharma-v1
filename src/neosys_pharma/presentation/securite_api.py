@@ -4,7 +4,7 @@ from datetime import date, datetime
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
@@ -87,10 +87,10 @@ def modifier_utilisateur(utilisateur_id: UUID, data: UtilisateurModification, re
 
 
 @router.get('/utilisateurs/{utilisateur_id}/affectations')
-def affectations(utilisateur_id: UUID, repo=Depends(repository)):
+def affectations(utilisateur_id: UUID, request: Request, repo=Depends(repository)):
     def action():
         obligatoire(repo.utilisateur(utilisateur_id), 'Utilisateur')
-        return [SecuriteService(repo).details_affectation(item) for item in repo.affectations(utilisateur_id)]
+        return [SecuriteService(repo).details_affectation(item) for item in repo.affectations(utilisateur_id) if request.state.visible_site(item.site_id, "utilisateur.consulter")]
     return executer(action)
 
 

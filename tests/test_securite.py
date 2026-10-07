@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from test_p1_vertical import client, structure
+from test_p1_vertical import client, raw_client, structure
 from neosys_pharma.domain.organisation.securite import (
     AffectationSite, AffectationEmplacement, AffectationRole, Role, TypeRole, Utilisateur,
 )
