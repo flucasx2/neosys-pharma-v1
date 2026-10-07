@@ -74,7 +74,8 @@ function shellSync(){
   $("dashboard-location").textContent=context?.emplacements.find(e=>e.id_emplacement===locationId)?.nom||"Aucun emplacement sélectionné";
   $("dashboard-date").textContent=new Intl.DateTimeFormat("fr-FR",{timeZone:"Africa/Libreville",day:"numeric",month:"long",year:"numeric"}).format(new Date());
   $("organisation-details").textContent=authState.me.organisation.nom_commercial;
-  $("site-details").textContent=context?`${context.code} · ${context.nom}`:"Sélectionnez un site.";
+  const adminSite=structureState.sites.find(s=>s.id_site===structureState.site);
+  $("site-details").textContent=adminSite?`${adminSite.code} · ${adminSite.nom}`:"Sélectionnez un site à administrer.";
   const user=securityState.users.find(u=>u.id_utilisateur===$("security-user").value);
   $("user-summary").textContent=user?`${user.nom} · ${user.identifiant}${user.email?" · "+user.email:""} · ${user.actif?"Actif":"Inactif"}`:"Sélectionnez un utilisateur dans la barre ci-dessus.";
   // Do not replace focused quick-link buttons during a permissions refresh.

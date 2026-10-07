@@ -72,6 +72,7 @@ def creer_organisation(data: OrganisationInput, repo=Depends(repository)):
 
 
 @router.get("/organisations/{organisation_id}/sites")
+@router.get("/administration/organisations/{organisation_id}/sites")
 def sites(organisation_id: UUID, request: Request, repo=Depends(repository)):
     if repo.organisation(organisation_id) is None:
         raise HTTPException(404, "Organisation introuvable.")
@@ -86,6 +87,7 @@ def creer_site(organisation_id: UUID, data: SiteInput, repo=Depends(repository))
 
 
 @router.get("/sites/{site_id}/emplacements")
+@router.get("/administration/sites/{site_id}/emplacements")
 def emplacements(site_id: UUID, request: Request, repo=Depends(repository)):
     if repo.site(site_id) is None:
         raise HTTPException(404, "Site introuvable.")
@@ -93,6 +95,7 @@ def emplacements(site_id: UUID, request: Request, repo=Depends(repository)):
 
 
 @router.post("/sites/{site_id}/emplacements", status_code=201)
+@router.post("/administration/sites/{site_id}/emplacements", status_code=201)
 def creer_emplacement(site_id: UUID, data: EmplacementInput, repo=Depends(repository)):
     emplacement = Emplacement(site_id=site_id, **data.model_dump())
     return executer(lambda: OrganisationService(repo).creer_emplacement(emplacement))

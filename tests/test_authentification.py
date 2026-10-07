@@ -224,3 +224,76 @@ def test_cookie_secure_en_https(raw_client,account,monkeypatch):
     assert response.status_code==200
     assert all('Secure' in cookie for cookie in response.headers.get_list('set-cookie'))
     assert raw_client.get('/api/auth/me').status_code==200
+
+
+def test_structure_administrable_sans_acces_operationnel_et_affectation_explicite(raw_client,account):
+    c,a=raw_client,account;assert login(c,a).status_code==200
+    admin=BASE+'/administration'
+    site=c.post(f'{BASE}/organisations/{a["org"]}/sites',json={
+        'code':'LBV02','nom':'Site Test 02','premier_emplacement':{'code':'R02','nom':'Réserve 02'}}).json()['id_site']
+    assert site not in [s['id_site'] for s in c.get(f'{BASE}/organisations/{a["org"]}/sites').json()]
+    assert site in [s['id_site'] for s in c.get(f'{admin}/organisations/{a["org"]}/sites').json()]
+    locations=c.get(f'{admin}/sites/{site}/emplacements').json();loc=locations[0]['id_emplacement']
+    assert c.get(f'{BASE}/sites/{site}/coffres',headers={'X-Site-ID':site}).status_code==403
+    assert site not in [s['site_id'] for s in c.get('/api/auth/me').json()['contextes']]
+    assignment=c.post(f'{admin}/utilisateurs/{a["user"]}/affectations',json={'site_id':site,'date_debut':date.today().isoformat()})
+    assert assignment.status_code==201,assignment.text
+    aid=assignment.json()['id_affectation_site']
+    assert site not in [s['site_id'] for s in c.get('/api/auth/me').json()['contextes']]
+    assert c.put(f'{admin}/affectations/{aid}/roles',json={'ids':[str(role_id('GESTION_ORGANISATION'))]}).status_code==200
+    contexts=c.get('/api/auth/me').json()['contextes'];ctx=next(s for s in contexts if s['site_id']==site)
+    assert ctx['emplacements']==[]
+    assert c.get(f'{BASE}/emplacements/{loc}/caisses',headers={'X-Site-ID':site}).status_code==403
+    assert c.put(f'{admin}/affectations/{aid}/emplacements',json={'ids':[loc]}).status_code==200
+    assert c.get(f'{BASE}/emplacements/{loc}/caisses',headers={'X-Site-ID':site}).status_code==200
+    new=c.post(f'{admin}/sites/{site}/emplacements',json={'code':'C02','nom':'Comptoir 02'})
+    assert new.status_code==201,new.text
+    newloc=new.json()['id_emplacement']
+    assert newloc in [e['id_emplacement'] for e in c.get(f'{admin}/sites/{site}/emplacements').json()]
+    assert newloc not in [e['id_emplacement'] for e in c.get(f'{BASE}/sites/{site}/emplacements',headers={'X-Site-ID':site}).json()]
+    assert c.get(f'{BASE}/emplacements/{newloc}/caisses',headers={'X-Site-ID':site}).status_code==403
+    assert c.put(f'{admin}/affectations/{aid}/emplacements',json={'ids':[loc,newloc]}).status_code==200
+    assert c.get(f'{BASE}/emplacements/{newloc}/caisses',headers={'X-Site-ID':site}).status_code==200
+
+
+def test_administration_exige_permissions_et_organisation_sans_bypass(raw_client,account):
+    c,a=raw_client,account;assert login(c,a).status_code==200
+    admin=BASE+'/administration'
+    assert c.get(f'{admin}/organisations/{uuid4()}/sites').status_code==403
+    assert c.get(f'{admin}/sites/{uuid4()}/emplacements').status_code==403
+    gen=db(c);session=next(gen)
+    try:
+        foreign_org=Organisation(nom_commercial='Autre organisation',raison_sociale='Autre SARL')
+        foreign_site=Site(organisation_id=foreign_org.id_organisation,code='FOREIGN',nom='Hors organisation')
+        repo=SqlAlchemyOrganisationRepository(session)
+        repo.ajouter(foreign_org);repo.ajouter(foreign_site);session.commit()
+    finally:gen.close()
+    assert c.get(f'{admin}/sites/{foreign_site.id_site}/emplacements').status_code==403
+    assert c.post(f'{admin}/utilisateurs/{a["user"]}/affectations',json={'site_id':str(foreign_site.id_site),'date_debut':date.today().isoformat()}).status_code==403
+    c.headers['X-Emplacement-ID']=str(a['denied'])
+    assert c.get(f'{admin}/sites/{a["other"]}/emplacements').status_code==403
+    del c.headers['X-Emplacement-ID']
+    # An explicit location context must not bypass its own permission check.
+    csrf=c.headers.pop('X-CSRF-Token')
+    assert c.post(f'{admin}/utilisateurs/{a["user"]}/affectations',json={'site_id':str(a['other']),'date_debut':date.today().isoformat()}).status_code==403
+    c.headers['X-CSRF-Token']=csrf
+    gen=db(c);session=next(gen)
+    try:
+        repo=SqlAlchemySecuriteRepository(session)
+        reader=Utilisateur(organisation_id=a['org'],identifiant='observer',nom='Observateur')
+        provisionner(session,reader,[a['site']],[a['location']],[role_id('OBSERVATEUR')],PASSWORD)
+    finally:gen.close()
+    assert login(c,a,identifiant='observer').status_code==200
+    assert c.get(f'{admin}/organisations/{a["org"]}/sites').status_code==403
+    assert c.get(f'{admin}/sites/{a["other"]}/emplacements').status_code==403
+    assert c.post(f'{admin}/utilisateurs/{reader.id_utilisateur}/affectations',json={'site_id':str(a['other']),'date_debut':date.today().isoformat()}).status_code==403
+    # Neither a familiar role name nor affectation.gerer alone gives structure-wide administration.
+    gen=db(c);session=next(gen)
+    try:
+        repo=SqlAlchemySecuriteRepository(session)
+        limited=Role(code='LIMITED',nom='Gestion limitée',type_role=TypeRole.PERSONNALISE,organisation_id=a['org'])
+        repo.ajouter(limited);repo.ajouter(RolePermission(role_id=limited.id_role,permission_id=permission_id('affectation.gerer')))
+        assignment=repo.affectations(reader.id_utilisateur)[0]
+        repo.ajouter(AffectationRole(affectation_site_id=assignment.id_affectation_site,role_id=limited.id_role));session.commit()
+    finally:gen.close()
+    assert c.post(f'{admin}/utilisateurs/{reader.id_utilisateur}/affectations',json={'site_id':str(a['other']),'date_debut':date.today().isoformat()}).status_code==403

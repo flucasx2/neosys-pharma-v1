@@ -2,10 +2,11 @@
 const securityState = {org:"", users:[], sites:[], roles:[], permissions:[], assignments:[], version:0};
 const securityMessage = (text,error=false)=>{$("security-message").textContent=text;$("security-message").className=error?"error":"";};
 async function securityApi(path,data,method="POST") {
-  const response=await authFetch(base+path,data===undefined?{}:{method,headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});
+  const administrative=canManageAssignments()&&(/affectations/.test(path)||/\/sites\/.+\/permissions/.test(path));
+  const response=await authFetch(base+(administrative?"/administration":"")+path,data===undefined?{}:{method,headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});
   const result=await response.json().catch(()=>null);
   if(!response.ok)throw new Error(typeof result?.detail==="string"?result.detail:"Vérifiez les champs et les rattachements sélectionnés.");
-  if(data!==undefined&&/affectations|roles|utilisateurs/.test(path))await authRefresh();
+  if(data!==undefined&&/affectations|roles|utilisateurs/.test(path))await synchronizeStructure(structureState.site);
   return result;
 }
 function securityOptions(id,items,key,label,selected="") {
@@ -29,11 +30,11 @@ async function securityLoadOrg(selectedUser="") {
   securityOptions("security-new-site",[],"id_site",()=>"");securityOptions("security-preview-site",[],"id_site",()=>"");
   if(!securityState.org)return;
   const org=securityState.org;
-  const [users,sites,roles,permissions]=await Promise.all([authHas("utilisateur.consulter")?securityApi(`/organisations/${org}/utilisateurs`):[],Promise.resolve(authState.me.contextes.filter(c=>c.site_id===authState.site).map(c=>({id_site:c.site_id,nom:c.nom}))),authHas("role.consulter")?securityApi(`/organisations/${org}/roles`):[],authHas("role.consulter")?securityApi("/permissions"):[]]);
+  const [users,sites,roles,permissions]=await Promise.all([authHas("utilisateur.consulter")?securityApi(`/organisations/${org}/utilisateurs`):[],Promise.resolve(canManageAssignments()?structureState.sites:authState.me.contextes.filter(c=>c.site_id===authState.site).map(c=>({id_site:c.site_id,nom:c.nom}))),authHas("role.consulter")?securityApi(`/organisations/${org}/roles`):[],authHas("role.consulter")?securityApi("/permissions"):[]]);
   if(version!==securityState.version)return;
   Object.assign(securityState,{users,sites,roles,permissions});
   securityOptions("security-user",users,"id_utilisateur",u=>`${u.nom} · ${u.identifiant}${u.actif?"":" · Inactif"}`,selectedUser);
-  for(const id of ["security-new-site","security-preview-site"])securityOptions(id,sites,"id_site",s=>s.nom);
+  for(const id of ["security-new-site","security-preview-site"])securityOptions(id,sites,"id_site",s=>s.nom,structureState.site);
   securityOptions("security-role-selected",roles,"id_role",r=>`${r.nom} · ${r.type_role}`);
   securityChecks("security-new-permissions",permissions,"id_permission",p=>`${p.nom} (${p.code})`);
   if(selectedUser)await securityLoadUser();
@@ -44,14 +45,14 @@ async function securityLoadUser(selectedAssignment="") {
   const user=securityState.users.find(u=>u.id_utilisateur===userId);securityFill("security-user-edit",user);$("security-user-edit").hidden=false;
   $("security-assignment-create").querySelector("button").disabled=false;$("security-preview").querySelector("button").disabled=false;
   const assignments=await securityApi(`/utilisateurs/${userId}/affectations`);if($("security-user").value!==userId)return;
-  securityState.assignments=assignments.filter(a=>a.site_id===authState.site);securityOptions("security-assignment",securityState.assignments,"id_affectation_site",a=>`${a.site_nom} · ${a.date_debut} → ${a.date_fin||"sans fin"}${a.actif?"":" · Inactive"}`,selectedAssignment);
+  securityState.assignments=assignments.filter(a=>canManageAssignments()||a.site_id===authState.site);securityOptions("security-assignment",securityState.assignments,"id_affectation_site",a=>`${a.site_nom} · ${a.date_debut} → ${a.date_fin||"sans fin"}${a.actif?"":" · Inactive"}`,selectedAssignment);
   if(selectedAssignment)await securityLoadAssignment();
   authGate();
 }
 async function securityLoadAssignment(){
   securityResetAssignment();const id=$("security-assignment").value;if(!id)return;
   const assignment=securityState.assignments.find(a=>a.id_affectation_site===id);
-  const locations=authState.me.contextes.find(c=>c.site_id===assignment.site_id)?.emplacements.map(e=>({...e,site_id:assignment.site_id}))||[];if($("security-assignment").value!==id)return;
+  const locations=canManageAssignments()?await api(`/administration/sites/${assignment.site_id}/emplacements`):authState.me.contextes.find(c=>c.site_id===assignment.site_id)?.emplacements.map(e=>({...e,site_id:assignment.site_id}))||[];if($("security-assignment").value!==id)return;
   securityFill("security-assignment-edit",assignment);$("security-assignment-edit").hidden=false;
   securityChecks("security-location-checks",locations,"id_emplacement",e=>e.nom,assignment.emplacements.map(e=>e.id_emplacement));
   securityChecks("security-role-checks",securityState.roles,"id_role",r=>`${r.nom} · ${r.type_role}`,assignment.roles.map(r=>r.id_role));
@@ -62,7 +63,7 @@ async function securityLoadAssignment(){
 function securityLoadRole(){const role=securityState.roles.find(r=>r.id_role===$("security-role-selected").value);securityChecks("security-edit-permissions",role?securityState.permissions:[],"id_permission",p=>`${p.nom} (${p.code})`,role?.permissions.map(p=>p.id_permission)||[]);$("security-role-edit").querySelector("fieldset").disabled=!role||role.type_role==="SYSTEME";authGate();}
 async function securityPreview(){
   const user=$("security-user").value,site=$("security-preview-site").value,jour=$("security-preview-date").value;
-  if(site!==authState.site)throw new Error("Choisissez d’abord ce site dans le contexte courant en haut de page.");
+  if(site!==authState.site&&!canManageAssignments())throw new Error("Choisissez d’abord ce site dans le contexte courant en haut de page.");
   if(!user||!site||!jour)throw new Error("Sélectionnez un utilisateur, un site et une date.");
   const result=await securityApi(`/utilisateurs/${user}/sites/${site}/permissions?jour=${jour}`);
   if($("security-user").value!==user||$("security-preview-site").value!==site||$("security-preview-date").value!==jour)return;

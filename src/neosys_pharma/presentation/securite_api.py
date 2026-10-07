@@ -87,6 +87,7 @@ def modifier_utilisateur(utilisateur_id: UUID, data: UtilisateurModification, re
 
 
 @router.get('/utilisateurs/{utilisateur_id}/affectations')
+@router.get('/administration/utilisateurs/{utilisateur_id}/affectations')
 def affectations(utilisateur_id: UUID, request: Request, repo=Depends(repository)):
     def action():
         obligatoire(repo.utilisateur(utilisateur_id), 'Utilisateur')
@@ -95,21 +96,25 @@ def affectations(utilisateur_id: UUID, request: Request, repo=Depends(repository
 
 
 @router.post('/utilisateurs/{utilisateur_id}/affectations', status_code=201)
+@router.post('/administration/utilisateurs/{utilisateur_id}/affectations', status_code=201)
 def creer_affectation(utilisateur_id: UUID, data: AffectationInput, repo=Depends(repository)):
     return executer(lambda: SecuriteService(repo).creer_affectation(AffectationSite(utilisateur_id=utilisateur_id, **data.model_dump())))
 
 
 @router.put('/affectations/{affectation_id}')
+@router.put('/administration/affectations/{affectation_id}')
 def modifier_affectation(affectation_id: UUID, data: PeriodeInput, repo=Depends(repository)):
     return executer(lambda: SecuriteService(repo).modifier_affectation(affectation_id, **data.model_dump()))
 
 
 @router.put('/affectations/{affectation_id}/emplacements')
+@router.put('/administration/affectations/{affectation_id}/emplacements')
 def emplacements(affectation_id: UUID, data: LiensInput, repo=Depends(repository)):
     return executer(lambda: SecuriteService(repo).definir_emplacements(affectation_id, data.ids))
 
 
 @router.put('/affectations/{affectation_id}/roles')
+@router.put('/administration/affectations/{affectation_id}/roles')
 def affecter_roles(affectation_id: UUID, data: LiensInput, repo=Depends(repository)):
     return executer(lambda: SecuriteService(repo).definir_roles(affectation_id, data.ids))
 
@@ -138,6 +143,7 @@ def definir_permissions(role_id: UUID, data: LiensInput, repo=Depends(repository
 
 
 @router.get('/utilisateurs/{utilisateur_id}/sites/{site_id}/permissions')
+@router.get('/administration/utilisateurs/{utilisateur_id}/sites/{site_id}/permissions')
 def resultantes(utilisateur_id: UUID, site_id: UUID, jour: date | None = None, repo=Depends(repository)):
     jour = jour or datetime.now(ZoneInfo('Africa/Libreville')).date()
     return executer(lambda: SecuriteService(repo).permissions_resultantes(utilisateur_id, site_id, jour))

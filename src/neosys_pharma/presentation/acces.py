@@ -37,6 +37,22 @@ for method in ('GET','POST'):
     MATRICE[('/sites/{site_id}/coffres',method)] = 'organisation.consulter' if method=='GET' else 'organisation.gerer'
 
 
+# Administration de la structure : droits explicites dans un site effectif de
+# l'organisation, sans accorder de contexte opérationnel dans le site cible.
+ADMIN_PATHS = {
+ '/organisations/{organisation_id}/sites': ('GET',),
+ '/sites/{site_id}/emplacements': ('GET', 'POST'),
+ '/utilisateurs/{utilisateur_id}/affectations': ('GET', 'POST'),
+ '/affectations/{affectation_id}': ('PUT',),
+ '/affectations/{affectation_id}/emplacements': ('PUT',),
+ '/affectations/{affectation_id}/roles': ('PUT',),
+ '/utilisateurs/{utilisateur_id}/sites/{site_id}/permissions': ('GET',),
+}
+for admin_path, methods in ADMIN_PATHS.items():
+    for method in methods:
+        MATRICE[('/administration' + admin_path, method)] = MATRICE[(admin_path, method)]
+
+
 async def require_access(request: Request, user=Depends(utilisateur_courant), session: Session = Depends(get_db_session)):
     repo = SqlAlchemySecuriteRepository(session)
     path = request.scope['route'].path.removeprefix('/api/organisation')
@@ -49,10 +65,13 @@ async def require_access(request: Request, user=Depends(utilisateur_courant), se
         return bool(site and site.organisation_id == user.organisation_id and SecuriteService(repo).autorise(user.id_utilisateur,site_id,permission,jour_courant()))
     request.state.visible_site = visible_site
     request.state.visible_emplacement = lambda item: SecuriteService(repo).autorise(user.id_utilisateur,item['site_id'],'organisation.consulter',jour_courant(),item['id_emplacement'])
+    administrative = path.startswith('/administration/')
+    if administrative:
+        path = path.removeprefix('/administration')
     params = request.path_params
     try:
         controle = ControleAcces(repo, user, jour_courant())
-        if path in ('/organisations','/organisations/{organisation_id}/sites') and request.method=='GET':
+        if not administrative and path in ('/organisations','/organisations/{organisation_id}/sites') and request.method=='GET':
             org = UUID(params['organisation_id']) if 'organisation_id' in params else user.organisation_id
             if org != user.organisation_id:
                 raise PermissionError('Organisation non autorisée.')
@@ -88,6 +107,21 @@ async def require_access(request: Request, user=Depends(utilisateur_courant), se
         if path=='/utilisateurs/{utilisateur_id}/affectations' and request.method=='POST':
             body=await request.json()
             target_site=UUID(body.get('site_id',''))
+        if administrative:
+            if target_site:
+                site = repo.site(target_site)
+                if not site or site.organisation_id != user.organisation_id:
+                    raise PermissionError('Site non autorisé.')
+            controle.organisation('organisation.gerer', target_org, context)
+            controle.organisation(permission, target_org, context)
+            location_header = request.headers.get('X-Emplacement-ID')
+            if location_header:
+                controle.verifier(permission, context, UUID(location_header))
+                controle.verifier('organisation.gerer', context, UUID(location_header))
+            # Consultable ne signifie jamais utilisable comme contexte de travail.
+            request.state.visible_site = lambda site_id, permission='organisation.consulter': bool(repo.site(site_id) and repo.site(site_id).organisation_id == user.organisation_id)
+            request.state.visible_emplacement = lambda item: bool(repo.site(item['site_id']) and repo.site(item['site_id']).organisation_id == user.organisation_id)
+            return
         if target_site and target_site != context:
             raise PermissionError('Le site demandé ne correspond pas au site courant.')
         controle.organisation(permission,target_org,context)
