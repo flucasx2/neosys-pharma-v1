@@ -65,6 +65,7 @@ function shellSync(){
   $("sites").disabled=$("security-operation").disabled||!siteValues.length;
   const allowedLocations=new Set(authContext()?.emplacements.map(e=>e.id_emplacement)||[]);
   for(const option of Array.from($("equipement-emplacement").options))if(option.value&&!allowedLocations.has(option.value))option.remove();
+  $("equipement-emplacement").disabled=$("security-operation").disabled||!allowedLocations.size;
   const context=authContext(),locationId=$("equipement-emplacement").value;
   $("stat-sites").textContent=authState.me.contextes.length;
   $("stat-locations").textContent=context?.emplacements.length||0;

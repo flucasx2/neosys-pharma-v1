@@ -10,7 +10,7 @@ async function api(path, data) {
   return result;
 }
 function options(id, values, selected="") {
-  const select=$(id);select.replaceChildren(new Option(id==="sites"?"Choisir un site":id==="equipement-emplacement"?"Choisir un emplacement":"Choisir une organisation", ""));
+  const select=$(id);select.replaceChildren(new Option(["sites","structure-site"].includes(id)?"Choisir un site":id==="equipement-emplacement"?"Choisir un emplacement":"Choisir une organisation", ""));
   for(const item of values)select.add(new Option(item.nom_commercial||`${item.code} · ${item.nom}`,item.id_organisation||item.id_site||item.id_emplacement));
   select.value=selected;select.disabled=!values.length;
 }
@@ -36,7 +36,12 @@ async function loadEmplacements(preferred="") {
   await Promise.all([loadPostesCaisses(),loadCoffres()]);authGate();
 }
 $("organisations").addEventListener("change",()=>loadSites().catch(e=>message(e.message,true)));
-$("sites").addEventListener("change",()=>{authState.site=$("sites").value;return loadEmplacements().catch(e=>message(e.message,true));});
+$("sites").addEventListener("change",async()=>{
+  authState.site=$("sites").value;$("security-operation").disabled=true;authGate();
+  try{await loadEmplacements();await loadStructure(authState.site);await securityLoadOrg();}
+  catch(e){message(e.message,true);}
+  finally{$("security-operation").disabled=false;authGate();}
+});
 function form(id, submit){$(id).addEventListener("submit",async event=>{event.preventDefault();const button=event.target.querySelector("button");button.disabled=true;try{await submit(Object.fromEntries(new FormData(event.target)));event.target.reset();message("Enregistrement effectué.");}catch(e){message(e.message,true);}finally{authGate();button.disabled=id==="site-form"?!$("organisations").value:id==="emplacement-form"?!structureState.site:id==="coffre-form"?!$("sites").value:["poste-form","caisse-form"].includes(id)?!$("equipement-emplacement").value:false;}});}
 form("organisation-form",async d=>{const created=await api("/organisations",{nom_commercial:d.nom_commercial,raison_sociale:d.raison_sociale,premier_site:{code:d.site_code,nom:d.site_nom,premier_emplacement:{code:d.emplacement_code,nom:d.emplacement_nom}}});await loadOrganisations(created.id_organisation);});
 form("site-form",async d=>{
