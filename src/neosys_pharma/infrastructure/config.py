@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     app_name: str = "NeoSys Pharma"
     environment: str = "development"
 
+    auth_cookie_secure: bool = True
+    auth_session_minutes: int = 480
+
     database_url: str = (
         "postgresql+psycopg://neosys:neosys@localhost:5432/neosys_pharma_v1"
     )
