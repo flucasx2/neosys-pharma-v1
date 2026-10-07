@@ -11,7 +11,6 @@ from neosys_pharma.infrastructure.securite_repository import SqlAlchemySecuriteR
 from neosys_pharma.infrastructure.authentification_repository import SqlAlchemyAuthRepository
 from neosys_pharma.infrastructure.passwords import passwords
 from neosys_pharma.domain.organisation.securite import Utilisateur, AffectationSite, AffectationRole, AffectationEmplacement
-from neosys_pharma.domain.organisation.permissions_systeme import role_id
 
 
 def provisionner(session, utilisateur, site_ids, emplacement_ids, role_ids, password):
@@ -60,6 +59,8 @@ def main():
     if password!=getpass('Confirmation : '):
         parser.error('Confirmation différente.')
     with SessionLocal() as session:
+        from neosys_pharma.infrastructure.bootstrap import verrouiller_installation
+        verrouiller_installation(session)
         # First credential per organisation. Subsequent accounts use the protected UI.
         existing=session.scalar(select(CredentialModel.utilisateur_id).join(UtilisateurModel).where(UtilisateurModel.organisation_id==args.organisation_id))
         if existing:
