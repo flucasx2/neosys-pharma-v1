@@ -1,0 +1,40 @@
+from uuid import UUID
+
+from sqlalchemy import ForeignKey, String, UniqueConstraint, Uuid
+from sqlalchemy.orm import Mapped, mapped_column
+
+from neosys_pharma.infrastructure.database import Base
+
+
+class OrganisationModel(Base):
+    __tablename__ = "organisations"
+    id_organisation: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    nom_commercial: Mapped[str] = mapped_column(String(200))
+    raison_sociale: Mapped[str] = mapped_column(String(200))
+    logo: Mapped[str | None] = mapped_column(String(1000))
+    coordonnees: Mapped[str | None] = mapped_column(String(2000))
+    informations_legales: Mapped[str | None] = mapped_column(String(2000))
+    actif: Mapped[bool] = mapped_column(default=True)
+
+
+class SiteModel(Base):
+    __tablename__ = "sites"
+    __table_args__ = (UniqueConstraint("organisation_id", "code", name="uq_site_organisation_code"),)
+    id_site: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    organisation_id: Mapped[UUID] = mapped_column(ForeignKey("organisations.id_organisation"), index=True)
+    code: Mapped[str] = mapped_column(String(80))
+    nom: Mapped[str] = mapped_column(String(200))
+    adresse: Mapped[str | None] = mapped_column(String(1000))
+    telephone: Mapped[str | None] = mapped_column(String(80))
+    email: Mapped[str | None] = mapped_column(String(254))
+    actif: Mapped[bool] = mapped_column(default=True)
+
+
+class EmplacementModel(Base):
+    __tablename__ = "emplacements"
+    __table_args__ = (UniqueConstraint("site_id", "code", name="uq_emplacement_site_code"),)
+    id_emplacement: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    site_id: Mapped[UUID] = mapped_column(ForeignKey("sites.id_site"), index=True)
+    code: Mapped[str] = mapped_column(String(80))
+    nom: Mapped[str] = mapped_column(String(200))
+    actif: Mapped[bool] = mapped_column(default=True)

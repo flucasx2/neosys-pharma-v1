@@ -49,3 +49,24 @@ class Site:
         if self.id_site is None:
             self.id_site = uuid4()
 
+
+@dataclass
+class Emplacement:
+    site_id: UUID
+    code: str
+    nom: str
+    actif: bool = True
+    id_emplacement: UUID | None = None
+
+    def __post_init__(self) -> None:
+        self.code = self.code.strip().upper()
+        self.nom = self.nom.strip()
+        if not isinstance(self.site_id, UUID):
+            raise ValueError("Le site de l'emplacement est obligatoire.")
+        if not self.code:
+            raise ValueError("Le code de l'emplacement est obligatoire.")
+        if not self.nom:
+            raise ValueError("Le nom de l'emplacement est obligatoire.")
+        if self.id_emplacement is None:
+            self.id_emplacement = uuid4()
+

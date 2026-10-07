@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NeoSys Pharma · Organisation</title><link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script></head>
+<body><header><strong>NeoSys Pharma <small>V1</small></strong><span>P1 · Organisation & Sécurité</span></header><main>
+<p class="eyebrow">ADMINISTRATION · ENVIRONNEMENT DE DÉVELOPPEMENT</p><h1>Votre organisation, site par site.</h1><p>Structurez vos sites et leurs emplacements. Les utilisateurs et les droits seront intégrés aux prochains incréments.</p>
+<div id="message" role="status" aria-live="polite"></div>
+<section class="grid">
+<article><h2>1. Organisation</h2><label>Organisation sélectionnée<select id="organisations"><option value="">Choisir une organisation</option></select></label><div id="organisation-details"></div>
+<details><summary>Créer une organisation</summary><form id="organisation-form">
+<label>Nom commercial<input name="nom_commercial" required maxlength="200"></label><label>Raison sociale<input name="raison_sociale" required maxlength="200"></label>
+<h3>Premier site</h3><label>Code du site<input name="site_code" required maxlength="80"></label><label>Nom du site<input name="site_nom" required maxlength="200"></label>
+<h3>Premier emplacement</h3><label>Code de l’emplacement<input name="emplacement_code" required maxlength="80"></label><label>Nom de l’emplacement<input name="emplacement_nom" required maxlength="200"></label><button>Créer l’organisation et sa structure</button></form></details></article>
+<article><h2>2. Sites</h2><label>Site sélectionné<select id="sites" disabled><option value="">Choisir un site</option></select></label><div id="site-details"></div>
+<details><summary>Ajouter un site</summary><form id="site-form"><label>Code<input name="code" required maxlength="80"></label><label>Nom<input name="nom" required maxlength="200"></label><label>Adresse<input name="adresse" maxlength="1000"></label><label>Téléphone<input name="telephone" maxlength="80"></label><label>Email<input name="email" type="email" maxlength="254"></label><h3>Premier emplacement</h3><label>Code<input name="emplacement_code" required maxlength="80"></label><label>Nom<input name="emplacement_nom" required maxlength="200"></label><button disabled>Créer le site</button></form></details></article>
+<article><h2>3. Emplacements</h2><ul id="emplacements"><li>Sélectionnez un site.</li></ul><details><summary>Ajouter un emplacement</summary><form id="emplacement-form"><label>Code<input name="code" required maxlength="80"></label><label>Nom<input name="nom" required maxlength="200"></label><button disabled>Créer l’emplacement</button></form></details></article>
+</section><aside>Une organisation est créée avec son premier site et son premier emplacement, en une seule opération. Un nouveau site possède également un premier emplacement.</aside>
+</main></body></html>

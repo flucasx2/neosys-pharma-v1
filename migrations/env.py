@@ -20,12 +20,13 @@ if config.config_file_name is not None:
 # target_metadata = mymodel.Base.metadata
 from neosys_pharma.infrastructure.config import get_settings
 from neosys_pharma.infrastructure.database import Base
+from neosys_pharma.infrastructure import organisation_models  # registers ORM metadata
 
 target_metadata = Base.metadata
 
 config.set_main_option(
     "sqlalchemy.url",
-    get_settings().database_url,
+    get_settings().database_url.replace("%", "%%"),
 )
 
 # other values from the config, defined by the needs of env.py,

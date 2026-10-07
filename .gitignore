@@ -31,6 +31,8 @@ htmlcov/
 # Fichiers temporaires
 *.log
 *.tmp
+*.db
+qa/
 
 # Système
 .DS_Store
