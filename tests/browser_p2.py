@@ -69,9 +69,10 @@ with sync_playwright() as p:
     assert documents==[],documents
     root='http://127.0.0.1:8000/api/catalogue/organisations/'+fixture['organisation_id']
     assert page.request.post(root+'/categories',headers={'X-Site-ID':fixture['site_id']},data={'code':'FORGE','nom':'Sans CSRF'}).status==403
-    Path('qa').mkdir(exist_ok=True);page.screenshot(path='qa/p2-catalogue-desktop.png',full_page=True)
+    Path('qa').mkdir(exist_ok=True);page.evaluate('document.activeElement?.blur();window.scrollTo(0,0)');page.screenshot(path='qa/p2-catalogue-desktop.png',full_page=True)
     page.set_viewport_size({'width':390,'height':844})
     assert not page.evaluate('document.documentElement.scrollWidth>innerWidth')
+    page.evaluate('document.activeElement?.blur();window.scrollTo(0,0)')
     page.screenshot(path='qa/p2-catalogue-mobile.png',full_page=True)
     page.set_viewport_size({'width':1440,'height':1000});page.locator('#logout-button').click();expect(page.locator('#login-panel')).to_be_visible()
     expect(product.locator('[name="nom"]')).to_have_value('')
