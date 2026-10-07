@@ -13,7 +13,7 @@ function options(id, values, selected="") {
   for(const item of values)select.add(new Option(item.nom_commercial||`${item.code} · ${item.nom}`,item.id_organisation||item.id_site||item.id_emplacement));
   select.value=selected;select.disabled=!values.length;
 }
-async function loadOrganisations(selected="") { options("organisations",await api("/organisations"),selected);await loadSites(); }
+async function loadOrganisations(selected="") { options("organisations",await api("/organisations"),selected);await loadSites(); document.dispatchEvent(new Event("structure-updated")); }
 async function loadSites(selected="") {
   resetEquipements();
   options("sites",[]);$("emplacements").textContent="Sélectionnez un site.";$("emplacement-form").querySelector("button").disabled=true;
@@ -37,7 +37,7 @@ $("organisations").addEventListener("change",()=>loadSites().catch(e=>message(e.
 $("sites").addEventListener("change",()=>loadEmplacements().catch(e=>message(e.message,true)));
 function form(id, submit){$(id).addEventListener("submit",async event=>{event.preventDefault();const button=event.target.querySelector("button");button.disabled=true;try{await submit(Object.fromEntries(new FormData(event.target)));event.target.reset();message("Enregistrement effectué.");}catch(e){message(e.message,true);}finally{button.disabled=id==="site-form"?!$("organisations").value:["emplacement-form","coffre-form"].includes(id)?!$("sites").value:["poste-form","caisse-form"].includes(id)?!$("equipement-emplacement").value:false;}});}
 form("organisation-form",async d=>{const created=await api("/organisations",{nom_commercial:d.nom_commercial,raison_sociale:d.raison_sociale,premier_site:{code:d.site_code,nom:d.site_nom,premier_emplacement:{code:d.emplacement_code,nom:d.emplacement_nom}}});await loadOrganisations(created.id_organisation);});
-form("site-form",async d=>{const org=$("organisations").value;if(!org)throw new Error("Sélectionnez une organisation.");const created=await api(`/organisations/${org}/sites`,{code:d.code,nom:d.nom,adresse:d.adresse||null,telephone:d.telephone||null,email:d.email||null,premier_emplacement:{code:d.emplacement_code,nom:d.emplacement_nom}});await loadSites(created.id_site);});
+form("site-form",async d=>{const org=$("organisations").value;if(!org)throw new Error("Sélectionnez une organisation.");const created=await api(`/organisations/${org}/sites`,{code:d.code,nom:d.nom,adresse:d.adresse||null,telephone:d.telephone||null,email:d.email||null,premier_emplacement:{code:d.emplacement_code,nom:d.emplacement_nom}});await loadSites(created.id_site);document.dispatchEvent(new Event("structure-updated"));});
 form("emplacement-form",async d=>{const site=$("sites").value;if(!site)throw new Error("Sélectionnez un site.");await api(`/sites/${site}/emplacements`,d);await loadEmplacements();});
 function list(id,values){$(id).replaceChildren();for(const item of values){const li=document.createElement("li");li.textContent=`${item.code} · ${item.nom}`;$(id).append(li);}if(!values.length)$(id).textContent="Aucun équipement enregistré.";}
 function resetEquipements(){options("equipement-emplacement",[]);for(const id of ["poste-form","caisse-form","coffre-form"])$(id).querySelector("button").disabled=true;$("postes-list").textContent=$("caisses-list").textContent="Sélectionnez un emplacement.";$("coffres-list").textContent="Sélectionnez un site.";}

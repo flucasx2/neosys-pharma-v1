@@ -1,7 +1,7 @@
 <!doctype html>
-<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NeoSys Pharma · Organisation</title><link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script></head>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NeoSys Pharma · Organisation</title><link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script><script src="/static/securite.js" defer></script></head>
 <body><header><strong>NeoSys Pharma <small>V1</small></strong><span>P1 · Organisation & Sécurité</span></header><main>
-<p class="eyebrow">ADMINISTRATION · ENVIRONNEMENT DE DÉVELOPPEMENT</p><h1>Votre organisation, site par site.</h1><p>Structurez vos sites et leurs emplacements. Les utilisateurs et les droits seront intégrés aux prochains incréments.</p>
+<p class="eyebrow">ADMINISTRATION · ENVIRONNEMENT DE DÉVELOPPEMENT</p><h1>Votre organisation, site par site.</h1><p>Structurez vos sites et leurs emplacements. Gérez aussi les utilisateurs, leurs affectations et les droits associés.</p>
 <div id="message" role="status" aria-live="polite"></div>
 <section class="grid">
 <article><h2>1. Organisation</h2><label>Organisation sélectionnée<select id="organisations"><option value="">Choisir une organisation</option></select></label><div id="organisation-details"></div>
@@ -21,4 +21,23 @@
 <article><h2>Caisses</h2><ul id="caisses-list"><li>Sélectionnez un emplacement.</li></ul><details><summary>Ajouter une caisse</summary><form id="caisse-form"><label>Code<input name="code" required maxlength="80"></label><label>Nom<input name="nom" required maxlength="200"></label><button disabled>Créer la caisse</button></form></details></article>
 <article><h2>Coffres du site</h2><ul id="coffres-list"><li>Sélectionnez un site.</li></ul><details><summary>Ajouter un coffre</summary><form id="coffre-form"><label>Code<input name="code" required maxlength="80"></label><label>Nom<input name="nom" required maxlength="200"></label><button disabled>Créer le coffre</button></form></details></article>
 </div></section>
+<section aria-labelledby="securite-title"><h2 id="securite-title">Utilisateurs, affectations et droits</h2>
+<p>Les droits proviennent des rôles attribués à chaque affectation de site. Les emplacements autorisés restent propres à cette affectation.</p>
+<div id="security-message" role="status" aria-live="polite"></div>
+<div class="grid">
+<article><h2>4. Utilisateurs</h2><label>Utilisateur sélectionné<select id="security-user" disabled><option value="">Choisir un utilisateur</option></select></label>
+<form id="security-user-edit" hidden><label>Nom<input name="nom" required maxlength="200"></label><label>Email<input name="email" type="email" maxlength="254"></label><label class="check"><input name="actif" type="checkbox">Utilisateur actif</label><button>Enregistrer l’utilisateur</button></form>
+<details><summary>Créer un utilisateur</summary><form id="security-user-create"><label>Identifiant<input name="identifiant" required maxlength="80" autocomplete="off"></label><label>Nom<input name="nom" required maxlength="200"></label><label>Email<input name="email" type="email" maxlength="254"></label><button disabled>Créer l’utilisateur</button></form></details></article>
+<article><h2>5. Affectations aux sites</h2><label>Affectation sélectionnée<select id="security-assignment" disabled><option value="">Choisir une affectation</option></select></label>
+<details><summary>Affecter à un site</summary><form id="security-assignment-create"><label>Site<select name="site_id" id="security-new-site" required disabled></select></label><label>Début<input name="date_debut" type="date" required></label><label>Fin facultative<input name="date_fin" type="date"></label><button disabled>Créer l’affectation</button></form></details>
+<form id="security-assignment-edit" hidden><label>Début<input name="date_debut" type="date" required></label><label>Fin facultative<input name="date_fin" type="date"></label><label class="check"><input name="actif" type="checkbox">Affectation active</label><button>Enregistrer la période</button></form></article>
+<article><h2>6. Périmètre et rôles</h2><p id="security-scope-help">Sélectionnez une affectation.</p><form id="security-locations"><fieldset disabled><legend>Emplacements autorisés</legend><div id="security-location-checks"></div><button>Enregistrer les emplacements</button></fieldset></form>
+<form id="security-roles"><fieldset disabled><legend>Rôles de cette affectation</legend><div id="security-role-checks"></div><button>Enregistrer les rôles</button></fieldset></form></article>
+</div><aside>Aucun rôle : aucun droit. Aucun emplacement sélectionné : aucun accès à un emplacement. Les périodes sont inclusives ; les affectations inactives ou hors période ne donnent aucun droit.</aside>
+<div class="grid security-bottom">
+<article><h2>7. Permissions résultantes</h2><form id="security-preview"><label>Site<select id="security-preview-site" required disabled></select></label><label>Date de vérification<input id="security-preview-date" type="date" required></label><button disabled>Vérifier les permissions</button></form><div id="security-result" aria-live="polite">Sélectionnez un utilisateur et un site.</div></article>
+<article><h2>Rôles de l’organisation</h2><label>Rôle sélectionné<select id="security-role-selected" disabled></select></label><form id="security-role-edit"><fieldset disabled><legend>Permissions du rôle</legend><div id="security-edit-permissions"></div><button>Enregistrer les permissions</button></fieldset></form><p>Les rôles système sont en lecture seule.</p></article>
+<article><h2>Créer un rôle personnalisé</h2><form id="security-role-create"><label>Code<input name="code" required maxlength="80"></label><label>Nom<input name="nom" required maxlength="200"></label><fieldset><legend>Permissions système</legend><div id="security-new-permissions"></div></fieldset><button disabled>Créer le rôle</button></form></article>
+</div></section>
+
 </main></body></html>

@@ -6,6 +6,9 @@ from neosys_pharma.presentation.organisation_api import router
 from neosys_pharma.presentation.equipement_api import router as equipement_router
 
 
+from neosys_pharma.presentation.securite_api import router as securite_router
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="NeoSys Pharma",
@@ -13,6 +16,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(router)
     app.include_router(equipement_router)
+    app.include_router(securite_router)
     web = Path(__file__).parent / "web"
     app.mount("/static", StaticFiles(directory=web), name="static")
 

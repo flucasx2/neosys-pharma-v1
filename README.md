@@ -36,3 +36,10 @@ Voir [docs/P1.md](docs/P1.md). Organisation/Site/Emplacement restent des entité
 indépendantes ; le parcours de création atomique relève de l'application.
 Prochain incrément : Utilisateur, AffectationSite, AffectationEmplacement,
 Role et Permission.
+
+L'incrément P1 comprend aussi les utilisateurs, leurs affectations à plusieurs
+sites, les emplacements autorisés, les rôles système/personnalisés et l'aperçu des
+permissions résultantes. Appliquer `alembic upgrade head` dans une base de
+**développement** avant de lancer l'interface. Les règles et limites actuelles
+(notamment l'authentification HTTP restant à intégrer) sont décrites dans
+[docs/P1.md](docs/P1.md).

@@ -19,7 +19,8 @@ class OrganisationModel(Base):
 
 class SiteModel(Base):
     __tablename__ = "sites"
-    __table_args__ = (UniqueConstraint("organisation_id", "code", name="uq_site_organisation_code"),)
+    __table_args__ = (UniqueConstraint("organisation_id", "code", name="uq_site_organisation_code"),
+                      UniqueConstraint("id_site", "organisation_id", name="uq_site_organisation_parent"))
     id_site: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     organisation_id: Mapped[UUID] = mapped_column(ForeignKey("organisations.id_organisation"), index=True)
     code: Mapped[str] = mapped_column(String(80))
@@ -32,7 +33,8 @@ class SiteModel(Base):
 
 class EmplacementModel(Base):
     __tablename__ = "emplacements"
-    __table_args__ = (UniqueConstraint("site_id", "code", name="uq_emplacement_site_code"),)
+    __table_args__ = (UniqueConstraint("site_id", "code", name="uq_emplacement_site_code"),
+                      UniqueConstraint("id_emplacement", "site_id", name="uq_emplacement_site_parent"))
     id_emplacement: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     site_id: Mapped[UUID] = mapped_column(ForeignKey("sites.id_site"), index=True)
     code: Mapped[str] = mapped_column(String(80))

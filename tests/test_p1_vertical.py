@@ -28,6 +28,9 @@ def client():
     # TEST_DATABASE_URL must designate a disposable database, never a live one.
     Base.metadata.create_all(engine)
     factory = sessionmaker(engine)
+    from neosys_pharma.infrastructure.securite_repository import installer_catalogue_systeme
+    with factory() as session:
+        installer_catalogue_systeme(session)
     app = create_app()
     def sessions():
         with factory() as session:
@@ -142,6 +145,17 @@ def test_migration_upgrade_check_downgrade(tmp_path, monkeypatch):
         emplacement = Emplacement(site_id=site.id_site, code="RES", nom="Réserve existante")
         with sessionmaker(engine)() as session:
             OrganisationService(SqlAlchemyOrganisationRepository(session)).creer_organisation(org, site, emplacement)
+        # Security rollback is tested only on this disposable database.
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT count(*) FROM permissions")).scalar() == 7
+            assert connection.execute(text("SELECT count(*) FROM roles")).scalar() == 2
+        command.downgrade(config, "20261007_02")
+        assert "utilisateurs" not in inspect(engine).get_table_names()
+        assert "caisses" in inspect(engine).get_table_names()
+        with sessionmaker(engine)() as session:
+            assert SqlAlchemyOrganisationRepository(session).emplacement(emplacement.id_emplacement) == emplacement
+        command.upgrade(config, "head")
+        command.check(config)
         command.downgrade(config, "20261007_01")
         assert "caisses" not in inspect(engine).get_table_names()
         with sessionmaker(engine)() as session:
