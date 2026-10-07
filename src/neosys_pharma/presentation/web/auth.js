@@ -19,10 +19,10 @@ async function authRefresh(){
   const response=await authFetch("/api/auth/me");if(!response.ok){authReset();return false;}
   authState.me=await response.json();if(!authState.me.contextes.some(c=>c.site_id===authState.site))authState.site=authState.me.contextes[0]?.site_id||"";
   $("login-panel").hidden=true;$("session-panel").hidden=false;$("identity-name").textContent=`${authState.me.utilisateur.nom} · ${authState.me.organisation.nom_commercial}`;
-  $("no-access").hidden=Boolean(authState.site);$("administration").hidden=!authState.site;
+  $("no-access").hidden=Boolean(authState.site);if(!authState.site)$("administration").hidden=true;authGate();
   return Boolean(authState.site);
 }
-async function authLoad(){if(await authRefresh()){await loadOrganisations(authState.me.organisation.id_organisation);await securityLoadOrg();authGate();}}
+async function authLoad(){$("administration").hidden=true;if(await authRefresh()){await loadOrganisations(authState.me.organisation.id_organisation);await securityLoadOrg();authGate();$("administration").hidden=false;}}
 $("login-form").addEventListener("submit",async event=>{event.preventDefault();const form=event.target;const d=Object.fromEntries(new FormData(form));const button=form.querySelector("button");button.disabled=true;try{const response=await fetch("/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json","X-NeoSys-Request":"1"},body:JSON.stringify({organisation_id:d.organisation_id,identifiant:d.identifiant,password:d.password})});const result=await response.json();form.elements.password.value="";if(!response.ok)throw new Error(typeof result.detail==="string"?result.detail:"Vérifiez les informations de connexion.");$("login-message").textContent="";await authLoad();}catch(e){$("login-message").textContent=e.message;}finally{button.disabled=false;}});
 $("logout-button").addEventListener("click",async()=>{const response=await authFetch("/api/auth/logout",{method:"POST"});if(response.ok||response.status===401){authReset();$("login-form").reset();}else $("session-message").textContent="La déconnexion a échoué. Réessayez.";});
 $("sites").addEventListener("change",()=>{authState.site=$("sites").value;securityLoadOrg().then(authGate).catch(e=>securityMessage(e.message,true));});
