@@ -182,6 +182,7 @@ with sync_playwright() as p:
     connecter('alice.qa')
     page.locator('#sites').select_option(fixture['other_id'])
     naviguer('affectations')
+    page.locator('details').filter(has=page.locator('#security-assignment-create')).locator('summary').click()
     expect(page.locator('#security-assignment-create')).to_be_visible()
     naviguer('utilisateurs')
     expect(page.locator('#security-user-create')).to_be_hidden()
