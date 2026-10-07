@@ -88,7 +88,7 @@ with sync_playwright() as p:
     expect(page.locator("#security-result")).to_contain_text("affectation.gerer")
     expect(page.locator("#security-result")).to_contain_text("Réserve Owendo")
     page.locator("#security-role-selected").select_option(label="Observateur · SYSTEME")
-    expect(page.locator("#security-role-edit fieldset")).to_be_disabled()
+    expect(page.locator("#security-role-edit button")).to_be_disabled()
     # Return to the first site to retain the equipment checks below.
     page.locator("#sites").select_option(label="LBV-QA · Libreville QA")
     page.locator("#equipement-emplacement").select_option(label="RES-QA · Réserve QA")
