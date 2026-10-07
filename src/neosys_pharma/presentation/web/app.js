@@ -19,7 +19,8 @@ async function loadSites(selected="") {
   resetEquipements();
   options("sites",[]);$("emplacements").textContent="Sélectionnez un site.";$("emplacement-form").querySelector("button").disabled=true;
   const id=$("organisations").value;$("site-form").querySelector("button").disabled=!id;
-  if(id)options("sites",await api(`/organisations/${id}/sites`),selected||authState.site);
+  // /api/auth/me, relu par synchronizeStructure, est la source des contextes de travail.
+  if(id)options("sites",authState.me.contextes.map(c=>({id_site:c.site_id,nom:c.nom,code:c.code})),selected||authState.site);
   await loadEmplacements();
 }
 let emplacementVersion=0;

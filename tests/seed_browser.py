@@ -10,13 +10,13 @@ from neosys_pharma.infrastructure.authentification_repository import SqlAlchemyA
 from neosys_pharma.infrastructure.provisionnement import provisionner
 from neosys_pharma.infrastructure.passwords import passwords
 from neosys_pharma.domain.organisation.entities import Site,Emplacement
-from neosys_pharma.domain.organisation.securite import Utilisateur, AffectationSite, AffectationEmplacement, AffectationRole
+from neosys_pharma.domain.organisation.securite import Utilisateur, AffectationSite, AffectationEmplacement, AffectationRole, Role, TypeRole, RolePermission
 from neosys_pharma.application.bootstrap_service import BootstrapService, InstallationInitiale
 from neosys_pharma.infrastructure.bootstrap import SqlAlchemyBootstrapRepository, verifier_migrations
 from sqlalchemy import select
 from neosys_pharma.infrastructure.securite_models import UtilisateurModel
 from neosys_pharma.infrastructure.organisation_models import SiteModel, EmplacementModel
-from neosys_pharma.domain.organisation.permissions_systeme import role_id
+from neosys_pharma.domain.organisation.permissions_systeme import role_id, permission_id
 
 password=token_urlsafe(24)
 with SessionLocal() as session:
@@ -44,6 +44,12 @@ with SessionLocal() as session:
     session.commit()
     observer=Utilisateur(organisation_id=org.id_organisation,identifiant='lecture.qa',nom='Lecture QA')
     provisionner(session,observer,[site.id_site],[location.id_emplacement],[role_id('OBSERVATEUR')],password)
+    limited_role=Role(code='AFFECTATION-SEULE-QA',nom='Affectation seule QA',type_role=TypeRole.PERSONNALISE,organisation_id=org.id_organisation)
+    security.ajouter(limited_role)
+    security.ajouter(RolePermission(role_id=limited_role.id_role,permission_id=permission_id('affectation.gerer')))
+    session.commit()
+    limited=Utilisateur(organisation_id=org.id_organisation,identifiant='affectation.qa',nom='Affectation seule QA')
+    provisionner(session,limited,[site.id_site],[],[limited_role.id_role],password)
     without=Utilisateur(organisation_id=org.id_organisation,identifiant='sans.qa',nom='Sans affectation QA')
     SqlAlchemySecuriteRepository(session).ajouter(without)
     SqlAlchemyAuthRepository(session).definir_password(without.id_utilisateur,passwords.hacher(password))
