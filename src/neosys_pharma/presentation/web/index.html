@@ -23,7 +23,7 @@
 <article><h2>Caisses</h2><ul id="caisses-list"><li>Sélectionnez un emplacement.</li></ul><details><summary>Ajouter une caisse</summary><form id="caisse-form"><label>Code<input name="code" required maxlength="80"></label><label>Nom<input name="nom" required maxlength="200"></label><button disabled>Créer la caisse</button></form></details></article>
 <article><h2>Coffres du site</h2><ul id="coffres-list"><li>Sélectionnez un site.</li></ul><details><summary>Ajouter un coffre</summary><form id="coffre-form"><label>Code<input name="code" required maxlength="80"></label><label>Nom<input name="nom" required maxlength="200"></label><button disabled>Créer le coffre</button></form></details></article>
 </div></section>
-<section aria-labelledby="securite-title"><h2 id="securite-title">Utilisateurs, affectations et droits</h2>
+<section aria-labelledby="securite-title"><fieldset id="security-operation"><legend>Gestion des accès</legend><h2 id="securite-title">Utilisateurs, affectations et droits</h2>
 <p>Les droits proviennent des rôles attribués à chaque affectation de site. Les emplacements autorisés restent propres à cette affectation.</p>
 <div id="security-message" role="status" aria-live="polite"></div>
 <div class="grid">
@@ -40,6 +40,6 @@
 <article><h2>7. Permissions résultantes</h2><form id="security-preview"><label>Site<select id="security-preview-site" required disabled></select></label><label>Date de vérification<input id="security-preview-date" type="date" required></label><button disabled>Vérifier les permissions</button></form><div id="security-result" aria-live="polite">Sélectionnez un utilisateur et un site.</div></article>
 <article><h2>Rôles de l’organisation</h2><label>Rôle sélectionné<select id="security-role-selected" disabled></select></label><form id="security-role-edit"><fieldset disabled><legend>Permissions du rôle</legend><div id="security-edit-permissions"></div><button>Enregistrer les permissions</button></fieldset></form><p>Les rôles système sont en lecture seule.</p></article>
 <article><h2>Créer un rôle personnalisé</h2><form id="security-role-create"><label>Code<input name="code" required maxlength="80"></label><label>Nom<input name="nom" required maxlength="200"></label><fieldset><legend>Permissions système</legend><div id="security-new-permissions"></div></fieldset><button disabled>Créer le rôle</button></form></article>
-</div></section>
+</div></fieldset></section>
 
 </div></main></body></html>
