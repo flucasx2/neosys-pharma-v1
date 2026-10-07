@@ -74,6 +74,8 @@ with sync_playwright() as p:
     assert not page.evaluate('document.documentElement.scrollWidth>innerWidth')
     page.screenshot(path='qa/p2-catalogue-mobile.png',full_page=True)
     page.set_viewport_size({'width':1440,'height':1000});page.locator('#logout-button').click();expect(page.locator('#login-panel')).to_be_visible()
+    expect(product.locator('[name="nom"]')).to_have_value('')
+    expect(page.locator('#catalogue-category option')).to_have_count(0)
     login('catalogue.lecture.qa');page.locator('#nav-catalogue').click()
     expect(page.locator('#catalogue-products')).to_contain_text('Produit QA modifié')
     expect(product).to_be_hidden();expect(meta).to_be_hidden()

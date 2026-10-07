@@ -1,7 +1,12 @@
 "use strict";
 const catalogueState={version:0,products:[],categories:[],formes:[],laboratoires:[],selected:"",packaging:"",site:""};
 function catalogueRoot(){return `/api/catalogue/organisations/${authState.me.organisation.id_organisation}`;}
-function catalogueReset(){catalogueState.version++;catalogueState.products=[];catalogueState.selected="";catalogueState.packaging="";catalogueState.site="";$("catalogue-products").replaceChildren();$("catalogue-detail").hidden=true;$("catalogue-message").textContent="";}
+function catalogueReset(){
+  catalogueState.version++;Object.assign(catalogueState,{products:[],categories:[],formes:[],laboratoires:[],selected:"",packaging:"",site:""});
+  for(const id of ["catalogue-products","catalogue-packagings","catalogue-category","catalogue-forme","catalogue-laboratoire","catalogue-data-selected","catalogue-parent","catalogue-packaging-selected","catalogue-reference-packaging","catalogue-reference-selected"])$(id).replaceChildren();
+  for(const id of ["catalogue-product-form","catalogue-data-form","catalogue-packaging-form","catalogue-reference-form"])$(id).reset();
+  $("catalogue-detail").hidden=true;$("catalogue-message").textContent="";$("catalogue-ancestors").textContent="";$("catalogue-search").value="";
+}
 function catalogueGate(){
   const manage=authHas("catalogue.gerer");
   for(const id of ["catalogue-product-form","catalogue-data-form","catalogue-packaging-form","catalogue-reference-form"])$(id).hidden=!manage;
@@ -95,11 +100,12 @@ function catalogueRender(){
 function catalogueSubmit(id,action){
   $(id).addEventListener("submit",async event=>{
     event.preventDefault();if(!authHas("catalogue.gerer")||catalogueState.site!==authState.site)return;
-    const data=Object.fromEntries(new FormData(event.target));
+    const data=Object.fromEntries(new FormData(event.target)),org=authState.me.organisation.id_organisation,site=authState.site;
+    $("security-operation").disabled=true;$("sites").disabled=true;
     $("catalogue-operation").disabled=true;$("catalogue-message").textContent="";
-    try{const selected=await action(data);await catalogueLoad(selected??catalogueState.selected);$("catalogue-message").textContent="Enregistrement réussi — catalogue resynchronisé.";}
+    try{const selected=await action(data);if(authState.me?.organisation.id_organisation!==org||authState.site!==site){catalogueReset();return;}await catalogueLoad(selected??catalogueState.selected);$("catalogue-message").textContent="Enregistrement réussi — catalogue resynchronisé.";}
     catch(e){$("catalogue-message").textContent=e.message;}
-    finally{$("catalogue-operation").disabled=false;}
+    finally{$("catalogue-operation").disabled=false;$("security-operation").disabled=false;$("sites").disabled=!authState.me?.contextes.length;authGate();}
   });
 }
 catalogueSubmit("catalogue-data-form",async d=>{
