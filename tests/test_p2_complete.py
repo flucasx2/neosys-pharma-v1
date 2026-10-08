@@ -262,3 +262,22 @@ def test_postgresql_exclusion_periodes_meme_appel_sql_direct(raw_client,account)
         with pytest.raises(IntegrityError):session.flush()
         session.rollback()
     finally:gen.close()
+
+
+def test_csv_pharmagabon_fourni_complet_sur_base_jetable(raw_client,account):
+    import os,csv
+    from pathlib import Path
+    path=os.getenv('P2_CSV_TEST_FILE')
+    if not path:pytest.skip('CSV fourni disponible uniquement dans le workspace de recette')
+    content=Path(path).read_text(encoding='utf-8-sig')
+    with open(path,encoding='utf-8-sig',newline='') as stream:rows=list(csv.DictReader(stream,delimiter=';'))
+    c,a=raw_client,account;cat,data,prod,pid=setup(c,a)
+    job=preview(c,a,content)
+    report=c.get(root(a)+f'/imports/{job["id_import"]}').json()
+    assert report['total']==len(rows) and report['compteurs']=={'INCONNU':len(rows)}
+    for offset in range(0,len(rows),200):
+        r=c.post(root(a)+f'/imports/{job["id_import"]}/lots',json={'offset':offset,'taille':200,'mode':'catalogue','categorie_id':cat['id_categorie'],'conditionnement_libelle':'UNITÉ COMMERCIALE À COMPLÉTER EXPLICITEMENT','devise':'XAF'})
+        assert r.status_code==200,r.text
+    assert c.get(root(a)+'/produits').json()['total']==len(rows)+1
+    assert c.get(root(a)+'/conseils').json()['total']==len(rows)
+    assert c.get(root(a)+'/tarification/references').json()['total']==0
