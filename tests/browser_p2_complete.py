@@ -26,9 +26,9 @@ with sync_playwright() as p:
     nature=reference('natures','N-QA','Nature explicite QA');mode=reference('modes','M-QA','Délivrance explicite QA')
     principe=reference('principes','P-QA','Principe actif QA');classe=reference('classes','C-QA','Classe thérapeutique QA');groupe=reference('groupes','G-QA','Groupe de substitution QA')
     # Dated TVA created through the same accessible modal workflow.
-    page.locator('#p2-tarif-type').select_option('tva');page.locator('#p2-tarif-new').click();tarif=page.locator('#p2-tarif-modal')
+    page.locator('#p2-tab-tarification').click();page.locator('#p2-tarif-type').select_option('tva');page.locator('#p2-tarif-new').click();tarif=page.locator('#p2-tarif-modal')
     fill(tarif,{'code':'TVA-QA','nom':'TVA QA','taux':'18','debut':'2026-01-01'});save(tarif)
-    page.locator('#catalogue-search').fill('Produit QA modifié');expect(page.locator('#catalogue-products tr')).to_have_count(1)
+    page.locator('#p2-tab-produits').click();page.locator('#catalogue-search').fill('Produit QA modifié');expect(page.locator('#catalogue-products tr')).to_have_count(1)
     page.locator('#catalogue-products button').filter(has_text='Modifier').click();product=page.locator('#catalogue-product-modal')
     expect(page.locator('#catalogue-list-panel')).to_be_visible();product.locator('[name="nature_id"]').select_option(nature);product.locator('[name="mode_delivrance_id"]').select_option(mode);product.locator('[name="regime_tva_code"]').select_option('TVA-QA');product.locator('[name="gestion_lot"]').select_option('true');save(product)
     page.locator('#catalogue-products button').filter(has_text='Consulter').click();expect(page.locator('#catalogue-classification')).to_contain_text('NATURE EXPLICITE QA')
@@ -43,24 +43,24 @@ with sync_playwright() as p:
     expect(page.locator('#p2-compositions li')).to_have_count(2)
     page.locator('#p2-compositions li').first.get_by_role('button',name='Modifier').click();association.locator('[name="dosage"]').fill('250 mg');save(association);expect(page.locator('#p2-compositions')).to_contain_text('250 mg')
     def new_tarif(button,values,regle=None):
-        page.locator(button).click()
+        page.locator("#p2-tab-tarification" if button=="#p2-tarif-new" else "#p2-tab-produits").click();page.locator(button).click()
         if regle:tarif.locator('[name="regle"]').select_option(regle)
-        fill(tarif,values);save(tarif)
+        fill(tarif,values);save(tarif);page.locator("#p2-tab-produits").click()
     new_tarif('#p2-tarif-reference',{'valeur':'100','devise':'XAF','debut':'2026-01-01'})
     page.locator('#p2-prix-date').fill('2026-10-08');page.locator('#p2-prix-refresh').click();expect(page.locator('#p2-prix-resultat')).to_contain_text('REFERENCE');expect(page.locator('#p2-prix-resultat')).to_contain_text('118.00')
-    page.locator('#p2-tarif-type').select_option('sites');new_tarif('#p2-tarif-new',{'valeur':'1.2','devise':'XAF','debut':'2026-01-01'},'coefficient');expect(page.locator('#p2-prix-resultat')).to_contain_text('Origine SITE')
-    page.locator('#p2-tarif-type').select_option('categories');new_tarif('#p2-tarif-new',{'valeur':'1.3','devise':'XAF','debut':'2026-01-01'},'coefficient');expect(page.locator('#p2-prix-resultat')).to_contain_text('CATEGORIE_SITE')
+    page.locator('#p2-tab-tarification').click();page.locator('#p2-tarif-type').select_option('sites');new_tarif('#p2-tarif-new',{'valeur':'1.2','devise':'XAF','debut':'2026-01-01'},'coefficient');expect(page.locator('#p2-prix-resultat')).to_contain_text('Origine SITE')
+    page.locator('#p2-tab-tarification').click();page.locator('#p2-tarif-type').select_option('categories');new_tarif('#p2-tarif-new',{'valeur':'1.3','devise':'XAF','debut':'2026-01-01'},'coefficient');expect(page.locator('#p2-prix-resultat')).to_contain_text('CATEGORIE_SITE')
     new_tarif('#p2-tarif-produit',{'valeur':'140','devise':'XAF','debut':'2026-01-01'});expect(page.locator('#p2-prix-resultat')).to_contain_text('165.20 XAF TTC');expect(page.locator('#p2-prix-resultat')).to_contain_text('PRODUIT_SITE')
     # Conflicting periods keep the popup and user input.
     page.locator('#p2-tarif-produit').click();fill(tarif,{'valeur':'150','devise':'XAF','debut':'2026-10-01'});tarif.get_by_role('button',name='Enregistrer',exact=True).click();expect(tarif.locator('[role="alert"]')).to_contain_text('Chevauchement');expect(tarif.locator('[name="valeur"]')).to_have_value('150')
     page.once('dialog',lambda d:d.accept());tarif.get_by_role('button',name='Annuler',exact=True).click()
-    page.locator('#p2-tarif-type').select_option('produits');expect(page.locator('#p2-tarif-history tr')).to_have_count(1);page.locator('#p2-tarif-history button').click();cloture=page.locator('#p2-cloture-modal');fill(cloture,{'fin':'2026-12-31'});save(cloture)
-    new_tarif('#p2-tarif-produit',{'valeur':'150','devise':'XAF','debut':'2027-01-01'});page.locator('#p2-tarif-load').click();expect(page.locator('#p2-tarif-history tr')).to_have_count(2)
-    shot('p2-tarification-historique.png');page.locator('#p2-prix-date').fill('2027-01-01');page.locator('#p2-prix-refresh').click();expect(page.locator('#p2-prix-resultat')).to_contain_text('177.00 XAF TTC')
+    page.locator('#p2-tab-tarification').click();page.locator('#p2-tarif-type').select_option('produits');expect(page.locator('#p2-tarif-history tr')).to_have_count(1);page.locator('#p2-tarif-history button').click();cloture=page.locator('#p2-cloture-modal');fill(cloture,{'fin':'2026-12-31'});save(cloture)
+    new_tarif('#p2-tarif-produit',{'valeur':'150','devise':'XAF','debut':'2027-01-01'});page.locator('#p2-tab-tarification').click();page.locator('#p2-tarif-load').click();expect(page.locator('#p2-tarif-history tr')).to_have_count(2)
+    page.locator('#p2-tab-tarification').click();shot('p2-tarification-historique.png');page.locator('#p2-tab-produits').click();page.locator('#p2-prix-date').fill('2027-01-01');page.locator('#p2-prix-refresh').click();expect(page.locator('#p2-prix-resultat')).to_contain_text('177.00 XAF TTC')
     shot('p2-fiche-composition-prix.png')
     # Import preview, mapping, missing required defaults and idempotent rerun.
     csv='CIP;Quantite;Description;DCI;PrixAchat;PrixVente\n0012345;999;NOM SOURCE;DCI BRUTE NON DÉDUITE;100;180\n7654321;1500;Nouveau catalogue importé;;20;30\nBAD;1;Ligne invalide;;1;2\n'
-    page.locator('#p2-import-form [name="fichier"]').set_input_files({'name':'PharmaGabon-QA.csv','mimeType':'text/csv','buffer':csv.encode('utf-8')})
+    page.locator('#p2-tab-import').click();page.locator('#p2-import-form [name="fichier"]').set_input_files({'name':'PharmaGabon-QA.csv','mimeType':'text/csv','buffer':csv.encode('utf-8')})
     expect(page.locator('#p2-import-mapping select')).to_have_count(6);page.locator('#p2-import-form button').click();expect(page.locator('#p2-import-message')).to_contain_text('3 lignes');expect(page.locator('#p2-import-rows')).to_contain_text('INVALIDE');shot('p2-import-previsualisation.png')
     page.locator('#p2-import-run').click();expect(page.locator('#catalogue-message')).to_contain_text('Import terminé');expect(page.locator('#p2-import-rows')).to_contain_text('catégorie et libellé')
     # Preserve current search; unknown products need an explicit commercial-unit label.
@@ -68,27 +68,28 @@ with sync_playwright() as p:
     page.locator('#p2-import-run').click();expect(page.locator('#p2-import-message')).to_contain_text('IMPORTE : 2');expect(page.locator('#catalogue-search')).to_have_value('Produit QA modifié');expect(page.locator('#catalogue-count')).to_contain_text('1 résultat')
     expect(page.locator('#p2-compositions li')).to_have_count(2);expect(page.locator('#p2-prix-resultat')).to_contain_text('177.00 XAF TTC');expect(page.locator('#p2-conseils')).to_contain_text('180.0000 XAF')
     # Source prices have not overwritten the reference price (100) or product/site rule.
-    page.locator('#p2-tarif-type').select_option('references');expect(page.locator('#p2-tarif-history tr')).to_have_count(1);expect(page.locator('#p2-tarif-history')).to_contain_text('100.0000')
+    page.locator('#p2-tab-tarification').click();page.locator('#p2-tarif-type').select_option('references');expect(page.locator('#p2-tarif-history tr')).to_have_count(1);expect(page.locator('#p2-tarif-history')).to_contain_text('100.0000')
     page.locator('#p2-tarif-history button').click();fill(cloture,{'fin':'2026-12-31'});save(cloture)
-    page.locator('#p2-conseils button').click();conseil=page.locator('#p2-conseil-modal');fill(conseil,{'debut':'2027-01-01'})
+    page.locator('#p2-tab-produits').click();page.locator('#p2-conseils button').click();conseil=page.locator('#p2-conseil-modal');fill(conseil,{'debut':'2027-01-01'})
     conseil.get_by_role('button',name='Enregistrer',exact=True).click();expect(conseil).to_be_visible() # explicit checkbox required
     conseil.locator('[name="confirmer"]').check();save(conseil);expect(page.locator('#p2-tarif-history tr')).to_have_count(2)
     expect(page.locator('#p2-prix-resultat')).to_contain_text('177.00 XAF TTC') # higher-priority product rule remains
-    page.locator('#p2-import-form button').click();expect(page.locator('#p2-import-message')).to_contain_text('EXISTANT : 2');page.locator('#p2-import-run').click();expect(page.locator('#p2-import-message')).to_contain_text('IMPORTE : 2')
+    page.locator('#p2-tab-import').click();page.locator('#p2-import-form button').click();expect(page.locator('#p2-import-message')).to_contain_text('EXISTANT : 2');page.locator('#p2-import-run').click();expect(page.locator('#p2-import-message')).to_contain_text('IMPORTE : 2')
     shot('p2-import-rapport.png')
     # Paginated advice review and explicit multi-selection validation from the global table.
-    page.locator('#p2-conseils-search').fill('7654321');expect(page.locator('#p2-conseils-rows tr')).to_have_count(1)
+    page.locator('#p2-tab-conseils').click();page.locator('#p2-conseils-search').fill('7654321');expect(page.locator('#p2-conseils-rows tr')).to_have_count(1)
     page.locator('#p2-conseils-rows input').check();page.locator('#p2-conseils-apply').click()
     expect(conseil).to_be_visible();expect(conseil.locator('#p2-conseil-modal-p2-conseil-summary')).to_contain_text('30.0000 XAF')
     fill(conseil,{'debut':'2027-01-01'});conseil.locator('[name="confirmer"]').check();save(conseil)
     shot('p2-conseils-validation.png')
+    page.locator('#p2-tab-import').click()
     with page.expect_download() as download:page.locator('#p2-import-export').click()
     assert download.value.suggested_filename=='rapport-import.csv'
-    page.locator('#catalogue-back').click();page.locator('#catalogue-search').fill('7654321');expect(page.locator('#catalogue-products tr')).to_have_count(1);expect(page.locator('#catalogue-products')).to_contain_text('NOUVEAU CATALOGUE IMPORTÉ')
+    page.locator('#p2-tab-produits').click();page.locator('#catalogue-back').click();page.locator('#catalogue-search').fill('7654321');expect(page.locator('#catalogue-products tr')).to_have_count(1);expect(page.locator('#catalogue-products')).to_contain_text('NOUVEAU CATALOGUE IMPORTÉ')
     page.locator('#catalogue-search').fill('');expect(page.locator('#catalogue-count')).to_contain_text('59 résultats')
     page.set_viewport_size({'width':390,'height':844});assert not page.evaluate('document.documentElement.scrollWidth>innerWidth');shot('p2-complet-mobile.png');page.set_viewport_size({'width':1440,'height':1000})
     page.locator('#logout-button').click();login('catalogue.lecture.qa');expect(page.locator('#p2-tarif-new')).to_be_hidden();expect(page.locator('#p2-import-form')).to_be_hidden();expect(page.locator('#p2-import-options')).to_be_hidden()
-    page.locator('#catalogue-search').fill('Produit QA modifié');expect(page.locator('#catalogue-products tr')).to_have_count(1);page.locator('#catalogue-products button').click();expect(page.locator('#p2-compositions li')).to_have_count(2)
+    page.locator('#p2-tab-produits').click();page.locator('#catalogue-search').fill('Produit QA modifié');expect(page.locator('#catalogue-products tr')).to_have_count(1);page.locator('#catalogue-products button').click();expect(page.locator('#p2-compositions li')).to_have_count(2)
     expect(page.locator('#p2-compositions button')).to_have_count(0);expect(page.locator('#p2-conseils button')).to_have_count(0);expect(page.locator('#p2-tarif-produit')).to_be_hidden();shot('p2-complet-lecture-seule.png')
     csrf=next(x['value'] for x in page.context.cookies() if x['name']=='neosys_csrf');headers={'X-Site-ID':fixture['site_id'],'X-CSRF-Token':csrf};root='http://127.0.0.1:8000/api/catalogue/organisations/'+fixture['organisation_id']
     for endpoint in ['/imports/previsualisation','/conseils/appliquer','/tarification/sites','/principes']:

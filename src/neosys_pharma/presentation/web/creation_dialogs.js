@@ -67,6 +67,6 @@ function creationDialogOpen(entry,title,options,initialize){
   for(const node of [...entry.form.elements,entry.close])node.disabled=false;
   entry.title.textContent=title;entry.returnFocus=document.activeElement;
   initialize(entry);entry.initial=creationDialogSnapshot(entry.form);
-  entry.dialog.showModal();document.body.classList.add("modal-open");entry.dialog.querySelector("input:not([type=checkbox]),select,textarea")?.focus({preventScroll:true});
+  entry.dialog.showModal();document.body.classList.add("modal-open");[...entry.dialog.querySelectorAll("input:not([type=checkbox]),select,textarea")].find(node=>!node.disabled&&node.getClientRects().length)?.focus({preventScroll:true});
 }
 window.addEventListener("beforeunload",event=>{if([...creationDialogs.entries.values()].some(creationDialogDirty)){event.preventDefault();event.returnValue="";}});
