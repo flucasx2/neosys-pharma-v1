@@ -1,7 +1,7 @@
 "use strict";
 // Navigation de présentation uniquement ; authHas reste la source des droits UI.
 const shellViews={
-  catalogue:{title:"Catalogue",allowed:()=>authHas("catalogue.consulter")||authHas("catalogue.gerer")},
+  catalogue:{title:"Produits",allowed:()=>authHas("catalogue.consulter")||authHas("catalogue.gerer")},
   dashboard:{title:"Tableau de bord"},
   structure:{title:"Organisation, sites & emplacements",allowed:()=>authHas("organisation.consulter")||authHas("organisation.gerer")},
   equipements:{title:"Postes de vente, caisses & coffres",allowed:()=>authHas("organisation.consulter")||authHas("organisation.gerer")},

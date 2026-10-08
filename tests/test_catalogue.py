@@ -80,8 +80,8 @@ def test_parcours_catalogue_conditionnements_references_recherche_et_modificatio
     post(c,a,f'/conditionnements/{second["id_conditionnement"]}/references',{'type_reference':'CIP13','valeur':'0000123456789'})
     duplicate = c.post(root(a)+f'/conditionnements/{second["id_conditionnement"]}/references',json={'type_reference':'CIP7','valeur':'0012345'})
     assert duplicate.status_code == 409
-    assert c.get(root(a)+'/produits',params={'q':'OLD-55'}).json()[0]['id_produit'] == product['id_produit']
-    assert c.get(root(a)+'/produits',params={'q':'absent'}).json() == []
+    assert c.get(root(a)+'/produits',params={'q':'OLD-55'}).json()['items'][0]['id_produit'] == product['id_produit']
+    assert c.get(root(a)+'/produits',params={'q':'absent'}).json()['items'] == []
     data.pop('premier_conditionnement');data['nom']='Produit modifié'
     updated = c.put(root(a)+f'/produits/{product["id_produit"]}',json=data)
     assert updated.status_code == 200 and updated.json()['nom'] == 'Produit modifié'
@@ -89,7 +89,7 @@ def test_parcours_catalogue_conditionnements_references_recherche_et_modificatio
     assert sum(len(x['references']) for x in updated.json()['conditionnements']) == 3
     r = c.put(root(a)+f'/references/{reference["id_reference"]}',json={'type_reference':'CIP7','valeur':'0012345','actif':False})
     assert r.status_code == 200 and r.json()['valeur'] == '0012345' and not r.json()['actif']
-    assert c.get(root(a)+'/produits',params={'q':'0012345'}).json()
+    assert c.get(root(a)+'/produits',params={'q':'0012345'}).json()['items']
     assert c.post(root(a)+'/produits',json=data).status_code == 422
     assert c.post(root(a)+'/produits',json={**data,'premier_conditionnement':{'code':'X','libelle':'X'},'cip7':'1234567'}).status_code == 422
 
@@ -169,7 +169,7 @@ def test_isolation_http_et_contraintes_sql_references(raw_client,account):
     finally:gen.close()
     assert c.get(root({**a,'org':other})+'/produits').status_code==403
     assert c.get(root(a)+f'/produits/{foreign_prod}').status_code==404
-    assert len(c.get(root(a)+'/produits').json())==1
+    assert len(c.get(root(a)+'/produits').json()['items'])==1
     assert c.post(root(a)+'/produits',json={**data,'categorie_id':str(foreign_cat)}).status_code==404
     assert c.post(root(a)+f'/conditionnements/{foreign_pack}/references',json={'type_reference':'CIP7','valeur':'5555555'}).status_code==404
 
@@ -247,3 +247,63 @@ def test_reparentages_concurrents_postgresql_ne_creent_pas_cycle(raw_client,acco
         assert sorted(task.result(timeout=20) for task in tasks)==['cycle','ok']
     rows=c.get(root(a)+'/categories').json()
     assert sum(row['parent_id'] is not None for row in rows)==1
+
+
+def test_liste_paginee_milliers_produits_sans_chargement_details(raw_client, account):
+    from sqlalchemy import insert, event
+    c, a = raw_client, account; grant(c, a); login(c, a)
+    cat, data, prod = basic(c, a)
+    gen = db(c); session = next(gen)
+    try:
+        produits = [dict(id_produit=uuid4(), organisation_id=a['org'], categorie_id=UUID(cat['id_categorie']), nom=f'Référence {i:04d}', actif=True) for i in range(1200)]
+        session.execute(insert(ProduitModel), produits)
+        session.execute(insert(ConditionnementModel), [dict(id_conditionnement=uuid4(), organisation_id=a['org'], produit_id=p['id_produit'], code='B', libelle='Boîte', actif=True) for p in produits])
+        session.commit()
+        queries = []
+        def capture(conn, cursor, statement, params, context, many): queries.append(statement)
+        event.listen(session.bind, 'before_cursor_execute', capture)
+        try:
+            result = SqlAlchemyCatalogueRepository(session).rechercher_produits(a['org'], '', 2, 25)
+            assert result['total'] == 1201 and len(result['items']) == 25
+            assert len(queries) == 2  # constant query count, independent of catalogue size
+            assert not any(isinstance(entity, ProduitModel) for entity in session.identity_map.values())
+        finally: event.remove(session.bind, 'before_cursor_execute', capture)
+    finally: gen.close()
+    first = c.get(root(a)+'/produits').json()
+    second = c.get(root(a)+'/produits', params={'page': 2}).json()
+    assert first['total'] == second['total'] == 1201
+    assert len(first['items']) == len(second['items']) == 25
+    assert not ({x['id_produit'] for x in first['items']} & {x['id_produit'] for x in second['items']})
+    assert c.get(root(a)+'/produits', params={'page': 999}).json()['items'] == []
+    assert len(c.get(root(a)+'/produits', params={'page_size': 100}).json()['items']) == 100
+
+
+@pytest.mark.parametrize('params', [{'page': 0}, {'page': -1}, {'page': 1_000_001}, {'page_size': 0}, {'page_size': 101}, {'q': 'x'*201}])
+def test_parametres_pagination_bornes(raw_client, account, params):
+    c, a = raw_client, account; grant(c, a); login(c, a)
+    assert c.get(root(a)+'/produits', params=params).status_code == 422
+
+
+def test_recherche_sql_litterale_references_secondaires_et_resume_unique(raw_client, account):
+    c, a = raw_client, account; grant(c, a); login(c, a)
+    cat, data, prod = basic(c, a)
+    first = prod['conditionnements'][0]['id_conditionnement']
+    second = post(c, a, f'/produits/{prod["id_produit"]}/conditionnements', {'code': 'B60', 'libelle': 'Boîte de 60'})
+    for pid, typ, value, active in [(first, 'CIP7', '0001234', True), (first, 'HISTORIQUE', 'Ancien-%_\\-A', False), (second['id_conditionnement'], 'GTIN', 'SECOND-0001234', True)]:
+        post(c, a, f'/conditionnements/{pid}/references', {'type_reference': typ, 'valeur': value, 'actif': active})
+    for term in ['pRODUIT', '0001234', 'second-', 'ancien-%_\\-a']:
+        result = c.get(root(a)+'/produits', params={'q': term, 'page_size': 1}).json()
+        assert result['total'] == 1 and len(result['items']) == 1
+        row = result['items'][0]
+        assert row['id_produit'] == prod['id_produit'] and row['nombre_conditionnements'] == 2
+        assert (row['categorie'], row['forme'], row['laboratoire']) == ('Médicaments', 'Comprimé', 'Laboratoire test')
+        assert row['reference'] == '0001234' and row['conditionnement'] == 'Boîte de 20'
+        assert 'conditionnements' not in row  # details fetched only on demand
+    assert c.get(root(a)+'/produits', params={'q': '%'}).json()['total'] == 1
+    assert c.get(root(a)+'/produits', params={'q': 'absent_%'}).json()['total'] == 0
+    # Stable order when names are identical; products without optional classifications/references stay visible.
+    other = post(c, a, '/produits', {'nom': 'Produit test', 'categorie_id': cat['id_categorie'], 'premier_conditionnement': {'code': 'X', 'libelle': 'Unité'}})
+    ids = [c.get(root(a)+'/produits', params={'page': i, 'page_size': 1}).json()['items'][0]['id_produit'] for i in (1, 2)]
+    assert ids == sorted([prod['id_produit'], other['id_produit']])
+    blank = next(x for x in c.get(root(a)+'/produits').json()['items'] if x['id_produit'] == other['id_produit'])
+    assert blank['reference'] is None and blank['forme'] is None and blank['laboratoire'] is None

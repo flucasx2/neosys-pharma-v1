@@ -1,6 +1,6 @@
 from dataclasses import asdict
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -142,11 +142,8 @@ def modifier_laboratoire(organisation_id: UUID, identifiant: UUID, data: NommeIn
 
 
 @router.get('/produits')
-def produits(organisation_id: UUID, q: str = '', s=Depends(service)):
-    # First increment: literal substring search, including archived references.
-    result = [s.detail_produit(x.id_produit, organisation_id) for x in s.repo.lister(Produit, organisation_id)]
-    query = q.strip().casefold()
-    return [x for x in result if not query or query in x['nom'].casefold() or any(query in r['valeur'].casefold() for c in x['conditionnements'] for r in c['references'])]
+def produits(organisation_id: UUID, q: str = Query(default='', max_length=200), page: int = Query(default=1, ge=1, le=1_000_000), page_size: int = Query(default=25, ge=1, le=100), s=Depends(service)):
+    return s.repo.rechercher_produits(organisation_id, q, page, page_size)
 
 
 @router.get('/produits/{identifiant}')

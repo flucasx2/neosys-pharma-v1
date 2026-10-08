@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 from dataclasses import asdict, fields
-from sqlalchemy import select
+from sqlalchemy import select, func, or_, and_
 from neosys_pharma.domain.catalogue import CategorieProduit, FormePharmaceutique, Laboratoire, Produit, Conditionnement, ReferenceProduit
 from neosys_pharma.infrastructure.catalogue_models import CategorieProduitModel, FormePharmaceutiqueModel, LaboratoireModel, ProduitModel, ConditionnementModel, ReferenceProduitModel
 from neosys_pharma.infrastructure.organisation_models import OrganisationModel
@@ -31,6 +31,38 @@ class SqlAlchemyCatalogueRepository:
             key = getattr(model, 'code', model.__table__.primary_key.columns.values()[0])
         rows = self.session.scalars(query.order_by(key, *model.__table__.primary_key.columns)).all()
         return [self.entity(classe, row) for row in rows]
+
+    def rechercher_produits(self, organisation_id, recherche, page, taille):
+        """Bounded summary: SQL search/count/page, no per-product detail loads."""
+        p, c, r = ProduitModel, ConditionnementModel, ReferenceProduitModel
+        filtres = [p.organisation_id == organisation_id]
+        if recherche.strip():
+            terme = recherche.strip()
+            reference = select(r.id_reference).join(c, and_(c.id_conditionnement == r.conditionnement_id, c.organisation_id == r.organisation_id)).where(
+                c.produit_id == p.id_produit, c.organisation_id == organisation_id,
+                r.organisation_id == organisation_id, r.valeur.icontains(terme, autoescape=True)).exists()
+            filtres.append(or_(p.nom.icontains(terme, autoescape=True), reference))
+        total = self.session.scalar(select(func.count()).select_from(p).where(*filtres))
+        page_ids = select(p.id_produit).where(*filtres).order_by(p.nom, p.id_produit).limit(taille).offset((page - 1) * taille)
+        # Stable display representatives, not new business "principal" flags.
+        # Rank only packaging/references of products on this page.
+        packs = select(c.produit_id, c.libelle, c.id_conditionnement,
+            func.count().over(partition_by=c.produit_id).label('nombre'),
+            func.row_number().over(partition_by=c.produit_id, order_by=(c.actif.desc(), c.code, c.id_conditionnement)).label('rang')
+        ).where(c.organisation_id == organisation_id, c.produit_id.in_(page_ids)).subquery()
+        refs = select(c.produit_id, r.valeur, r.type_reference,
+            func.row_number().over(partition_by=c.produit_id, order_by=(r.actif.desc(), c.actif.desc(), c.code, r.type_reference, r.valeur, r.id_reference)).label('rang')
+        ).join(c, and_(c.id_conditionnement == r.conditionnement_id, c.organisation_id == r.organisation_id)).where(r.organisation_id == organisation_id, c.produit_id.in_(page_ids)).subquery()
+        query = select(p.id_produit, p.nom, p.actif,
+            CategorieProduitModel.nom.label('categorie'), FormePharmaceutiqueModel.nom.label('forme'), LaboratoireModel.nom.label('laboratoire'),
+            packs.c.libelle.label('conditionnement'), packs.c.nombre.label('nombre_conditionnements'),
+            refs.c.valeur.label('reference'), refs.c.type_reference.label('type_reference')
+        ).join(CategorieProduitModel, and_(CategorieProduitModel.id_categorie == p.categorie_id, CategorieProduitModel.organisation_id == p.organisation_id))
+        for model, ident in ((FormePharmaceutiqueModel, p.forme_id), (LaboratoireModel, p.laboratoire_id)):
+            query = query.outerjoin(model, and_(next(iter(model.__table__.primary_key.columns)) == ident, model.organisation_id == p.organisation_id))
+        query = query.outerjoin(packs, and_(packs.c.produit_id == p.id_produit, packs.c.rang == 1)).outerjoin(refs, and_(refs.c.produit_id == p.id_produit, refs.c.rang == 1))
+        rows = self.session.execute(query.where(*filtres).order_by(p.nom, p.id_produit).limit(taille).offset((page - 1) * taille)).mappings()
+        return {'items': [dict(row) for row in rows], 'total': total, 'page': page, 'page_size': taille}
 
     def enregistrer(self, entity):
         self.session.merge(MODELES[type(entity)](**asdict(entity)))
