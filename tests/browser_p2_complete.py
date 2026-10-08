@@ -76,6 +76,12 @@ with sync_playwright() as p:
     expect(page.locator('#p2-prix-resultat')).to_contain_text('177.00 XAF TTC') # higher-priority product rule remains
     page.locator('#p2-import-form button').click();expect(page.locator('#p2-import-message')).to_contain_text('EXISTANT : 2');page.locator('#p2-import-run').click();expect(page.locator('#p2-import-message')).to_contain_text('IMPORTE : 2')
     shot('p2-import-rapport.png')
+    # Paginated advice review and explicit multi-selection validation from the global table.
+    page.locator('#p2-conseils-search').fill('7654321');expect(page.locator('#p2-conseils-rows tr')).to_have_count(1)
+    page.locator('#p2-conseils-rows input').check();page.locator('#p2-conseils-apply').click()
+    expect(conseil).to_be_visible();expect(conseil.locator('#p2-conseil-modal-p2-conseil-summary')).to_contain_text('30.0000 XAF')
+    fill(conseil,{'debut':'2027-01-01'});conseil.locator('[name="confirmer"]').check();save(conseil)
+    shot('p2-conseils-validation.png')
     with page.expect_download() as download:page.locator('#p2-import-export').click()
     assert download.value.suggested_filename=='rapport-import.csv'
     page.locator('#catalogue-back').click();page.locator('#catalogue-search').fill('7654321');expect(page.locator('#catalogue-products tr')).to_have_count(1);expect(page.locator('#catalogue-products')).to_contain_text('NOUVEAU CATALOGUE IMPORTÉ')

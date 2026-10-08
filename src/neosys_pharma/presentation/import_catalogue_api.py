@@ -48,12 +48,16 @@ def lot(organisation_id: UUID,identifiant: UUID,data: LotInput,s=Depends(service
     return executer(lambda:ImportCatalogueService(s).executer_lot(organisation_id,identifiant,**data.model_dump()))
 
 @router.get('/conseils')
-def conseils(organisation_id: UUID,conditionnement_id: UUID | None=None,page: int=Query(1,ge=1),page_size: int=Query(50,ge=1,le=100),s=Depends(service)):
-    model=ConseilTarifSourceModel;query=select(model).where(model.organisation_id==organisation_id)
+def conseils(organisation_id: UUID,q: str=Query(default="",max_length=200),conditionnement_id: UUID | None=None,page: int=Query(1,ge=1),page_size: int=Query(50,ge=1,le=100),s=Depends(service)):
+    from neosys_pharma.infrastructure.catalogue_models import ProduitModel,ConditionnementModel
+    from sqlalchemy import or_
+    model=ConseilTarifSourceModel
+    query=select(model,ProduitModel.nom,ConditionnementModel.libelle).join(ConditionnementModel,ConditionnementModel.id_conditionnement==model.conditionnement_id).join(ProduitModel,ProduitModel.id_produit==ConditionnementModel.produit_id).where(model.organisation_id==organisation_id)
+    if q.strip():query=query.where(or_(model.cip7.icontains(q.strip(),autoescape=True),ProduitModel.nom.icontains(q.strip().upper(),autoescape=True)))
     if conditionnement_id:query=query.where(model.conditionnement_id==conditionnement_id)
     total=s.repo.session.scalar(select(func.count()).select_from(query.subquery()))
-    rows=s.repo.session.scalars(query.order_by(model.releve_le.desc(),model.id_conseil).offset((page-1)*page_size).limit(page_size))
-    return {'items':[serialiser({col.name:getattr(r,col.name) for col in model.__table__.columns}) for r in rows],'total':total,'page':page,'page_size':page_size}
+    rows=s.repo.session.execute(query.order_by(model.releve_le.desc(),model.id_conseil).offset((page-1)*page_size).limit(page_size))
+    return {'items':[serialiser({**{col.name:getattr(r,col.name) for col in model.__table__.columns},'designation':nom,'conditionnement':libelle}) for r,nom,libelle in rows],'total':total,'page':page,'page_size':page_size}
 
 @router.post('/conseils/appliquer')
 def appliquer(organisation_id: UUID,data: ApplicationConseilInput,request: Request,user=Depends(utilisateur_courant),session=Depends(get_db_session),s=Depends(service)):

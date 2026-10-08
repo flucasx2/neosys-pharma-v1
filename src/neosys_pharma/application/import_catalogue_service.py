@@ -17,6 +17,13 @@ from neosys_pharma.application.tarification_service import TarificationService
 COLONNES = ('CIP', 'Quantite', 'Description', 'DCI', 'PrixAchat', 'PrixVente')
 
 
+def lignes_csv(reader):
+    try:
+        yield from reader
+    except csv.Error as exc:
+        raise ValueError("Structure CSV invalide : " + str(exc)) from exc
+
+
 def montant(raw):
     if not raw.strip(): return None
     try:
@@ -43,7 +50,7 @@ class ImportCatalogueService:
         if len(contenu.encode('utf-8')) > 12_000_000: raise ValueError('Fichier limité à 12 Mo.')
         sample=contenu.lstrip('\ufeff')
         delimiter = ';' if ';' in sample.partition('\n')[0] else ','
-        reader=csv.DictReader(io.StringIO(sample,newline=''),delimiter=delimiter)
+        reader=csv.DictReader(io.StringIO(sample,newline=''),delimiter=delimiter,strict=True)
         headers=reader.fieldnames or []
         mapping=mapping or {x:x for x in COLONNES if x in headers}
         if set(mapping)-set(COLONNES) or not {'CIP','Description'} <= set(mapping) or any(v not in headers for v in mapping.values()) or len(set(mapping.values()))!=len(mapping):
@@ -55,11 +62,12 @@ class ImportCatalogueService:
             # Fetch references once rather than issuing thousands of preview queries.
             refs=dict(self.session.execute(select(ReferenceProduitModel.valeur,ReferenceProduitModel.conditionnement_id).where(ReferenceProduitModel.organisation_id==org,ReferenceProduitModel.type_reference=='CIP7')).all())
             seen=set()
-            for numero, raw in enumerate(reader,1):
+            for numero, raw in enumerate(lignes_csv(reader),1):
                 if numero>20000: raise ValueError('Limite de 20 000 lignes par fichier.')
                 data={x:(raw.get(mapping.get(x,'')) or '').strip() for x in COLONNES}
                 data['Description']=data['Description'].upper()
                 errors=[]
+                if None in raw or any(v is None for v in raw.values()): errors.append("Nombre de champs incohérent avec l’en-tête CSV.")
                 if not re.fullmatch('[0-9]{7}',data['CIP']): errors.append('CIP7 : exactement sept chiffres, zéros initiaux conservés.')
                 if not data['Description'] or len(data['Description'])>200: errors.append('Désignation obligatoire, au plus 200 caractères.')
                 if len(data['DCI'])>2000: errors.append('DCI brute limitée à 2000 caractères.')
@@ -89,8 +97,8 @@ class ImportCatalogueService:
         with self.repo.transaction():
             self.repo.verrouiller_organisation(org)
             self.session.refresh(job)
-            options={'mode':mode,'devise':devise,'enrichir_designation':enrichir_designation}
-            if job.options is not None and job.options!=options:
+            options={'mode':mode,'devise':devise,'enrichir_designation':enrichir_designation,'categorie_id':str(categorie_id) if categorie_id else None,'conditionnement_libelle':conditionnement_libelle}
+            if job.options is not None and any(job.options.get(k)!=options[k] for k in ('mode','devise','enrichir_designation')):
                 raise ValueError('Usage, devise et choix d’enrichissement sont figés pour cet import ; créez une nouvelle prévisualisation pour les modifier.')
             job.options=options
             if categorie_id: self.catalogue.obtenir(CategorieProduit,categorie_id,org)

@@ -249,16 +249,29 @@ def test_migration_sur_catalogue_existant_uppercase_preserve_references(tmp_path
     finally:get_settings.cache_clear()
 
 
-def test_postgresql_exclusion_periodes_meme_appel_sql_direct(raw_client,account):
+@pytest.mark.parametrize("type_tarif",["references","sites","categories","produits","tva"])
+def test_postgresql_exclusion_periodes_meme_appel_sql_direct(raw_client,account,type_tarif):
     from neosys_pharma.infrastructure.tarification_models import TarifReferenceModel
     from sqlalchemy.exc import IntegrityError
     c,a=raw_client,account;cat,data,prod,pid=setup(c,a)
     gen=db(c);session=next(gen)
     try:
         if session.bind.dialect.name!='postgresql':pytest.skip('Contrainte native PostgreSQL')
+        from neosys_pharma.application.tarification_service import TARIFS
+        from neosys_pharma.infrastructure.catalogue_repository import MODELES
+        model=MODELES[TARIFS[type_tarif]]
+        attrs={'organisation_id':a['org']}
+        if type_tarif=='tva':attrs.update(code='TVA',nom='TVA',taux=18)
+        else:
+            attrs.update(montant_ht=100,devise='XAF')
+            if type_tarif!='references':attrs['site_id']=a['site']
+            if type_tarif in ('references','produits'):attrs['conditionnement_id']=UUID(pid)
+            if type_tarif=='produits':attrs['produit_id']=UUID(prod['id_produit'])
+            if type_tarif=='categories':attrs['categorie_id']=UUID(cat['id_categorie'])
+        key='id_regime' if type_tarif=='tva' else 'id_tarif'
         for debut,fin in [(date(2026,1,1),date(2026,6,30)),(date(2026,7,1),None)]:
-            session.add(TarifReferenceModel(id_tarif=uuid4(),organisation_id=a['org'],conditionnement_id=UUID(pid),montant_ht=100,devise='XAF',debut=debut,fin=fin));session.commit()
-        session.add(TarifReferenceModel(id_tarif=uuid4(),organisation_id=a['org'],conditionnement_id=UUID(pid),montant_ht=200,devise='XAF',debut=date(2026,6,30)))
+            session.add(model(**attrs,**{key:uuid4()},debut=debut,fin=fin));session.commit()
+        session.add(model(**attrs,**{key:uuid4()},debut=date(2026,6,30)))
         with pytest.raises(IntegrityError):session.flush()
         session.rollback()
     finally:gen.close()
@@ -281,3 +294,14 @@ def test_csv_pharmagabon_fourni_complet_sur_base_jetable(raw_client,account):
     assert c.get(root(a)+'/produits').json()['total']==len(rows)+1
     assert c.get(root(a)+'/conseils').json()['total']==len(rows)
     assert c.get(root(a)+'/tarification/references').json()['total']==0
+
+
+@pytest.mark.parametrize('content',['CIP;Description\n0012345;"inachevé\n','CIP;Description\n0012345;TEST;champ en trop\n'])
+def test_csv_structure_invalide_signalee(raw_client,account,content):
+    c,a=raw_client,account;grant(c,a);login(c,a)
+    r=c.post(root(a)+'/imports/previsualisation',json={'contenu':content,'nom_fichier':'test.csv','source':'TEST'})
+    if 'inachevé' in content:assert r.status_code==422
+    else:
+        assert r.status_code==201
+        report=c.get(root(a)+f'/imports/{r.json()["id_import"]}').json()
+        assert report['compteurs']=={'INVALIDE':1} and 'Nombre de champs' in report['items'][0]['erreurs'][0]
