@@ -30,8 +30,8 @@ function catalogueOptions(id,rows,key,selected="",empty="Aucun"){
   select.value=selected;
 }
 function catalogueDataSelection(){
-  const type=$("catalogue-data-type").value,rows=catalogueState[type];
-  const key={categories:"id_categorie",formes:"id_forme",laboratoires:"id_laboratoire"}[type];
+  const type=$("catalogue-data-type").value,rows=catalogueState[type]||[];
+  const key=catalogueModalKeys[type];
   const old=$("catalogue-data-selected").value;
   catalogueOptions("catalogue-data-selected",rows,key,old,"Nouvelle entrée");
   $("catalogue-data-edit").disabled=!rows.some(r=>r[key]===old);
@@ -97,11 +97,11 @@ async function catalogueLoad(selected=catalogueState.selected,reloadMetadata=tru
   try{
     const params=new URLSearchParams({q:$("catalogue-search").value,page:catalogueState.page,page_size:catalogueState.pageSize});
     const calls=[catalogueRequest("/produits?"+params)];
-    if(reloadMetadata)calls.push(...["categories","formes","laboratoires"].map(p=>catalogueRequest("/"+p)));
-    const [result,categories,formes,laboratoires]=await Promise.all(calls);
+    if(reloadMetadata)calls.push(...["categories","formes","laboratoires","natures","modes","principes","classes","groupes"].map(p=>catalogueRequest("/"+p)));
+    const [result,categories,formes,laboratoires,natures,modes,principes,classes,groupes]=await Promise.all(calls);
     if(version!==catalogueState.version||site!==authState.site)return;
     Object.assign(catalogueState,{products:result.items,total:result.total,site});
-    if(reloadMetadata)Object.assign(catalogueState,{categories,formes,laboratoires});
+    if(reloadMetadata)Object.assign(catalogueState,{categories,formes,laboratoires,natures,modes,principes,classes,groupes});
     // A filter or concurrent change may remove the last page.
     const last=Math.max(1,Math.ceil(result.total/catalogueState.pageSize));
     if(catalogueState.page>last){catalogueState.page=last;return await catalogueLoad(selected,false,throwErrors,refreshDetail);}
@@ -177,8 +177,8 @@ $("catalogue-reference-selected").addEventListener("change",()=>catalogueReferen
 
 
 // Modal creation adapters. Metadata refresh deliberately preserves the product draft.
-const catalogueModalKeys={categories:"id_categorie",formes:"id_forme",laboratoires:"id_laboratoire"};
-const catalogueModalNames={categories:"une catégorie / sous-catégorie",formes:"une forme pharmaceutique",laboratoires:"un laboratoire"};
+const catalogueModalKeys={categories:"id_categorie",formes:"id_forme",laboratoires:"id_laboratoire",natures:"id_nature",modes:"id_mode",principes:"id_principe",classes:"id_classe",groupes:"id_groupe"};
+const catalogueModalNames={categories:"une catégorie / sous-catégorie",formes:"une forme pharmaceutique",laboratoires:"un laboratoire",natures:"une nature de médicament",modes:"un mode de délivrance",principes:"un principe actif",classes:"une classe thérapeutique",groupes:"un groupe de substitution"};
 const catalogueProductDialog=creationDialogCreate("catalogue-product-modal",$("catalogue-product-form"));
 const catalogueDataDialog=creationDialogCreate("catalogue-data-modal",$("catalogue-data-template").content.querySelector("form"));
 const cataloguePackagingDialog=creationDialogCreate("catalogue-packaging-modal",$("catalogue-packaging-form"));
@@ -203,9 +203,9 @@ function cataloguePopulateProduct(form,prefix="",selected={}){
 }
 async function catalogueReloadMetadata(){
   const version=catalogueState.version,site=authState.site;
-  const [categories,formes,laboratoires]=await Promise.all(["categories","formes","laboratoires"].map(p=>catalogueRequest("/"+p)));
+  const [categories,formes,laboratoires,natures,modes,principes,classes,groupes]=await Promise.all(["categories","formes","laboratoires","natures","modes","principes","classes","groupes"].map(p=>catalogueRequest("/"+p)));
   if(version!==catalogueState.version||site!==authState.site)throw new Error("Le contexte a changé. Rouvrez le formulaire.");
-  Object.assign(catalogueState,{categories,formes,laboratoires});catalogueDataSelection();
+  Object.assign(catalogueState,{categories,formes,laboratoires,natures,modes,principes,classes,groupes});catalogueDataSelection();
   cataloguePopulateProduct($("catalogue-product-form"));
   if(catalogueProductDialog.dialog.open)cataloguePopulateProduct(catalogueProductDialog.form,"catalogue-product-modal-");
 }
@@ -229,11 +229,11 @@ function catalogueNewProduct(){
 function catalogueNewData(type,target="",ident=""){
   const row=catalogueState[type].find(r=>r[catalogueModalKeys[type]]===ident);
   creationDialogOpen(catalogueDataDialog,(ident?"Modifier ":"Créer ")+catalogueModalNames[type],catalogueModalOptions(async d=>{
-    const body={code:d.code,nom:d.nom,actif:Boolean(d.actif)};if(type==="categories")body.parent_id=d.parent_id||null;
+    const body={code:d.code,nom:d.nom,actif:Boolean(d.actif)};if(type==="categories"){body.parent_id=d.parent_id||null;for(const key of ["gestion_lot","gestion_peremption","fefo","promotion_autorisee"])body[key]=Boolean(d[key]);}
     return catalogueRequest(`/${type}${ident?"/"+ident:""}`,ident?"PUT":"POST",body);
   },async result=>{await catalogueReloadMetadata();await catalogueLoad(catalogueState.selected,false,true,false);if(target&&$(target))$(target).value=result[catalogueModalKeys[type]];}),entry=>{
     entry.form.elements.code.value=row?.code||"";entry.form.elements.nom.value=row?.nom||"";entry.form.elements.actif.checked=row?.actif??true;
-    $(entry.ids.get("catalogue-parent-label")).hidden=type!=="categories";
+    $(entry.ids.get("catalogue-parent-label")).hidden=type!=="categories";$(entry.ids.get("catalogue-category-rules")).hidden=type!=="categories";for(const key of ["gestion_lot","gestion_peremption","fefo","promotion_autorisee"])entry.form.elements[key].checked=row?.[key]??false;
     catalogueOptions(entry.ids.get("catalogue-parent"),catalogueState.categories,"id_categorie",row?.parent_id||"","Aucune (catégorie racine)");
   });
 }
