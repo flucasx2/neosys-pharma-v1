@@ -58,6 +58,13 @@ with sync_playwright() as p:
     new_tarif('#p2-tarif-produit',{'valeur':'150','devise':'XAF','debut':'2027-01-01'});page.locator('#p2-tab-tarification').click();page.locator('#p2-tarif-load').click();expect(page.locator('#p2-tarif-history tr')).to_have_count(2)
     page.locator('#p2-tab-tarification').click();shot('p2-tarification-historique.png');page.locator('#p2-tab-produits').click();page.locator('#p2-prix-date').fill('2027-01-01');page.locator('#p2-prix-refresh').click();expect(page.locator('#p2-prix-resultat')).to_contain_text('177.00 XAF TTC')
     shot('p2-fiche-composition-prix.png')
+    # A delayed response for an older date must not overwrite the new-date price.
+    page.evaluate("""async()=>{
+      const original=catalogueRequest;
+      catalogueRequest=async function(path,...args){if(path.includes('/prix/')&&path.includes('jour=2026-10-08'))await new Promise(resolve=>setTimeout(resolve,600));return original(path,...args);};
+      try{document.getElementById('p2-prix-date').value='2026-10-08';const old=p2Prix();document.getElementById('p2-prix-date').value='2027-01-01';await Promise.all([old,p2Prix()]);}finally{catalogueRequest=original;}
+    }""")
+    expect(page.locator('#p2-prix-resultat')).to_contain_text('177.00 XAF TTC')
     # Import preview, mapping, missing required defaults and idempotent rerun.
     csv='CIP;Quantite;Description;DCI;PrixAchat;PrixVente\n0012345;999;NOM SOURCE;DCI BRUTE NON DÉDUITE;100;180\n7654321;1500;Nouveau catalogue importé;;20;30\nBAD;1;Ligne invalide;;1;2\n'
     page.locator('#p2-tab-import').click();page.locator('#p2-import-form [name="fichier"]').set_input_files({'name':'PharmaGabon-QA.csv','mimeType':'text/csv','buffer':csv.encode('utf-8')})
@@ -87,6 +94,7 @@ with sync_playwright() as p:
     assert download.value.suggested_filename=='rapport-import.csv'
     page.locator('#p2-tab-produits').click();page.locator('#catalogue-back').click();page.locator('#catalogue-search').fill('7654321');expect(page.locator('#catalogue-products tr')).to_have_count(1);expect(page.locator('#catalogue-products')).to_contain_text('NOUVEAU CATALOGUE IMPORTÉ')
     page.locator('#catalogue-search').fill('');expect(page.locator('#catalogue-count')).to_contain_text('59 résultats')
+    page.locator('#p2-tab-tarification').click();page.locator('#p2-tarif-type').select_option('references');expect(page.locator('#p2-tarif-new')).to_be_disabled();expect(page.locator('#p2-tarif-message')).to_contain_text('Consultez un produit');page.locator('#p2-tab-produits').click()
     page.set_viewport_size({'width':390,'height':844});assert not page.evaluate('document.documentElement.scrollWidth>innerWidth');shot('p2-complet-mobile.png');page.set_viewport_size({'width':1440,'height':1000})
     page.locator('#logout-button').click();login('catalogue.lecture.qa');expect(page.locator('#p2-tarif-new')).to_be_hidden();expect(page.locator('#p2-import-form')).to_be_hidden();expect(page.locator('#p2-import-options')).to_be_hidden()
     page.locator('#p2-tab-produits').click();page.locator('#catalogue-search').fill('Produit QA modifié');expect(page.locator('#catalogue-products tr')).to_have_count(1);page.locator('#catalogue-products button').click();expect(page.locator('#p2-compositions li')).to_have_count(2)
