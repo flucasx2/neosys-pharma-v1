@@ -15,7 +15,7 @@ with sync_playwright() as p:
     def save(modal):
         modal.get_by_role('button',name='Enregistrer',exact=True).click();expect(modal).not_to_be_visible();expect(page.locator('#catalogue-message')).to_contain_text('Enregistrement réussi')
     def shot(name):
-        page.evaluate('document.activeElement?.blur()');page.screenshot(path='qa/'+name,full_page=True)
+        page.evaluate('document.activeElement?.blur();window.scrollTo({top:0,behavior:"instant"})');page.screenshot(path='qa/'+name,full_page=True)
     login('catalogue.qa');expect(page.locator('#catalogue-count')).to_contain_text('58 résultats')
     page.on('request',lambda r:documents.append(r.url) if r.resource_type=='document' else None)
     page.locator('#catalogue-data-disclosure summary').click()
@@ -82,7 +82,7 @@ with sync_playwright() as p:
     conseil.locator('[name="confirmer"]').check();save(conseil);expect(page.locator('#p2-tarif-history tr')).to_have_count(2)
     expect(page.locator('#p2-prix-resultat')).to_contain_text('177.00 XAF TTC') # higher-priority product rule remains
     page.locator('#p2-tab-import').click();page.locator('#p2-import-form button').click();expect(page.locator('#p2-import-message')).to_contain_text('EXISTANT : 2');page.locator('#p2-import-run').click();expect(page.locator('#p2-import-message')).to_contain_text('IMPORTE : 2')
-    shot('p2-import-rapport.png')
+    expect(page.locator('#module-title')).to_have_text('Import catalogue');shot('p2-import-rapport.png')
     # Paginated advice review and explicit multi-selection validation from the global table.
     page.locator('#p2-tab-conseils').click();page.locator('#p2-conseils-search').fill('7654321');expect(page.locator('#p2-conseils-rows tr')).to_have_count(1)
     page.locator('#p2-conseils-rows input').check();page.locator('#p2-conseils-apply').click()

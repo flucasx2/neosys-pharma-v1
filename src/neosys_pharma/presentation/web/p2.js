@@ -64,3 +64,6 @@ $("p2-conseils-search").addEventListener("input",()=>{p2State.conseilPage=1;p2Co
 
 function p2SetView(view){p2State.view=view;for(const [key,id] of Object.entries({produits:'catalogue-operation',tarification:'p2-tarification-panel',conseils:'p2-conseils-panel',import:'p2-import-panel'}))$(id).hidden=key!==view;for(const button of document.querySelectorAll('[data-p2-view]'))button.setAttribute('aria-pressed',String(button.dataset.p2View===view));if(!$("view-catalogue").hidden)$("module-title").textContent={produits:'Produits',tarification:'Tarification & TVA',conseils:'Conseils fournisseur',import:'Import catalogue'}[view];}
 for(const button of document.querySelectorAll('[data-p2-view]'))button.addEventListener('click',()=>{p2SetView(button.dataset.p2View);if(button.dataset.p2View==='tarification')p2TarifLoad();});
+
+const p2OriginalShellSync=shellSync;
+shellSync=function(){p2OriginalShellSync();if(authState.me&&!shellState.loading&&shellState.view==='catalogue'){const title={produits:'Produits',tarification:'Tarification & TVA',conseils:'Conseils fournisseur',import:'Import catalogue'}[p2State.view];$("module-title").textContent=title;document.title='NeoSys Pharma · '+title;}};
