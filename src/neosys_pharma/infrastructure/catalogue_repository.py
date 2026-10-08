@@ -1,3 +1,5 @@
+from neosys_pharma.domain.catalogue import NatureMedicament, PrincipeActif, ClasseTherapeutique, GroupeSubstitution, ModeDelivrance, CompositionProduit, ClassificationProduit, SubstitutionProduit
+from neosys_pharma.infrastructure.catalogue_models import NatureMedicamentModel, PrincipeActifModel, ClasseTherapeutiqueModel, GroupeSubstitutionModel, ModeDelivranceModel, CompositionProduitModel, ClassificationProduitModel, SubstitutionProduitModel
 from contextlib import contextmanager
 from dataclasses import asdict, fields
 from sqlalchemy import select, func, or_, and_
@@ -7,6 +9,7 @@ from neosys_pharma.infrastructure.organisation_models import OrganisationModel
 
 MODELES = dict(zip((CategorieProduit, FormePharmaceutique, Laboratoire, Produit, Conditionnement, ReferenceProduit), (CategorieProduitModel, FormePharmaceutiqueModel, LaboratoireModel, ProduitModel, ConditionnementModel, ReferenceProduitModel)))
 
+MODELES.update({NatureMedicament: NatureMedicamentModel,PrincipeActif: PrincipeActifModel,ClasseTherapeutique: ClasseTherapeutiqueModel,GroupeSubstitution: GroupeSubstitutionModel,ModeDelivrance: ModeDelivranceModel,CompositionProduit: CompositionProduitModel,ClassificationProduit: ClassificationProduitModel,SubstitutionProduit: SubstitutionProduitModel})
 
 class SqlAlchemyCatalogueRepository:
     def __init__(self, session):
@@ -37,7 +40,7 @@ class SqlAlchemyCatalogueRepository:
         p, c, r = ProduitModel, ConditionnementModel, ReferenceProduitModel
         filtres = [p.organisation_id == organisation_id]
         if recherche.strip():
-            terme = recherche.strip()
+            terme = recherche.strip().upper()
             reference = select(r.id_reference).join(c, and_(c.id_conditionnement == r.conditionnement_id, c.organisation_id == r.organisation_id)).where(
                 c.produit_id == p.id_produit, c.organisation_id == organisation_id,
                 r.organisation_id == organisation_id, r.valeur.icontains(terme, autoescape=True)).exists()

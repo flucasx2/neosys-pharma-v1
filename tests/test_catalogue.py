@@ -84,7 +84,7 @@ def test_parcours_catalogue_conditionnements_references_recherche_et_modificatio
     assert c.get(root(a)+'/produits',params={'q':'absent'}).json()['items'] == []
     data.pop('premier_conditionnement');data['nom']='Produit modifié'
     updated = c.put(root(a)+f'/produits/{product["id_produit"]}',json=data)
-    assert updated.status_code == 200 and updated.json()['nom'] == 'Produit modifié'
+    assert updated.status_code == 200 and updated.json()['nom'] == 'PRODUIT MODIFIÉ'
     assert len(updated.json()['conditionnements']) == 2
     assert sum(len(x['references']) for x in updated.json()['conditionnements']) == 3
     r = c.put(root(a)+f'/references/{reference["id_reference"]}',json={'type_reference':'CIP7','valeur':'0012345','actif':False})
@@ -296,8 +296,8 @@ def test_recherche_sql_litterale_references_secondaires_et_resume_unique(raw_cli
         assert result['total'] == 1 and len(result['items']) == 1
         row = result['items'][0]
         assert row['id_produit'] == prod['id_produit'] and row['nombre_conditionnements'] == 2
-        assert (row['categorie'], row['forme'], row['laboratoire']) == ('Médicaments', 'Comprimé', 'Laboratoire test')
-        assert row['reference'] == '0001234' and row['conditionnement'] == 'Boîte de 20'
+        assert (row['categorie'], row['forme'], row['laboratoire']) == ('MÉDICAMENTS', 'COMPRIMÉ', 'LABORATOIRE TEST')
+        assert row['reference'] == '0001234' and row['conditionnement'] == 'BOÎTE DE 20'
         assert 'conditionnements' not in row  # details fetched only on demand
     assert c.get(root(a)+'/produits', params={'q': '%'}).json()['total'] == 1
     assert c.get(root(a)+'/produits', params={'q': 'absent_%'}).json()['total'] == 0
@@ -316,7 +316,7 @@ def test_reference_affichee_appartient_au_conditionnement_affiche(raw_client, ac
     post(c, a, f'/conditionnements/{second["id_conditionnement"]}/references', {'type_reference': 'CIP13', 'valeur': 'SECONDAIRE'})
     result = c.get(root(a)+'/produits', params={'q': 'secondaire'}).json()
     assert result['total'] == 1
-    assert result['items'][0]['conditionnement'] == 'Boîte de 20'
+    assert result['items'][0]['conditionnement'] == 'BOÎTE DE 20'
     assert result['items'][0]['reference'] is None  # Never pair B60's reference with B20.
     detail = c.get(root(a)+f'/produits/{prod["id_produit"]}').json()
     assert detail['conditionnements'][1]['references'][0]['valeur'] == 'SECONDAIRE'

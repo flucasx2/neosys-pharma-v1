@@ -1,3 +1,4 @@
+from neosys_pharma.presentation import tarification_api, import_catalogue_api
 from fastapi import FastAPI, Depends, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse

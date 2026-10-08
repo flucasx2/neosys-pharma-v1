@@ -1,3 +1,4 @@
+from neosys_pharma.domain.catalogue import NatureMedicament, PrincipeActif, ClasseTherapeutique, GroupeSubstitution, ModeDelivrance, CompositionProduit, ClassificationProduit, SubstitutionProduit
 from dataclasses import asdict
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
@@ -42,6 +43,10 @@ class NommeInput(Input):
 
 
 class CategorieInput(NommeInput):
+    gestion_lot: bool = False
+    gestion_peremption: bool = False
+    fefo: bool = False
+    promotion_autorisee: bool = False
     parent_id: UUID | None = None
 
 
@@ -56,6 +61,13 @@ class ProduitInput(Input):
     categorie_id: UUID
     forme_id: UUID | None = None
     laboratoire_id: UUID | None = None
+    nature_id: UUID | None = None
+    mode_delivrance_id: UUID | None = None
+    regime_tva_code: str | None = Field(default=None, max_length=80)
+    gestion_lot: bool | None = None
+    gestion_peremption: bool | None = None
+    fefo: bool | None = None
+    promotion_autorisee: bool | None = None
     description: str | None = Field(default=None, max_length=2000)
     actif: bool = True
 
@@ -192,4 +204,134 @@ def modifier_reference(organisation_id: UUID, identifiant: UUID, data: Reference
         old = s.obtenir(ReferenceProduit, identifiant, organisation_id)
         item = ReferenceProduit(organisation_id=organisation_id, conditionnement_id=old.conditionnement_id, id_reference=identifiant, **data.model_dump())
         return asdict(s.enregistrer(item))
+    return executer(action)
+
+
+@router.get('/natures')
+def lister_natures(organisation_id: UUID, s=Depends(service)):
+    return [asdict(x) for x in s.repo.lister(NatureMedicament, organisation_id)]
+
+
+@router.post('/natures', status_code=201)
+def creer_natures(organisation_id: UUID, data: NommeInput, s=Depends(service)):
+    return sauver(s, NatureMedicament, data, organisation_id)
+
+
+@router.put('/natures/{identifiant}')
+def modifier_natures(organisation_id: UUID, identifiant: UUID, data: NommeInput, s=Depends(service)):
+    return sauver(s, NatureMedicament, data, organisation_id, identifiant, 'id_nature')
+
+
+@router.get('/principes')
+def lister_principes(organisation_id: UUID, s=Depends(service)):
+    return [asdict(x) for x in s.repo.lister(PrincipeActif, organisation_id)]
+
+
+@router.post('/principes', status_code=201)
+def creer_principes(organisation_id: UUID, data: NommeInput, s=Depends(service)):
+    return sauver(s, PrincipeActif, data, organisation_id)
+
+
+@router.put('/principes/{identifiant}')
+def modifier_principes(organisation_id: UUID, identifiant: UUID, data: NommeInput, s=Depends(service)):
+    return sauver(s, PrincipeActif, data, organisation_id, identifiant, 'id_principe')
+
+
+@router.get('/classes')
+def lister_classes(organisation_id: UUID, s=Depends(service)):
+    return [asdict(x) for x in s.repo.lister(ClasseTherapeutique, organisation_id)]
+
+
+@router.post('/classes', status_code=201)
+def creer_classes(organisation_id: UUID, data: NommeInput, s=Depends(service)):
+    return sauver(s, ClasseTherapeutique, data, organisation_id)
+
+
+@router.put('/classes/{identifiant}')
+def modifier_classes(organisation_id: UUID, identifiant: UUID, data: NommeInput, s=Depends(service)):
+    return sauver(s, ClasseTherapeutique, data, organisation_id, identifiant, 'id_classe')
+
+
+@router.get('/groupes')
+def lister_groupes(organisation_id: UUID, s=Depends(service)):
+    return [asdict(x) for x in s.repo.lister(GroupeSubstitution, organisation_id)]
+
+
+@router.post('/groupes', status_code=201)
+def creer_groupes(organisation_id: UUID, data: NommeInput, s=Depends(service)):
+    return sauver(s, GroupeSubstitution, data, organisation_id)
+
+
+@router.put('/groupes/{identifiant}')
+def modifier_groupes(organisation_id: UUID, identifiant: UUID, data: NommeInput, s=Depends(service)):
+    return sauver(s, GroupeSubstitution, data, organisation_id, identifiant, 'id_groupe')
+
+
+@router.get('/modes')
+def lister_modes(organisation_id: UUID, s=Depends(service)):
+    return [asdict(x) for x in s.repo.lister(ModeDelivrance, organisation_id)]
+
+
+@router.post('/modes', status_code=201)
+def creer_modes(organisation_id: UUID, data: NommeInput, s=Depends(service)):
+    return sauver(s, ModeDelivrance, data, organisation_id)
+
+
+@router.put('/modes/{identifiant}')
+def modifier_modes(organisation_id: UUID, identifiant: UUID, data: NommeInput, s=Depends(service)):
+    return sauver(s, ModeDelivrance, data, organisation_id, identifiant, 'id_mode')
+
+
+class CompositionProduitInput(Input):
+    principe_id: UUID
+    actif: bool = True
+    dosage: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+@router.post('/produits/{identifiant}/compositions', status_code=201)
+def creer_composition(organisation_id: UUID, identifiant: UUID, data: CompositionProduitInput, s=Depends(service)):
+    return executer(lambda: asdict(s.enregistrer(CompositionProduit(organisation_id=organisation_id, produit_id=identifiant, **data.model_dump()))))
+
+
+@router.put('/compositions/{identifiant}')
+def modifier_composition(organisation_id: UUID, identifiant: UUID, data: CompositionProduitInput, s=Depends(service)):
+    def action():
+        old = s.obtenir(CompositionProduit, identifiant, organisation_id)
+        return asdict(s.enregistrer(CompositionProduit(organisation_id=organisation_id, produit_id=old.produit_id, id_composition=identifiant, **data.model_dump())))
+    return executer(action)
+
+
+class ClassificationProduitInput(Input):
+    classe_id: UUID
+    actif: bool = True
+
+
+@router.post('/produits/{identifiant}/classifications', status_code=201)
+def creer_classification(organisation_id: UUID, identifiant: UUID, data: ClassificationProduitInput, s=Depends(service)):
+    return executer(lambda: asdict(s.enregistrer(ClassificationProduit(organisation_id=organisation_id, produit_id=identifiant, **data.model_dump()))))
+
+
+@router.put('/classifications/{identifiant}')
+def modifier_classification(organisation_id: UUID, identifiant: UUID, data: ClassificationProduitInput, s=Depends(service)):
+    def action():
+        old = s.obtenir(ClassificationProduit, identifiant, organisation_id)
+        return asdict(s.enregistrer(ClassificationProduit(organisation_id=organisation_id, produit_id=old.produit_id, id_classification=identifiant, **data.model_dump())))
+    return executer(action)
+
+
+class SubstitutionProduitInput(Input):
+    groupe_id: UUID
+    actif: bool = True
+
+
+@router.post('/produits/{identifiant}/substitutions', status_code=201)
+def creer_substitution(organisation_id: UUID, identifiant: UUID, data: SubstitutionProduitInput, s=Depends(service)):
+    return executer(lambda: asdict(s.enregistrer(SubstitutionProduit(organisation_id=organisation_id, produit_id=identifiant, **data.model_dump()))))
+
+
+@router.put('/substitutions/{identifiant}')
+def modifier_substitution(organisation_id: UUID, identifiant: UUID, data: SubstitutionProduitInput, s=Depends(service)):
+    def action():
+        old = s.obtenir(SubstitutionProduit, identifiant, organisation_id)
+        return asdict(s.enregistrer(SubstitutionProduit(organisation_id=organisation_id, produit_id=old.produit_id, id_substitution=identifiant, **data.model_dump())))
     return executer(action)
