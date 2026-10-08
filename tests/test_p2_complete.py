@@ -305,3 +305,17 @@ def test_csv_structure_invalide_signalee(raw_client,account,content):
         assert r.status_code==201
         report=c.get(root(a)+f'/imports/{r.json()["id_import"]}').json()
         assert report['compteurs']=={'INVALIDE':1} and 'Nombre de champs' in report['items'][0]['erreurs'][0]
+
+
+def test_conseils_recherche_pagination_et_options_de_reprise(raw_client,account):
+    c,a=raw_client,account;cat,data,prod,pid=setup(c,a)
+    content='CIP;Description;PrixVente\n0000001;été premier;12\n0000002;été deuxième;15\n0000003;troisième;20\n'
+    job=preview(c,a,content)
+    config={'mode':'catalogue','devise':'xaf','categorie_id':cat['id_categorie'],'conditionnement_libelle':'UNITÉ EXPLICITE'}
+    assert c.post(root(a)+f'/imports/{job["id_import"]}/lots',json=config).status_code==200
+    advice=c.get(root(a)+'/conseils',params={'q':'été','page':2,'page_size':1}).json()
+    assert advice['total']==2 and len(advice['items'])==1 and advice['items'][0]['designation'].startswith('ÉTÉ')
+    assert c.get(root(a)+'/conseils',params={'q':'0000003'}).json()['total']==1
+    options=c.get(root(a)+f'/imports/{job["id_import"]}').json()['options']
+    assert options=={'mode':'catalogue','devise':'XAF','enrichir_designation':False,'categorie_id':cat['id_categorie'],'conditionnement_libelle':'UNITÉ EXPLICITE'}
+    assert c.post(root(a)+f'/imports/{job["id_import"]}/lots',json={**config,'mode':'conseils'}).status_code==422
