@@ -54,7 +54,7 @@ with sync_playwright() as p:
     # Conflicting periods keep the popup and user input.
     page.locator('#p2-tarif-produit').click();fill(tarif,{'valeur':'150','devise':'XAF','debut':'2026-10-01'});tarif.get_by_role('button',name='Enregistrer',exact=True).click();expect(tarif.locator('[role="alert"]')).to_contain_text('Chevauchement');expect(tarif.locator('[name="valeur"]')).to_have_value('150')
     page.once('dialog',lambda d:d.accept());tarif.get_by_role('button',name='Annuler',exact=True).click()
-    page.locator('#p2-tab-tarification').click();page.locator('#p2-tarif-type').select_option('produits');expect(page.locator('#p2-tarif-history tr')).to_have_count(1);page.locator('#p2-tarif-history button').click();cloture=page.locator('#p2-cloture-modal');fill(cloture,{'fin':'2026-12-31'});save(cloture)
+    page.locator('#p2-tab-tarification').click();page.locator('#p2-tarif-type').select_option('produits');expect(page.locator('#p2-tarif-history tr')).to_have_count(1);expect(page.locator('#p2-tarif-history')).to_contain_text('140.0000');page.locator('#p2-tarif-history button').click();cloture=page.locator('#p2-cloture-modal');fill(cloture,{'fin':'2026-12-31'});save(cloture)
     new_tarif('#p2-tarif-produit',{'valeur':'150','devise':'XAF','debut':'2027-01-01'});page.locator('#p2-tab-tarification').click();page.locator('#p2-tarif-load').click();expect(page.locator('#p2-tarif-history tr')).to_have_count(2)
     page.locator('#p2-tab-tarification').click();shot('p2-tarification-historique.png');page.locator('#p2-tab-produits').click();page.locator('#p2-prix-date').fill('2027-01-01');page.locator('#p2-prix-refresh').click();expect(page.locator('#p2-prix-resultat')).to_contain_text('177.00 XAF TTC')
     shot('p2-fiche-composition-prix.png')
