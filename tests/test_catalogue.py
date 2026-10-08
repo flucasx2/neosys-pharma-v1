@@ -307,3 +307,16 @@ def test_recherche_sql_litterale_references_secondaires_et_resume_unique(raw_cli
     assert ids == sorted([prod['id_produit'], other['id_produit']])
     blank = next(x for x in c.get(root(a)+'/produits').json()['items'] if x['id_produit'] == other['id_produit'])
     assert blank['reference'] is None and blank['forme'] is None and blank['laboratoire'] is None
+
+
+def test_reference_affichee_appartient_au_conditionnement_affiche(raw_client, account):
+    c, a = raw_client, account; grant(c, a); login(c, a)
+    cat, data, prod = basic(c, a)
+    second = post(c, a, f'/produits/{prod["id_produit"]}/conditionnements', {'code': 'B60', 'libelle': 'Boîte de 60'})
+    post(c, a, f'/conditionnements/{second["id_conditionnement"]}/references', {'type_reference': 'CIP13', 'valeur': 'SECONDAIRE'})
+    result = c.get(root(a)+'/produits', params={'q': 'secondaire'}).json()
+    assert result['total'] == 1
+    assert result['items'][0]['conditionnement'] == 'Boîte de 20'
+    assert result['items'][0]['reference'] is None  # Never pair B60's reference with B20.
+    detail = c.get(root(a)+f'/produits/{prod["id_produit"]}').json()
+    assert detail['conditionnements'][1]['references'][0]['valeur'] == 'SECONDAIRE'

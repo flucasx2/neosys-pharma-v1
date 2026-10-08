@@ -50,8 +50,8 @@ class SqlAlchemyCatalogueRepository:
             func.count().over(partition_by=c.produit_id).label('nombre'),
             func.row_number().over(partition_by=c.produit_id, order_by=(c.actif.desc(), c.code, c.id_conditionnement)).label('rang')
         ).where(c.organisation_id == organisation_id, c.produit_id.in_(page_ids)).subquery()
-        refs = select(c.produit_id, r.valeur, r.type_reference,
-            func.row_number().over(partition_by=c.produit_id, order_by=(r.actif.desc(), c.actif.desc(), c.code, r.type_reference, r.valeur, r.id_reference)).label('rang')
+        refs = select(r.conditionnement_id, r.valeur, r.type_reference,
+            func.row_number().over(partition_by=r.conditionnement_id, order_by=(r.actif.desc(), r.type_reference, r.valeur, r.id_reference)).label('rang')
         ).join(c, and_(c.id_conditionnement == r.conditionnement_id, c.organisation_id == r.organisation_id)).where(r.organisation_id == organisation_id, c.produit_id.in_(page_ids)).subquery()
         query = select(p.id_produit, p.nom, p.actif,
             CategorieProduitModel.nom.label('categorie'), FormePharmaceutiqueModel.nom.label('forme'), LaboratoireModel.nom.label('laboratoire'),
@@ -60,7 +60,7 @@ class SqlAlchemyCatalogueRepository:
         ).join(CategorieProduitModel, and_(CategorieProduitModel.id_categorie == p.categorie_id, CategorieProduitModel.organisation_id == p.organisation_id))
         for model, ident in ((FormePharmaceutiqueModel, p.forme_id), (LaboratoireModel, p.laboratoire_id)):
             query = query.outerjoin(model, and_(next(iter(model.__table__.primary_key.columns)) == ident, model.organisation_id == p.organisation_id))
-        query = query.outerjoin(packs, and_(packs.c.produit_id == p.id_produit, packs.c.rang == 1)).outerjoin(refs, and_(refs.c.produit_id == p.id_produit, refs.c.rang == 1))
+        query = query.outerjoin(packs, and_(packs.c.produit_id == p.id_produit, packs.c.rang == 1)).outerjoin(refs, and_(refs.c.conditionnement_id == packs.c.id_conditionnement, refs.c.rang == 1))
         rows = self.session.execute(query.where(*filtres).order_by(p.nom, p.id_produit).limit(taille).offset((page - 1) * taille)).mappings()
         return {'items': [dict(row) for row in rows], 'total': total, 'page': page, 'page_size': taille}
 
