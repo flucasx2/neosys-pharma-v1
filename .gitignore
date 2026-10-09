@@ -37,3 +37,5 @@ qa/
 # Système
 .DS_Store
 Thumbs.db
+
+/backups/
