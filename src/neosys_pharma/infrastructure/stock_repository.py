@@ -1,11 +1,22 @@
 """Transactions P3 : un verrou d'organisation commun évite allocations et snapshots concurrents."""
 from uuid import UUID
+from unicodedata import normalize
 from sqlalchemy import select, func, update
 from neosys_pharma.infrastructure.stock_models import MouvementStockModel
 from neosys_pharma.infrastructure.organisation_models import OrganisationModel
 
 class StockRepository:
-    def __init__(self,session): self.session=session
+    def __init__(self,session):
+        self.session=session
+        if session.get_bind().dialect.name=='sqlite':
+            session.connection().connection.driver_connection.create_function('stock_upper',1,lambda value:normalize('NFC',value).upper() if value is not None else None,deterministic=True)
+
+    def upper(self,value):
+        return func.stock_upper(value) if self.session.get_bind().dialect.name=='sqlite' else func.upper(value)
+
+    @staticmethod
+    def terme(value):return normalize('NFC',value.strip()).upper()
+
 
     def verrouiller(self,org):
         # SQLite : verrou d'écriture (tests). PostgreSQL : verrou de ligne transactionnel.

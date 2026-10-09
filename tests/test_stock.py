@@ -308,3 +308,67 @@ def test_concurrence_postgresql_mutations_et_double_envoi(raw_client,account,kin
         assert results==['insuffisant','ok']
         source=next(r for r in stocks(c,a) if r['emplacement_id']==str(a['location']));assert source['physique']==3 and source['reserve']==0
         if kind=='TRANSFERT_INTERNE':assert sum(r['physique'] for r in stocks(c,a))==10
+
+
+def test_migration_p3_additive_retour_p2_preserve_catalogue_et_permissions(tmp_path,monkeypatch):
+    import os
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import create_engine,inspect
+    from neosys_pharma.infrastructure.config import get_settings
+    from neosys_pharma.infrastructure.organisation_repository import SqlAlchemyOrganisationRepository
+    from neosys_pharma.infrastructure.catalogue_repository import SqlAlchemyCatalogueRepository
+    from neosys_pharma.application.catalogue_service import CatalogueService
+    from neosys_pharma.domain.organisation.entities import Organisation,Site,Emplacement
+    from neosys_pharma.domain.organisation.securite import Utilisateur
+    from neosys_pharma.domain.catalogue import CategorieProduit,Produit,Conditionnement,ReferenceProduit,TypeReference
+    from neosys_pharma.infrastructure.securite_models import PermissionModel
+    from neosys_pharma.infrastructure.catalogue_models import ProduitModel
+    url=os.getenv('TEST_MIGRATION_DATABASE_URL',f'sqlite:///{tmp_path / "p3-migration.db"}')
+    monkeypatch.setenv('DATABASE_URL',url);get_settings.cache_clear();cfg=Config('alembic.ini');engine=None
+    try:
+        command.upgrade(cfg,'6bc8179d433e');engine=create_engine(url)
+        with Session(engine) as s:
+            organisation=Organisation(nom_commercial='Migration P3',raison_sociale='Migration P3');site=Site(organisation_id=organisation.id_organisation,code='P3',nom='Site P3');location=Emplacement(site_id=site.id_site,code='R',nom='Réserve P3');user=Utilisateur(organisation_id=organisation.id_organisation,identifiant='migration-p3',nom='Utilisateur migration P3')
+            orgrepo=SqlAlchemyOrganisationRepository(s)
+            for x in (organisation,site,location):orgrepo.ajouter(x)
+            SqlAlchemySecuriteRepository(s).ajouter(user);s.commit()
+            catalogue=CatalogueService(SqlAlchemyCatalogueRepository(s));cat=CategorieProduit(organisation_id=organisation.id_organisation,code='ÉTÉ',nom='Catégorie existante');catalogue.enregistrer(cat)
+            produit=Produit(organisation_id=organisation.id_organisation,nom='Produit existant',categorie_id=cat.id_categorie,description='Commentaire historique en casse naturelle.');pack=Conditionnement(organisation_id=organisation.id_organisation,produit_id=produit.id_produit,code='B20',libelle='Boîte existante');catalogue.enregistrer(produit,nouveau=True,premier_conditionnement=pack)
+            catalogue.enregistrer(ReferenceProduit(organisation_id=organisation.id_organisation,conditionnement_id=pack.id_conditionnement,type_reference=TypeReference.HISTORIQUE,valeur='00MixedCase-P3'))
+        command.upgrade(cfg,'head');command.check(cfg)
+        with Session(engine) as s:
+            assert s.scalar(select(func.count()).select_from(StockEmplacementModel))==0
+            assert s.scalar(select(func.count()).select_from(RolePermissionModel).where(RolePermissionModel.permission_id.in_([permission_id(p) for p,n in P3_PERMISSIONS])))==0
+            service=StockService(s,organisation.id_organisation,user.id_utilisateur,lambda *args:None)
+            l=service.operation(uuid4(),'LOT',{},lambda:service.creer_lot({'conditionnement_id':pack.id_conditionnement,'numero':None,'peremption':None}))
+            service.operation(uuid4(),'ENTREE',{},lambda:service.entree({'lot_id':l['id'],'emplacement_id':location.id_emplacement,'quantite':2,'origine':'Migration isolée','justification':'Vérification trace'}))
+            assert s.scalar(select(func.count()).select_from(MouvementStockModel))==1
+            with pytest.raises(DBAPIError):s.execute(text('DELETE FROM stock_mouvements'));s.commit()
+            s.rollback()
+        command.downgrade(cfg,'6bc8179d433e');assert 'stock_mouvements' not in inspect(engine).get_table_names()
+        with Session(engine) as s:
+            assert s.get(ProduitModel,produit.id_produit).description=='Commentaire historique en casse naturelle.'
+            assert s.scalar(select(PermissionModel).where(PermissionModel.code=='catalogue.consulter')) is not None
+        command.upgrade(cfg,'head');command.check(cfg)
+        with Session(engine) as s:
+            assert s.scalar(select(func.count()).select_from(StockEmplacementModel))==0
+            from neosys_pharma.infrastructure.catalogue_models import ReferenceProduitModel
+            assert s.scalar(select(ReferenceProduitModel.valeur).where(ReferenceProduitModel.conditionnement_id==pack.id_conditionnement))=='00MixedCase-P3'
+    finally:
+        if engine:engine.dispose()
+        get_settings.cache_clear()
+
+
+def test_recherche_unicode_et_identifiants_externes_non_transformes(raw_client,account):
+    from neosys_pharma.infrastructure.catalogue_models import ProduitModel,ConditionnementModel
+    c,a=raw_client,account;pack=init(c,a);l=lot(c,a,pack,'LoT-é-œ-%_');entry(c,a,l['id'],1)
+    gen=db(c);s=next(gen)
+    try:
+        product=s.get(ProduitModel,s.get(ConditionnementModel,UUID(pack)).produit_id);product.nom='ÉTÉ ŒUF';s.commit()
+    finally:gen.close()
+    assert c.get(root(a)+'/stocks',params={'q':'e\u0301te\u0301 œuf'}).json()['total']==1
+    assert c.get(root(a)+'/stocks',params={'q':'lot-É-Œ-%_'}).json()['total']==1
+    assert c.get(root(a)+'/stocks',params={'q':'ABSENT%'}).json()['total']==0
+    assert stocks(c,a)[0]['lot']=='LoT-é-œ-%_'
+    assert c.get(root(a)+'/conditionnements',params={'q':'été œuf'}).json()['total']==1

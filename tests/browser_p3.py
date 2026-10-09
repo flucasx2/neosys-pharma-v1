@@ -16,7 +16,13 @@ with sync_playwright() as p:
     def fields(values):
         for k,v in values.items():modal().locator(f'[name="{k}"]').fill(str(v))
     def save():
-        m=modal();m.get_by_role('button',name='Enregistrer',exact=True).click();expect(m).not_to_be_visible();expect(page.locator('#stock-message')).to_contain_text('Enregistrement réussi')
+        m=modal();m.get_by_role('button',name='Enregistrer',exact=True).click()
+        try:expect(m).not_to_be_visible()
+        except AssertionError:
+            print('P3 modale restée ouverte :',m.inner_text())
+            print('P3 validité des champs :',m.evaluate('(d)=>[...d.querySelectorAll("input,select,textarea")].filter(x=>!x.checkValidity()).map(x=>({name:x.name,message:x.validationMessage,value:x.value}))'))
+            page.screenshot(path='qa/p3-erreur-parcours.png',full_page=True);raise
+        expect(page.locator('#stock-message')).to_contain_text('Enregistrement réussi')
     def package():
         modal().locator('[name="recherche"]').fill('9912345');expect(modal().locator('[name="conditionnement_id"] option')).to_have_count(2);modal().locator('[name="conditionnement_id"]').select_option(f['p3_pack'])
     def shot(name):page.evaluate('document.activeElement?.blur();window.scrollTo({top:0,behavior:"instant"})');page.screenshot(path='qa/'+name,full_page=True)
@@ -25,7 +31,7 @@ with sync_playwright() as p:
     login('stock.qa');expect(page.locator('#stock-count')).to_have_text('0 résultat(s)');page.on('request',lambda r:documents.append(r.url) if r.resource_type=='document' else None)
     page.locator('#stock-actions').get_by_role('button',name='+ Nouveau lot',exact=True).click();package();fields({'numero':'LOT-P3-01','peremption':str(date.today()+timedelta(days=90))});shot('p3-modal-lot.png');save();expect(page.locator('#stock-count')).to_have_text('0 résultat(s)')
     page.locator('#stock-actions').get_by_role('button',name='+ Entrée / correction',exact=True).click();package();expect(modal().locator('[name="lot_id"] option')).to_have_count(2);lotid=modal().locator('[name="lot_id"] option').nth(1).get_attribute('value');modal().locator('[name="lot_id"]').select_option(lotid)
-    fields({'quantite':10,'origine':'Entrée physique de recette','justification':'Dix boîtes constatées'});save();expect(page.locator('#stock-rows tr')).to_have_count(1);expect(page.locator('#stock-rows tr td').nth(3)).to_have_text('10')
+    modal().locator('[name="emplacement_id"]').select_option(f['location_id']);fields({'quantite':10,'origine':'Entrée physique de recette','justification':'Dix boîtes constatées'});save();expect(page.locator('#stock-rows tr')).to_have_count(1);expect(page.locator('#stock-rows tr td').nth(3)).to_have_text('10')
     page.locator('#stock-rows').get_by_role('button',name='Réserver',exact=True).click();fields({'quantite':3,'origine':'Préparation sans vente'});save();expect(page.locator('#stock-rows tr td').nth(4)).to_have_text('3');expect(page.locator('#stock-rows tr td').nth(5)).to_have_text('7');shot('p3-stocks-reserves.png')
     tab('reservations');page.locator('#stock-rows').get_by_role('button',name='Libérer').click();save();tab('stocks');expect(page.locator('#stock-rows tr td').nth(4)).to_have_text('0')
     page.locator('#stock-rows').get_by_role('button',name='Sortir',exact=True).click();fields({'quantite':99,'origine':'Test insuffisance'});m=modal();m.get_by_role('button',name='Enregistrer',exact=True).click();expect(m.locator('[role="alert"]')).to_contain_text('insuffisant');expect(m.locator('[name="quantite"]')).to_have_value('99');page.once('dialog',lambda d:d.accept());m.get_by_role('button',name='Annuler',exact=True).click();expect(m).not_to_be_visible()

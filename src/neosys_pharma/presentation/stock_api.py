@@ -148,8 +148,8 @@ def stocks(request:Request,q:str=Query('',max_length=200),page:int=Query(1,ge=1)
     query=select(StockEmplacementModel).join(LotModel,LotModel.id==StockEmplacementModel.lot_id).join(ConditionnementModel,ConditionnementModel.id_conditionnement==LotModel.conditionnement_id).join(ProduitModel,ProduitModel.id_produit==ConditionnementModel.produit_id).where(StockEmplacementModel.organisation_id==s.org,StockEmplacementModel.emplacement_id.in_(allowed))
     if conditionnement_id:query=query.where(LotModel.conditionnement_id==conditionnement_id)
     if q:
-        refs=select(ReferenceProduitModel.id_reference).where(ReferenceProduitModel.conditionnement_id==ConditionnementModel.id_conditionnement,ReferenceProduitModel.valeur.contains(q,autoescape=True)).exists()
-        query=query.where(or_(func.upper(ProduitModel.nom).contains(q.upper(),autoescape=True),LotModel.numero.contains(q,autoescape=True),refs))
+        refs=select(ReferenceProduitModel.id_reference).where(ReferenceProduitModel.conditionnement_id==ConditionnementModel.id_conditionnement,s.repo.upper(ReferenceProduitModel.valeur).contains(s.repo.terme(q),autoescape=True)).exists()
+        query=query.where(or_(s.repo.upper(ProduitModel.nom).contains(s.repo.terme(q),autoescape=True),s.repo.upper(LotModel.numero).contains(s.repo.terme(q),autoescape=True),refs))
     total,rows=s.repo.paginer(query.order_by(ProduitModel.nom,StockEmplacementModel.id),page,page_size)
     result=[]
     for b in rows:
@@ -159,9 +159,17 @@ def stocks(request:Request,q:str=Query('',max_length=200),page:int=Query(1,ge=1)
     return {'items':result,'total':total,'page':page,'page_size':page_size}
 
 @router.get('/lots')
-def lots(conditionnement_id:UUID,page:int=Query(1,ge=1),page_size:int=Query(25,ge=1,le=100),s=Depends(service)):
-    execute(lambda:s.conditionnement(conditionnement_id));total,rows=s.repo.paginer(select(LotModel).where(LotModel.organisation_id==s.org,LotModel.conditionnement_id==conditionnement_id).order_by(LotModel.peremption,LotModel.id),page,page_size)
-    return {'items':[serial(x) for x in rows],'total':total}
+def lots(conditionnement_id:UUID,q:str=Query('',max_length=100),selected_lot_id:UUID | None=None,page:int=Query(1,ge=1),page_size:int=Query(25,ge=1,le=100),s=Depends(service)):
+    execute(lambda:s.conditionnement(conditionnement_id))
+    query=select(LotModel).where(LotModel.organisation_id==s.org,LotModel.conditionnement_id==conditionnement_id)
+    if q:query=query.where(s.repo.upper(LotModel.numero).contains(s.repo.terme(q),autoescape=True))
+    total,rows=s.repo.paginer(query.order_by(LotModel.peremption,LotModel.id),page,page_size)
+    selection=None
+    if selected_lot_id:
+        selected=execute(lambda:s.obtenir(LotModel,selected_lot_id))
+        if selected.conditionnement_id!=conditionnement_id:raise HTTPException(403,'Lot d’un autre conditionnement.')
+        selection=serial(selected)
+    return {'items':[serial(x) for x in rows],'total':total,'selection':selection}
 
 @router.post('/lots',status_code=201)
 def lot_creer(data:LotInput,s=Depends(service)):return mutate(s,data,'LOT',lambda:s.creer_lot(data.model_dump()))
@@ -324,8 +332,8 @@ POLICY.update({'conditionnements':POLICY['contextes'],'reservations':('stock.res
 def conditionnements(q:str=Query('',max_length=200),page:int=Query(1,ge=1),page_size:int=Query(20,ge=1,le=100),s=Depends(service)):
     query=select(ConditionnementModel).join(ProduitModel,ProduitModel.id_produit==ConditionnementModel.produit_id).where(ConditionnementModel.organisation_id==s.org,ConditionnementModel.actif.is_(True),ProduitModel.actif.is_(True))
     if q:
-        refs=select(ReferenceProduitModel.id_reference).where(ReferenceProduitModel.conditionnement_id==ConditionnementModel.id_conditionnement,ReferenceProduitModel.valeur.contains(q,autoescape=True)).exists()
-        query=query.where(or_(func.upper(ProduitModel.nom).contains(q.upper(),autoescape=True),refs))
+        refs=select(ReferenceProduitModel.id_reference).where(ReferenceProduitModel.conditionnement_id==ConditionnementModel.id_conditionnement,s.repo.upper(ReferenceProduitModel.valeur).contains(s.repo.terme(q),autoescape=True)).exists()
+        query=query.where(or_(s.repo.upper(ProduitModel.nom).contains(s.repo.terme(q),autoescape=True),refs))
     total,rows=s.repo.paginer(query.order_by(ProduitModel.nom,ConditionnementModel.id_conditionnement),page,page_size)
     return {'items':[{'id':str(x.id_conditionnement),'nom':s.s.get(ProduitModel,x.produit_id).nom+' · '+x.libelle} for x in rows],'total':total}
 
