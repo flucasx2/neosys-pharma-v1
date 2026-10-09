@@ -50,7 +50,7 @@ function stockPackFields(form,row=null){
  return {search,pack};
 }
 function stockPackInitialize(entry,rows,change){
- const form=entry.form,search=form.elements.recherche,pack=form.elements.conditionnement_id,product=form.elements.produit_id,detail=form.querySelector(".stock-picker-detail"),previous=form.querySelector(".stock-picker-previous"),next=form.querySelector(".stock-picker-next");let generation=0,timer,page=1;
+ const form=entry.form,search=form.elements.recherche,pack=form.elements.conditionnement_id,product=form.elements.produit_id,detail=form.querySelector(".stock-picker-detail"),previous=form.querySelector(".stock-picker-previous"),next=form.querySelector(".stock-picker-next");let generation=0,timer,page=1;previous.disabled=next.disabled=true;
  const select=()=>{const option=pack.selectedOptions[0];product.value=option?.dataset.produitId||"";detail.textContent=pack.value?option.text:"Choisir un produit et son conditionnement dans les résultats.";change?.();};
  const load=async()=>{const version=++generation,q=search.value.trim();previous.disabled=next.disabled=true;
   if([...q].length<3){pack.replaceChildren(new Option("Saisir au moins 3 caractères",""));product.value="";detail.textContent="Saisir au moins 3 caractères pour rechercher.";change?.();return;}
@@ -62,7 +62,7 @@ function stockPackInitialize(entry,rows,change){
  };
  search.addEventListener("input",()=>{clearTimeout(timer);generation++;page=1;pack.replaceChildren(new Option("Recherche à actualiser",""));product.value="";previous.disabled=next.disabled=true;change?.();timer=setTimeout(load,250);});
  previous.addEventListener("click",()=>{page--;load();});next.addEventListener("click",()=>{page++;load();});pack.addEventListener("change",select);
- if(!pack.value)load();else {select();if(!product.value){const selected=pack.value;stockRequest("/conditionnements/"+selected).then(row=>{if(!entry.dialog.open||pack.value!==selected||search.value)return;const option=pack.selectedOptions[0];option.text=row.nom;option.dataset.produitId=row.produit_id;select();}).catch(e=>{if(entry.dialog.open){entry.error.textContent=e.message;entry.error.hidden=false;}});}}
+ if(!pack.value)load();else {select();if(!product.value){const selected=pack.value;stockRequest("/conditionnements/"+selected).then(row=>{if(!entry.dialog.open||pack.value!==selected||search.value)return;const untouched=!creationDialogDirty(entry),option=pack.selectedOptions[0];option.text=row.nom;option.dataset.produitId=row.produit_id;select();if(untouched)entry.initial=creationDialogSnapshot(entry.form);}).catch(e=>{if(entry.dialog.open){entry.error.textContent=e.message;entry.error.hidden=false;}});}}
 }
 function stockLocationField(form,name="emplacement_id",label="Emplacement",selected="",dest=false){const input=stockField(form,name,label,"select");stockOptions(input,dest?stockState.context.destinations:stockState.context.emplacements,selected||(!dest?(stockState.context.emplacements.some(x=>x.id===$("emplacements").value)?$("emplacements").value:stockState.context.emplacements[0]?.id):""));return input;}
 function stockLotSearch(entry){let timer;entry.form.elements.recherche_lot?.addEventListener("input",()=>{clearTimeout(timer);timer=setTimeout(()=>stockLots(entry),250);});}
