@@ -22,7 +22,12 @@ def csv_export(report):
     metadata=['organisation_id','site_id','reference','genere_le']
     w.writerow(metadata+[c['key'] for c in report['columns']])
     for row in report['items']:
-        w.writerow([report[k] for k in metadata]+[row.get(c['key']) if isinstance(row.get(c['key']),(int,float,Decimal)) else csv_safe(row.get(c['key'])) for c in report['columns']])
+        cells=[]
+        for c in report['columns']:
+            value=row.get(c['key'])
+            if value is not None and c['key'] in ('cout_unitaire','montant'):value=Decimal(value)
+            cells.append(value if isinstance(value,(int,float,Decimal)) else csv_safe(value))
+        w.writerow([report[k] for k in metadata]+cells)
     return ('\ufeff'+out.getvalue()).encode('utf-8')
 
 def letter(index):

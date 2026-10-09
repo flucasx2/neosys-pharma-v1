@@ -136,3 +136,10 @@ def test_peremption_absente_uniquement_si_suivi_requis(raw_client,account):
     c,a=raw_client,account;pack=init(c,a);entry(c,a,lot(c,a,pack)['id'],3)
     assert report(c,a,'peremptions')['total']==0
     assert report(c,a,'valorisation')['synthese']['total_valorisation'] is None
+    from neosys_pharma.infrastructure.catalogue_models import ConditionnementModel,ProduitModel
+    from uuid import UUID
+    gen=db(c);session=next(gen)
+    try:category=session.get(ProduitModel,session.get(ConditionnementModel,UUID(pack)).produit_id).categorie_id
+    finally:gen.close()
+    response=c.put(f'/api/catalogue/organisations/{a["org"]}/categories/{category}',json={'code':'MED','nom':'Médicaments','gestion_lot':True,'gestion_peremption':True,'fefo':True});assert response.status_code==200,response.text
+    rows=report(c,a,'peremptions')['items'];assert len(rows)==1 and rows[0]['etat_peremption']=='DATE ABSENTE' and rows[0]['peremption'] is None
