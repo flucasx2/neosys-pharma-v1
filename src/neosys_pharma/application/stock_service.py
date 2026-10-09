@@ -273,12 +273,21 @@ class StockService:
 
     def inventaire_detail(self,inv,reveal=False,manage=False,selected_zone=None,line_page=1,line_size=25):
         result={**serial(inv),'zones':[]}
+        if inv.statut=='ANNULE':
+            audit=self.s.scalar(select(OperationStockModel).where(OperationStockModel.organisation_id==self.org,OperationStockModel.resultat['id'].as_string()==str(inv.id),OperationStockModel.resultat['statut'].as_string()=='ANNULE').order_by(OperationStockModel.date.desc()))
+            if audit:result['annulation']=audit.resultat.get('annulation')
         first=True
         if not reveal:result.pop('snapshot_sequence',None)
         for zone in self.lignes(ZoneInventaireModel,inventaire_id=inv.id):
             participants=self.lignes(ParticipantZoneInventaireModel,zone_id=zone.id)
-            if not reveal and not manage and not any(x.utilisateur_id==self.user for x in participants):continue
-            self.emplacement(zone.emplacement_id,'stock.inventaire.valider' if reveal else 'stock.inventaire.gerer' if manage else 'stock.inventaire.compter')
+            assigned=any(x.utilisateur_id==self.user for x in participants)
+            effective=None
+            for permission,eligible in [('stock.inventaire.valider',reveal),('stock.inventaire.gerer',manage),('stock.inventaire.compter',assigned)]:
+                if not eligible:continue
+                try:self.emplacement(zone.emplacement_id,permission);effective=permission;break
+                except PermissionError:pass
+            if effective is None:continue
+            zone_reveal=effective=='stock.inventaire.valider'
             rows=[]
             active=(zone.id==selected_zone) if selected_zone else first
             first=False
@@ -287,10 +296,11 @@ class StockService:
             for line in list(self.s.scalars(query)) if active else []:
                 b=self.obtenir(StockEmplacementModel,line.stock_id);lot=self.obtenir(LotModel,b.lot_id);pack=self.s.get(ConditionnementModel,lot.conditionnement_id);prod=self.s.get(ProduitModel,pack.produit_id)
                 row={**serial(line),'produit':prod.nom,'conditionnement':pack.libelle,'lot':lot.numero,'peremption':str(lot.peremption) if lot.peremption else None,'comptages':[serial(x) for x in self.lignes(ComptageInventaireModel,ligne_id=line.id)]}
-                if reveal:row['ecart_calcule']=self.ecart(line,inv) if line.compte is not None else None
+                if zone_reveal:row['ecart_calcule']=self.ecart(line,inv) if line.compte is not None else None
                 else:
                     for field in ('theorique','ecart','stock_id','comptage_sequence'):row.pop(field,None)
                     for c in row['comptages']:c.pop('sequence',None)
                 rows.append(row)
             result['zones'].append({**serial(zone),'participants':[serial(x) for x in participants],'lignes':rows,'total':total,'page':line_page if active else 1,'active':active})
+        if not any('theorique' in line for zone in result['zones'] for line in zone['lignes']):result.pop('snapshot_sequence',None)
         return result

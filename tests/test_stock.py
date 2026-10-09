@@ -245,6 +245,8 @@ def test_inventaire_multizone_pagine_et_contexte_consultation_restraint(raw_clie
     for n in range(31):
         l=lot(c,a,pack,'PAG-'+str(n));entry(c,a,l['id'],1)
         if n==0:entry(c,a,l['id'],2,a['denied'])
+    selected=c.get(root(a)+'/lots',params={'conditionnement_id':pack,'page_size':2,'selected_lot_id':l['id']}).json();assert len(selected['items'])==2 and selected['selection']['id']==l['id']
+    assert c.get(root(a)+'/lots',params={'conditionnement_id':pack,'q':'pag-30'}).json()['total']==1
     inv=post(c,a,'/inventaires',{'nom':'Inventaire complet','type':'COMPLET','zones':[{'nom':'Réserve','emplacement_id':str(a['location'])},{'nom':'Comptoir','emplacement_id':str(a['denied'])}]})
     assert sum(len(z['lignes']) for z in inv['zones'])==25
     assert sorted(z['total'] for z in inv['zones'])==[1,31]
@@ -278,6 +280,7 @@ def test_inventaires_ouverts_non_recouvrants_annulation_tracee_sans_variation(ra
     post(c,a,'/inventaires',{'nom':'Chevauchement','type':'COMPLET','zones':[{'nom':'Zone','emplacement_id':str(a['location'])}]},409)
     post(c,a,f'/inventaires/{inv["id"]}/annuler',{'justification':'Périmètre à reprendre'},200)
     assert stocks(c,a)[0]['physique']==10
+    audit=c.get(root(a)+f'/inventaires/{inv["id"]}').json()['annulation'];assert audit['justification']=='Périmètre à reprendre' and audit['auteur_id']==str(a['user'])
     assert inventory(c,a,pack)['statut']=='OUVERT'
     post(c,a,f'/inventaires/{inv["id"]}/valider',status=409)
     gen=db(c);s=next(gen)
@@ -372,3 +375,26 @@ def test_recherche_unicode_et_identifiants_externes_non_transformes(raw_client,a
     assert c.get(root(a)+'/stocks',params={'q':'ABSENT%'}).json()['total']==0
     assert stocks(c,a)[0]['lot']=='LoT-é-œ-%_'
     assert c.get(root(a)+'/conditionnements',params={'q':'été œuf'}).json()['total']==1
+
+
+def test_permission_validation_dun_autre_emplacement_ne_revele_pas_le_theorique(raw_client,account):
+    from neosys_pharma.domain.organisation.securite import Role,TypeRole,RolePermission
+    c,a=raw_client,account;pack=init(c,a);l=lot(c,a,pack);entry(c,a,l['id'],10);inv=inventory(c,a,pack)
+    gen=db(c);s=next(gen)
+    try:
+        role=s.scalar(select(RoleModel).where(RoleModel.code=='CATALOGUE'));s.execute(delete(RolePermissionModel).where(RolePermissionModel.role_id==role.id_role,RolePermissionModel.permission_id!=permission_id('stock.inventaire.gerer')))
+        repo=SqlAlchemySecuriteRepository(s);r=Role(organisation_id=a['org'],code='VALIDER_AILLEURS',nom='Valider ailleurs',type_role=TypeRole.PERSONNALISE);repo.ajouter(r);repo.ajouter(RolePermission(role_id=r.id_role,permission_id=permission_id('stock.inventaire.valider')))
+        aff=AffectationSite(utilisateur_id=a['user'],site_id=a['site'],date_debut=date.today()-timedelta(days=1));repo.ajouter(aff);repo.ajouter(AffectationRole(affectation_site_id=aff.id_affectation_site,role_id=r.id_role));repo.ajouter(AffectationEmplacement(affectation_site_id=aff.id_affectation_site,emplacement_id=a['denied']));s.commit()
+    finally:gen.close()
+    c.headers['X-Emplacement-ID']=str(a['location'])
+    response=c.get(root(a)+f'/inventaires/{inv["id"]}');assert response.status_code==200,response.text
+    assert 'theorique' not in response.json()['zones'][0]['lignes'][0] and 'snapshot_sequence' not in response.json()
+    post(c,a,f'/inventaires/{inv["id"]}/valider',status=403)
+
+
+def test_routes_actions_objets_refusees_sans_session_et_en_lecture_seule(raw_client,account):
+    c,a=raw_client,account;k=str(uuid4())
+    paths=[f'/reservations/{k}/liberer',f'/reservations/{k}/consommer',f'/transferts/{k}/valider',f'/transferts/{k}/expedier',f'/transferts/{k}/recevoir',f'/transferts/{k}/annuler',f'/zones/{k}/participants',f'/lignes-inventaire/{k}/comptages',f'/inventaires/{k}/valider',f'/inventaires/{k}/annuler']
+    for path in paths:assert c.post(root(a)+path,json={}).status_code==401
+    grant(c,a,('stock.consulter',));login(c,a)
+    for path in paths:assert c.post(root(a)+path,json={}).status_code==403

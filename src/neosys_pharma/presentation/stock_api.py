@@ -136,7 +136,7 @@ def contextes(request:Request,s=Depends(service)):
     for p in perms:locs.update(locations(s,p,current))
     destinations=select(EmplacementModel).join(SiteModel,SiteModel.id_site==EmplacementModel.site_id).where(SiteModel.organisation_id==s.org,EmplacementModel.actif.is_(True),SiteModel.actif.is_(True))
     # Seules les permissions du workflow transfert permettent le choix d'une destination intersite.
-    if not any(p.startswith('stock.transfert') or p=='stock.transferer' for p in perms):destinations=destinations.where(EmplacementModel.id_emplacement.in_(locs))
+    if not locs or not any(p.startswith('stock.transfert') or p=='stock.transferer' for p in perms):destinations=destinations.where(EmplacementModel.id_emplacement.in_(locs))
     return {'site_id':current,'utilisateur_id':s.user,'emplacements':[{'id':str(x.id_emplacement),'nom':x.nom,'site_id':str(x.site_id)} for x in s.s.scalars(select(EmplacementModel).where(EmplacementModel.id_emplacement.in_(locs)))],'destinations':[{'id':str(x.id_emplacement),'nom':x.nom,'site_id':str(x.site_id)} for x in s.s.scalars(destinations)]}
 
 
@@ -288,7 +288,7 @@ def inventaire_lire(inventaire_id:UUID,request:Request,zone_id:UUID | None=None,
             zone=s.obtenir(ZoneInventaireModel,zone_id)
             if zone.inventaire_id!=inv.id:raise PermissionError('Zone d’un autre inventaire.')
         result=s.inventaire_detail(inv,reveal,manage,zone_id,page,page_size)
-        if not result['zones']:raise PermissionError('Aucune zone affectée accessible.')
+        if not result['zones'] or (zone_id and not any(z['id']==str(zone_id) for z in result['zones'])):raise PermissionError('Aucune zone affectée accessible.')
         return result
     return execute(action)
 
@@ -317,7 +317,7 @@ def inventaire_annuler(inventaire_id:UUID,data:Justifie,s=Depends(service)):
     def action():
         inv=s.inventaire_scope(inventaire_id,'stock.inventaire.gerer')
         if inv.statut!='OUVERT':raise ConflitStock('Inventaire déjà clôturé.')
-        inv.statut='ANNULE';s.s.flush();return s.inventaire_detail(inv,manage=True)
+        inv.statut='ANNULE';s.s.flush();return {**s.inventaire_detail(inv,manage=True),'annulation':{'justification':data.justification,'auteur_id':str(s.user),'date':now().isoformat()}}
     return mutate(s,data,'ANNULER_INVENTAIRE:'+str(inventaire_id),action)
 
 @router.get('/motifs')
@@ -341,6 +341,7 @@ def conditionnements(q:str=Query('',max_length=200),page:int=Query(1,ge=1),page_
 def reservations(request:Request,statut:str | None=None,page:int=Query(1,ge=1),page_size:int=Query(25,ge=1,le=100),s=Depends(service)):
     allowed=locations(s,'stock.reserver',request.state.stock_site)
     query=select(ReservationStockModel).where(ReservationStockModel.organisation_id==s.org,select(AllocationReservationModel.id).join(StockEmplacementModel,StockEmplacementModel.id==AllocationReservationModel.stock_id).where(AllocationReservationModel.reservation_id==ReservationStockModel.id,StockEmplacementModel.emplacement_id.in_(allowed)).exists())
+    query=query.where(~select(AllocationReservationModel.id).join(StockEmplacementModel,StockEmplacementModel.id==AllocationReservationModel.stock_id).where(AllocationReservationModel.reservation_id==ReservationStockModel.id,StockEmplacementModel.emplacement_id.not_in(allowed)).exists())
     if statut:query=query.where(ReservationStockModel.statut==statut)
     total,rows=s.repo.paginer(query.order_by(ReservationStockModel.cree_le.desc(),ReservationStockModel.id),page,page_size)
     return {'items':[s.reservation_detail(x) for x in rows],'total':total}
