@@ -1,6 +1,7 @@
 from neosys_pharma.domain.catalogue import NatureMedicament, PrincipeActif, ClasseTherapeutique, GroupeSubstitution, ModeDelivrance, CompositionProduit, ClassificationProduit, SubstitutionProduit
 from neosys_pharma.infrastructure.catalogue_models import NatureMedicamentModel, PrincipeActifModel, ClasseTherapeutiqueModel, GroupeSubstitutionModel, ModeDelivranceModel, CompositionProduitModel, ClassificationProduitModel, SubstitutionProduitModel
 from contextlib import contextmanager
+from unicodedata import normalize
 from dataclasses import asdict, fields
 from sqlalchemy import select, func, or_, and_
 from neosys_pharma.domain.catalogue import CategorieProduit, FormePharmaceutique, Laboratoire, Produit, Conditionnement, ReferenceProduit
@@ -14,6 +15,11 @@ MODELES.update({NatureMedicament: NatureMedicamentModel,PrincipeActif: PrincipeA
 class SqlAlchemyCatalogueRepository:
     def __init__(self, session):
         self.session = session
+        if session.get_bind().dialect.name == "sqlite":
+            # SQLite built-in upper/lower only handle ASCII. This read-only SQL
+            # function keeps legacy accented labels searchable without rewriting them.
+            session.connection().connection.driver_connection.create_function(
+                "catalogue_upper", 1, lambda value: normalize("NFC", value).upper() if value is not None else None, deterministic=True)
 
     def entity(self, classe, row):
         return classe(**{f.name: getattr(row, f.name) for f in fields(classe)})
@@ -40,11 +46,12 @@ class SqlAlchemyCatalogueRepository:
         p, c, r = ProduitModel, ConditionnementModel, ReferenceProduitModel
         filtres = [p.organisation_id == organisation_id]
         if recherche.strip():
-            terme = recherche.strip().upper()
+            terme = normalize("NFC", recherche.strip()).upper()
+            upper = func.catalogue_upper if self.session.get_bind().dialect.name == "sqlite" else func.upper
             reference = select(r.id_reference).join(c, and_(c.id_conditionnement == r.conditionnement_id, c.organisation_id == r.organisation_id)).where(
                 c.produit_id == p.id_produit, c.organisation_id == organisation_id,
-                r.organisation_id == organisation_id, r.valeur.icontains(terme, autoescape=True)).exists()
-            filtres.append(or_(p.nom.icontains(terme, autoescape=True), reference))
+                r.organisation_id == organisation_id, upper(r.valeur).contains(terme, autoescape=True)).exists()
+            filtres.append(or_(upper(p.nom).contains(terme, autoescape=True), reference))
         total = self.session.scalar(select(func.count()).select_from(p).where(*filtres))
         page_ids = select(p.id_produit).where(*filtres).order_by(p.nom, p.id_produit).limit(taille).offset((page - 1) * taille)
         # Stable display representatives, not new business "principal" flags.
@@ -65,7 +72,12 @@ class SqlAlchemyCatalogueRepository:
             query = query.outerjoin(model, and_(next(iter(model.__table__.primary_key.columns)) == ident, model.organisation_id == p.organisation_id))
         query = query.outerjoin(packs, and_(packs.c.produit_id == p.id_produit, packs.c.rang == 1)).outerjoin(refs, and_(refs.c.conditionnement_id == packs.c.id_conditionnement, refs.c.rang == 1))
         rows = self.session.execute(query.where(*filtres).order_by(p.nom, p.id_produit).limit(taille).offset((page - 1) * taille)).mappings()
-        return {'items': [dict(row) for row in rows], 'total': total, 'page': page, 'page_size': taille}
+        items = [dict(row) for row in rows]
+        for item in items:
+            for key in ('nom', 'categorie', 'forme', 'laboratoire', 'conditionnement'):
+                if item[key] is not None:
+                    item[key] = normalize('NFC', item[key]).upper()
+        return {'items': items, 'total': total, 'page': page, 'page_size': taille}
 
     def enregistrer(self, entity):
         self.session.merge(MODELES[type(entity)](**asdict(entity)))

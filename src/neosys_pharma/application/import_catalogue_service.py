@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import re
+from unicodedata import normalize
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from uuid import uuid4
@@ -65,11 +66,13 @@ class ImportCatalogueService:
             for numero, raw in enumerate(lignes_csv(reader),1):
                 if numero>20000: raise ValueError('Limite de 20 000 lignes par fichier.')
                 data={x:(raw.get(mapping.get(x,'')) or '').strip() for x in COLONNES}
-                data['Description']=data['Description'].upper()
+                # Preserve the mapped source spelling in the report. Only the catalogue
+                # designation is normalized when an explicit write is made.
+                designation = normalize('NFC', data['Description']).upper()
                 errors=[]
                 if None in raw or any(v is None for v in raw.values()): errors.append("Nombre de champs incohérent avec l’en-tête CSV.")
                 if not re.fullmatch('[0-9]{7}',data['CIP']): errors.append('CIP7 : exactement sept chiffres, zéros initiaux conservés.')
-                if not data['Description'] or len(data['Description'])>200: errors.append('Désignation obligatoire, au plus 200 caractères.')
+                if not designation or len(designation)>200: errors.append('Désignation obligatoire, au plus 200 caractères.')
                 if len(data['DCI'])>2000: errors.append('DCI brute limitée à 2000 caractères.')
                 if data['CIP'] in seen: errors.append('CIP7 dupliqué dans le fichier.')
                 seen.add(data['CIP'])

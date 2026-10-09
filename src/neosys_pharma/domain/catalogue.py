@@ -2,10 +2,13 @@
 from dataclasses import dataclass, field
 from enum import StrEnum
 from uuid import UUID, uuid4
+from unicodedata import normalize
 
 
 def texte(value: str, maximum: int, *, code=True) -> str:
-    value = value.strip().upper() if code else value.strip()
+    # Short business labels use canonical accented uppercase. External identifiers
+    # and free text keep their original case and Unicode representation.
+    value = normalize("NFC", value.strip()).upper() if code else value.strip()
     if not value or len(value) > maximum:
         raise ValueError(f"Texte obligatoire, au plus {maximum} caractères.")
     return value
@@ -87,7 +90,7 @@ class Produit:
         if self.regime_tva_code:
             self.regime_tva_code = texte(self.regime_tva_code, 80)
         if self.description is not None:
-            self.description = self.description.strip().upper() or None
+            self.description = self.description.strip() or None
             if self.description and len(self.description) > 2000:
                 raise ValueError("Description trop longue.")
 

@@ -330,13 +330,8 @@ def upgrade() -> None:
         batch_op.create_foreign_key('fk_produit_mode_org', 'catalogue_modes', ['mode_delivrance_id', 'organisation_id'], ['id_mode', 'organisation_id'])
 
     bind = op.get_bind()
-    for table_name, pk, columns in (
-        ('catalogue_categories','id_categorie',('nom',)), ('catalogue_formes','id_forme',('nom',)),
-        ('catalogue_laboratoires','id_laboratoire',('nom',)), ('catalogue_produits','id_produit',('nom','description')),
-        ('catalogue_conditionnements','id_conditionnement',('libelle',))):
-        table = sa.table(table_name,sa.column(pk),*(sa.column(c) for c in columns))
-        for row in bind.execute(sa.select(table)).mappings():
-            bind.execute(table.update().where(table.c[pk]==row[pk]).values(**{c:row[c].upper() if row[c] else row[c] for c in columns}))
+    # Existing labels, descriptions and source data are preserved verbatim.
+    # Normalization belongs to explicit application writes, never a bulk rewrite.
     if bind.dialect.name == 'postgresql':
         op.execute('CREATE EXTENSION IF NOT EXISTS btree_gist')
         for table_name, keys in (

@@ -34,7 +34,7 @@ def test_classifications_compositions_substitutions_unicode_et_regles(raw_client
     data.pop('premier_conditionnement');data.update(nature_id=ids['natures'],mode_delivrance_id=ids['modes'],fefo=False,description='été ß œuf')
     r=c.put(root(a)+f'/produits/{prod["id_produit"]}',json=data)
     assert r.status_code==200,r.text
-    result=r.json();assert result['description']=='ÉTÉ SS ŒUF'
+    result=r.json();assert result['description']=='été ß œuf'
     assert len(result['compositions'])==2 and len(result['classifications'])==1 and len(result['substitutions'])==1
     assert result['regles_effectives']=={'gestion_lot':True,'gestion_peremption':True,'fefo':False,'promotion_autorisee':False}
     assert c.post(root(a)+f'/produits/{prod["id_produit"]}/classifications',json={'classe_id':ids['classes']}).status_code==409
@@ -222,7 +222,7 @@ def test_validation_conseils_transactionnelle_et_ttc_date(raw_client,account):
     price=c.get(root(a)+f'/prix/{pid}',params={'jour':'2026-06-01'}).json();assert price['montant_ht']=='1000.00' and price['montant_ttc']=='1180.00'
 
 
-def test_migration_sur_catalogue_existant_uppercase_preserve_references(tmp_path,monkeypatch):
+def test_migration_sur_catalogue_existant_preserve_textes_et_references(tmp_path,monkeypatch):
     from alembic import command
     from alembic.config import Config
     from sqlalchemy import create_engine,text
@@ -236,14 +236,15 @@ def test_migration_sur_catalogue_existant_uppercase_preserve_references(tmp_path
             org=uuid4().hex;cat=uuid4().hex;prod=uuid4().hex;pack=uuid4().hex
             cx.execute(text('INSERT INTO organisations (id_organisation,nom_commercial,raison_sociale,actif) VALUES (:o,\'TEST\',\'TEST\',1)'),{'o':org})
             cx.execute(text('INSERT INTO catalogue_categories (id_categorie,organisation_id,code,nom,actif) VALUES (:c,:o,\'C\',\'été œuf\',1)'),{'c':cat,'o':org})
-            cx.execute(text('INSERT INTO catalogue_produits (id_produit,organisation_id,categorie_id,nom,actif) VALUES (:p,:o,:c,\'éphémère\',1)'),{'p':prod,'o':org,'c':cat})
+            cx.execute(text('INSERT INTO catalogue_produits (id_produit,organisation_id,categorie_id,nom,description,actif) VALUES (:p,:o,:c,\'éphémère\',\'Commentaire historique : 5 mg/mL.\',1)'),{'p':prod,'o':org,'c':cat})
             cx.execute(text('INSERT INTO catalogue_conditionnements (id_conditionnement,organisation_id,produit_id,code,libelle,actif) VALUES (:k,:o,:p,\'B\',\'boîte\',1)'),{'k':pack,'o':org,'p':prod})
             cx.execute(text('INSERT INTO catalogue_references (id_reference,organisation_id,conditionnement_id,type_reference,valeur,actif) VALUES (:r,:o,:k,\'HISTORIQUE\',\'00MixedCase\',1)'),{'r':uuid4().hex,'o':org,'k':pack})
         command.upgrade(config,'head');command.check(config)
         with engine.connect() as cx:
-            assert cx.execute(text('SELECT nom FROM catalogue_produits')).scalar()=='ÉPHÉMÈRE'
-            assert cx.execute(text('SELECT nom,gestion_lot FROM catalogue_categories')).first()==('ÉTÉ ŒUF',0)
+            assert cx.execute(text('SELECT nom FROM catalogue_produits')).scalar()=='éphémère'
+            assert cx.execute(text('SELECT nom,gestion_lot FROM catalogue_categories')).first()==('été œuf',0)
             assert cx.execute(text('SELECT valeur FROM catalogue_references')).scalar()=='00MixedCase'
+            assert cx.execute(text('SELECT description FROM catalogue_produits')).scalar()=='Commentaire historique : 5 mg/mL.'
         command.downgrade(config,'20261007_05');command.upgrade(config,'head');command.check(config)
         engine.dispose()
     finally:get_settings.cache_clear()
