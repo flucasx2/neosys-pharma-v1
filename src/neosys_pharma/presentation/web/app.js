@@ -39,7 +39,7 @@ async function loadEmplacements(preferred="") {
 $("organisations").addEventListener("change",()=>loadSites().catch(e=>message(e.message,true)));
 $("sites").addEventListener("change",async()=>{
   authState.site=$("sites").value;$("security-operation").disabled=true;authGate();
-  try{await loadEmplacements();await loadStructure(authState.site);await securityLoadOrg();}
+  try{catalogueReset();await loadEmplacements();await loadStructure(authState.site);await securityLoadOrg();if(shellState.view==="catalogue")await catalogueLoad();}
   catch(e){message(e.message,true);}
   finally{$("security-operation").disabled=false;authGate();}
 });

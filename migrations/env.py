@@ -23,6 +23,9 @@ from neosys_pharma.infrastructure.database import Base
 from neosys_pharma.infrastructure import organisation_models  # registers ORM metadata
 from neosys_pharma.infrastructure import securite_models
 from neosys_pharma.infrastructure import authentification_models
+from neosys_pharma.infrastructure import catalogue_models
+
+from neosys_pharma.infrastructure import tarification_models, import_catalogue_models
 
 target_metadata = Base.metadata
 
@@ -76,7 +79,7 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection, target_metadata=target_metadata, render_as_batch=True
         )
 
         with context.begin_transaction():

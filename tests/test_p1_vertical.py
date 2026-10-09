@@ -164,7 +164,7 @@ def test_migration_upgrade_check_downgrade(tmp_path, monkeypatch):
             OrganisationService(SqlAlchemyOrganisationRepository(session)).creer_organisation(org, site, emplacement)
         # Security rollback is tested only on this disposable database.
         with engine.connect() as connection:
-            assert connection.execute(text("SELECT count(*) FROM permissions")).scalar() == 7
+            assert connection.execute(text("SELECT count(*) FROM permissions")).scalar() == 9
             assert connection.execute(text("SELECT count(*) FROM roles")).scalar() == 2
         command.downgrade(config, "20261007_03")
         assert "auth_credentials" not in inspect(engine).get_table_names()

@@ -49,3 +49,22 @@ permissions résultantes. Appliquer `alembic upgrade head` dans une base de
 **développement** avant de lancer l'interface. Les règles et limites actuelles
 (notamment le provisionnement initial et les exigences d'exploitation) sont décrites dans
 [docs/P1.md](docs/P1.md).
+
+## P2 : Catalogue & Tarification
+
+Catalogue complet : produits et conditionnements indépendants, références multiples,
+catégories hiérarchiques, formes/laboratoires/natures/délivrance, compositions et
+classifications/substitution explicites. Tarifs et TVA datés avec résolution par site,
+historique conservé et contrôle des chevauchements. Import PharmaGabon : prévisualisation,
+correspondances, lots, réimport sans doublons et rapports ; prix conseillés séparés des
+prix opérationnels, validation tarifaire explicite et aucune quantité importée en stock.
+
+Interface : grille Produits compacte avec recherche/pagination serveur ; vues Tarification,
+Conseils fournisseur et Import ; créations/modifications simples en modales accessibles.
+Appliquer `alembic upgrade head` sur une base de développement autorisée
+(migration P2 initiale `20261007_05`, complément `6bc8179d433e`). Attribuer
+**explicitement** `catalogue.consulter` et `catalogue.gerer` par les rôles et affectations
+P1. Aucun droit implicite ni changement de modèle fonctionnel P1.
+
+Voir [docs/P2.md](docs/P2.md) pour le modèle, les API, les conventions tarifaires,
+les tests et la procédure de recette complète. Aucun package P3 ou suivant implémenté.
