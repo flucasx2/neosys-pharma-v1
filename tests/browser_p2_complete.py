@@ -110,6 +110,17 @@ with sync_playwright() as p:
     page.set_viewport_size({'width':390,'height':844});assert not page.evaluate('document.documentElement.scrollWidth>innerWidth');shot('p2-complet-mobile.png');page.set_viewport_size({'width':1440,'height':1000})
     page.locator('#logout-button').click();login('catalogue.lecture.qa');expect(page.locator('#p2-tarif-new')).to_be_hidden();expect(page.locator('#p2-import-form')).to_be_hidden();expect(page.locator('#p2-import-options')).to_be_hidden()
     page.locator('#p2-tab-produits').click();page.locator('#catalogue-search').fill('Produit QA modifié');expect(page.locator('#catalogue-products tr')).to_have_count(1);page.locator('#catalogue-products button').click();expect(page.locator('#p2-compositions li')).to_have_count(2)
+    # A filter interrupts the initial metadata load: retry it with the winning paged request.
+    page.evaluate("""async()=>{
+      const original=catalogueRequest;let delayed=false;
+      catalogueState.metadataLoaded=false;
+      for(const key of ['categories','formes','laboratoires','natures','modes','principes','classes','groupes'])catalogueState[key]=[];
+      catalogueRequest=async function(path,...args){if(path==='/formes'&&!delayed){delayed=true;await new Promise(resolve=>setTimeout(resolve,600));}return original(path,...args);};
+      try{const initial=catalogueLoad(catalogueState.selected,true);await new Promise(resolve=>setTimeout(resolve,25));await Promise.all([initial,catalogueLoad(catalogueState.selected,false)]);}finally{catalogueRequest=original;}
+    }""")
+    for label in ['COMPRIMÉ QA','LABORATOIRE DEPUIS FICHE','NATURE EXPLICITE QA','DÉLIVRANCE EXPLICITE QA']:
+        expect(page.locator('#catalogue-classification')).to_contain_text(label)
+    expect(page.locator('#p2-compositions')).to_contain_text('PRINCIPE ACTIF QA');expect(page.locator('#p2-classifications')).to_contain_text('CLASSE THÉRAPEUTIQUE QA');expect(page.locator('#p2-substitutions')).to_contain_text('GROUPE DE SUBSTITUTION QA')
     expect(page.locator('#p2-compositions button')).to_have_count(0);expect(page.locator('#p2-conseils button')).to_have_count(0);expect(page.locator('#p2-tarif-produit')).to_be_hidden();shot('p2-complet-lecture-seule.png')
     csrf=next(x['value'] for x in page.context.cookies() if x['name']=='neosys_csrf');headers={'X-Site-ID':fixture['site_id'],'X-CSRF-Token':csrf};root='http://127.0.0.1:8000/api/catalogue/organisations/'+fixture['organisation_id']
     for endpoint in ['/imports/previsualisation','/conseils/appliquer','/tarification/sites','/principes']:

@@ -1,8 +1,8 @@
 "use strict";
-const catalogueState={version:0,products:[],categories:[],formes:[],laboratoires:[],selected:"",packaging:"",site:"",detail:null,mode:"list",page:1,pageSize:25,total:0,detailVersion:0};
+const catalogueState={version:0,products:[],categories:[],formes:[],laboratoires:[],metadataLoaded:false,selected:"",packaging:"",site:"",detail:null,mode:"list",page:1,pageSize:25,total:0,detailVersion:0};
 function catalogueRoot(){return `/api/catalogue/organisations/${authState.me.organisation.id_organisation}`;}
 function catalogueReset(){
-  creationDialogReset();clearTimeout(catalogueSearchTimer);catalogueState.detailVersion++;catalogueState.version++;Object.assign(catalogueState,{products:[],categories:[],formes:[],laboratoires:[],selected:"",packaging:"",site:"",detail:null,mode:"list",page:1,pageSize:25,total:0,detailVersion:0});
+  creationDialogReset();clearTimeout(catalogueSearchTimer);catalogueState.detailVersion++;catalogueState.version++;Object.assign(catalogueState,{products:[],categories:[],formes:[],laboratoires:[],metadataLoaded:false,selected:"",packaging:"",site:"",detail:null,mode:"list",page:1,pageSize:25,total:0,detailVersion:0});
   for(const id of ["catalogue-products","catalogue-packagings","catalogue-category","catalogue-forme","catalogue-laboratoire","catalogue-data-selected","catalogue-packaging-selected","catalogue-reference-packaging","catalogue-reference-selected"])$(id).replaceChildren();
   for(const id of ["catalogue-product-form","catalogue-packaging-form","catalogue-reference-form"])$(id).reset();
   $("catalogue-editor-panel").hidden=true;$("catalogue-list-panel").hidden=false;$("catalogue-count").textContent="";$("catalogue-page").textContent="";$("catalogue-page-size").value="25";$("catalogue-data-disclosure").open=false;$("catalogue-detail").hidden=true;$("catalogue-message").textContent="";$("catalogue-ancestors").textContent="";$("catalogue-product-summary").textContent="";$("catalogue-product-description").textContent="";$("catalogue-search").value="";
@@ -98,6 +98,7 @@ function catalogueReferenceSelection(reset=false){
 async function catalogueLoad(selected=catalogueState.selected,reloadMetadata=true,throwErrors=false,refreshDetail=true){
   $("catalogue-message").textContent="";
   catalogueGate();if(!authHas("catalogue.consulter"))return;
+  reloadMetadata=reloadMetadata||!catalogueState.metadataLoaded;
   const version=++catalogueState.version,site=authState.site;
   $("catalogue-list-panel").setAttribute("aria-busy","true");$("catalogue-previous").disabled=true;$("catalogue-next").disabled=true;
   try{
@@ -107,7 +108,7 @@ async function catalogueLoad(selected=catalogueState.selected,reloadMetadata=tru
     const [result,categories,formes,laboratoires,natures,modes,principes,classes,groupes]=await Promise.all(calls);
     if(version!==catalogueState.version||site!==authState.site)return;
     Object.assign(catalogueState,{products:result.items,total:result.total,site});
-    if(reloadMetadata)Object.assign(catalogueState,{categories,formes,laboratoires,natures,modes,principes,classes,groupes});
+    if(reloadMetadata)Object.assign(catalogueState,{categories,formes,laboratoires,natures,modes,principes,classes,groupes,metadataLoaded:true});
     // A filter or concurrent change may remove the last page.
     const last=Math.max(1,Math.ceil(result.total/catalogueState.pageSize));
     if(catalogueState.page>last){catalogueState.page=last;return await catalogueLoad(selected,false,throwErrors,refreshDetail);}
@@ -212,7 +213,7 @@ async function catalogueReloadMetadata(){
   const version=catalogueState.version,site=authState.site;
   const [categories,formes,laboratoires,natures,modes,principes,classes,groupes]=await Promise.all(["categories","formes","laboratoires","natures","modes","principes","classes","groupes"].map(p=>catalogueRequest("/"+p)));
   if(version!==catalogueState.version||site!==authState.site)throw new Error("Le contexte a changé. Rouvrez le formulaire.");
-  Object.assign(catalogueState,{categories,formes,laboratoires,natures,modes,principes,classes,groupes});catalogueDataSelection();
+  Object.assign(catalogueState,{categories,formes,laboratoires,natures,modes,principes,classes,groupes,metadataLoaded:true});catalogueDataSelection();
   cataloguePopulateProduct($("catalogue-product-form"));
   if(catalogueProductDialog.dialog.open)cataloguePopulateProduct(catalogueProductDialog.form,"catalogue-product-modal-");
 }
