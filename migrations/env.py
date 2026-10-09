@@ -27,6 +27,8 @@ from neosys_pharma.infrastructure import catalogue_models
 
 from neosys_pharma.infrastructure import tarification_models, import_catalogue_models
 
+from neosys_pharma.infrastructure import stock_models
+
 target_metadata = Base.metadata
 
 config.set_main_option(
