@@ -21,7 +21,11 @@ function catalogueGate(){
 async function catalogueRequest(path,method="GET",body){
   const response=await authFetch(catalogueRoot()+path,{method,body:body?JSON.stringify(body):undefined});
   const result=await response.json();
-  if(!response.ok)throw new Error(typeof result.detail==="string"?result.detail:"Vérifiez les champs du catalogue.");
+  if(!response.ok){
+    const labels={nom:"Désignation / libellé",code:"Code",categorie_id:"Catégorie",libelle:"Libellé",description:"Description",debut:"Date de début",fin:"Date de fin",montant_ht:"Montant HT",coefficient:"Coefficient",valeur:"Valeur",conditionnement_id:"Conditionnement",devise:"Devise",taux:"Taux TVA"};
+    const detail=Array.isArray(result.detail)?result.detail.map(error=>{const field=error.loc.at(-1),label=labels[field]||"Champ";return label+" : "+({missing:"valeur obligatoire",string_too_short:"valeur obligatoire",string_too_long:"texte trop long",uuid_parsing:"sélection valide requise",date_from_datetime_parsing:"date valide requise",decimal_parsing:"nombre décimal requis"}[error.type]||"valeur invalide");}).join(" ; "):result.detail;
+    throw new Error(typeof detail==="string"?detail:"Vérifiez les champs du catalogue.");
+  }
   return result;
 }
 function catalogueOptions(id,rows,key,selected="",empty="Aucun"){
@@ -37,12 +41,13 @@ function catalogueDataSelection(){
   $("catalogue-data-edit").disabled=!rows.some(r=>r[key]===old);
 }
 async function catalogueOpen(id,mode="view"){
+  $("catalogue-message").textContent="";
   if(mode==="edit"&&!authHas("catalogue.gerer"))return;
   const version=++catalogueState.detailVersion,sessionVersion=catalogueState.version,site=authState.site;
   try{
     const row=id?await catalogueRequest(`/produits/${id}`):null;
     if(version!==catalogueState.detailVersion||sessionVersion!==catalogueState.version||site!==authState.site)return;
-    Object.assign(catalogueState,{selected:id,detail:row,mode});catalogueProductSelection();
+    Object.assign(catalogueState,{selected:id,detail:row,mode});await catalogueProductSelection();
     $("catalogue-editor-panel").scrollIntoView({block:"start"});$("catalogue-editor-title").focus();
   }catch(e){if(version===catalogueState.detailVersion&&sessionVersion===catalogueState.version)$("catalogue-message").textContent=e.message;}
 }
@@ -91,6 +96,7 @@ function catalogueReferenceSelection(reset=false){
   form.elements.type_reference.value=row?.type_reference||"CIP7";form.elements.valeur.value=row?.valeur||"";form.elements.actif.checked=row?.actif??true;catalogueGate();
 }
 async function catalogueLoad(selected=catalogueState.selected,reloadMetadata=true,throwErrors=false,refreshDetail=true){
+  $("catalogue-message").textContent="";
   catalogueGate();if(!authHas("catalogue.consulter"))return;
   const version=++catalogueState.version,site=authState.site;
   $("catalogue-list-panel").setAttribute("aria-busy","true");$("catalogue-previous").disabled=true;$("catalogue-next").disabled=true;
@@ -110,7 +116,7 @@ async function catalogueLoad(selected=catalogueState.selected,reloadMetadata=tru
       const detailVersion=catalogueState.detailVersion;
       const detail=selected?await catalogueRequest(`/produits/${selected}`):null;
       if(version!==catalogueState.version||site!==authState.site||detailVersion!==catalogueState.detailVersion||catalogueState.mode==="list")return;
-      Object.assign(catalogueState,{selected,detail});catalogueProductSelection();
+      Object.assign(catalogueState,{selected,detail});await catalogueProductSelection();
     }
   }catch(e){if(version===catalogueState.version)$("catalogue-message").textContent=e.message;if(throwErrors)throw e;}
   finally{if(version===catalogueState.version)$("catalogue-list-panel").setAttribute("aria-busy","false");}
@@ -165,7 +171,7 @@ catalogueSubmit("catalogue-reference-form",async d=>{
 let catalogueSearchTimer;
 $("catalogue-create").addEventListener("click",catalogueNewProduct);
 $("catalogue-edit").addEventListener("click",()=>catalogueOpen(catalogueState.selected,"edit"));
-$("catalogue-back").addEventListener("click",()=>{catalogueState.detailVersion++;Object.assign(catalogueState,{selected:"",detail:null,mode:"list",packaging:""});$("catalogue-editor-panel").hidden=true;$("catalogue-list-panel").hidden=false;catalogueGate();$("catalogue-search").focus();});
+$("catalogue-back").addEventListener("click",()=>{$("catalogue-message").textContent="";catalogueState.detailVersion++;Object.assign(catalogueState,{selected:"",detail:null,mode:"list",packaging:""});$("catalogue-editor-panel").hidden=true;$("catalogue-list-panel").hidden=false;catalogueGate();$("catalogue-search").focus();});
 $("catalogue-search").addEventListener("input",()=>{clearTimeout(catalogueSearchTimer);catalogueState.version++;catalogueState.page=1;catalogueSearchTimer=setTimeout(()=>catalogueLoad("",false),250);});
 for(const [id,delta] of [["catalogue-previous",-1],["catalogue-next",1]])$(id).addEventListener("click",()=>{catalogueState.page+=delta;catalogueLoad("",false);});
 $("catalogue-page-size").addEventListener("change",()=>{catalogueState.pageSize=Number($("catalogue-page-size").value);catalogueState.page=1;catalogueLoad("",false);});
@@ -231,7 +237,7 @@ function catalogueNewData(type,target="",ident=""){
   creationDialogOpen(catalogueDataDialog,(ident?"Modifier ":"Créer ")+catalogueModalNames[type],catalogueModalOptions(async d=>{
     const body={code:d.code,nom:d.nom,actif:Boolean(d.actif)};if(type==="categories"){body.parent_id=d.parent_id||null;for(const key of ["gestion_lot","gestion_peremption","fefo","promotion_autorisee"])body[key]=Boolean(d[key]);}
     return catalogueRequest(`/${type}${ident?"/"+ident:""}`,ident?"PUT":"POST",body);
-  },async result=>{await catalogueReloadMetadata();await catalogueLoad(catalogueState.selected,false,true,false);if(target&&$(target))$(target).value=result[catalogueModalKeys[type]];}),entry=>{
+  },async result=>{await catalogueReloadMetadata();await catalogueLoad(catalogueState.selected,false,true,true);if(target&&$(target))$(target).value=result[catalogueModalKeys[type]];}),entry=>{
     entry.form.elements.code.value=row?.code||"";entry.form.elements.nom.value=row?.nom||"";entry.form.elements.actif.checked=row?.actif??true;
     $(entry.ids.get("catalogue-parent-label")).hidden=type!=="categories";$(entry.ids.get("catalogue-category-rules")).hidden=type!=="categories";for(const key of ["gestion_lot","gestion_peremption","fefo","promotion_autorisee"])entry.form.elements[key].checked=row?.[key]??false;
     catalogueOptions(entry.ids.get("catalogue-parent"),catalogueState.categories,"id_categorie",row?.parent_id||"","Aucune (catégorie racine)");

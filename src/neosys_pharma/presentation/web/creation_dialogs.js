@@ -70,3 +70,15 @@ function creationDialogOpen(entry,title,options,initialize){
   entry.dialog.showModal();document.body.classList.add("modal-open");[...entry.dialog.querySelectorAll("input:not([type=checkbox]),select,textarea")].find(node=>!node.disabled&&node.getClientRects().length)?.focus({preventScroll:true});
 }
 window.addEventListener("beforeunload",event=>{if([...creationDialogs.entries.values()].some(creationDialogDirty)){event.preventDefault();event.returnValue="";}});
+
+// Mirror backend normalization on explicitly opted-in short business inputs.
+// Unicode composition and caret positions are respected; IME composition is
+// normalized only when complete. Free text and external identifiers are excluded.
+function businessUppercase(input){
+  if(!input.matches?.("[data-business-uppercase]")||input.disabled)return;
+  const value=input.value,start=input.selectionStart,end=input.selectionEnd;
+  const upper=text=>text.normalize("NFC").toLocaleUpperCase("fr-FR");
+  input.value=upper(value);
+  if(start!==null&&end!==null)input.setSelectionRange(upper(value.slice(0,start)).length,upper(value.slice(0,end)).length);
+}
+for(const type of ["input","change","compositionend"])document.addEventListener(type,event=>{if(!event.isComposing)businessUppercase(event.target);});
