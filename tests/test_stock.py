@@ -204,3 +204,107 @@ def test_concurrence_postgresql_pas_de_surreservation(raw_client,account):
             except ConflitStock:return 'insuffisant'
     with ThreadPoolExecutor(max_workers=2) as pool:assert sorted(pool.map(lambda _:worker(),range(2)))==['insuffisant','ok']
     assert stocks(c,a)[0]['reserve']==7
+
+@pytest.mark.parametrize('state',['inactive','expired','future','no_assignment','no_role','no_permission','no_location','split_assignments'])
+def test_affectation_effective_exigee_pour_chaque_mutation_contextuelle(raw_client,account,state):
+    from test_http_autorisations_p1 import set_state
+    c,a=raw_client,account;pack=init(c,a);l=lot(c,a,pack);entry(c,a,l['id'],10)
+    r=reserve(c,a,pack,1);inv=inventory(c,a,pack);z=inv['zones'][0];line=z['lignes'][0]
+    d=post(c,a,'/transferts',{'source_id':str(a['location']),'destination_id':str(a['other_location']),'justification':'Test sécurité','lignes':[{'conditionnement_id':pack,'quantite':1}]})
+    set_state(c,a,state)
+    cases=[('/mouvements',{'lot_id':l['id'],'emplacement_id':str(a['location']),'quantite':1,'origine':'Test','justification':'Test'}),('/reservations',{'conditionnement_id':pack,'emplacement_id':str(a['location']),'quantite':1,'origine':'Test'}),(f'/reservations/{r["id"]}/consommer',{}),(f'/reservations/{r["id"]}/liberer',{}),(f'/transferts/{d["id"]}/valider',{}),(f'/transferts/{d["id"]}/expedier',{}),(f'/transferts/{d["id"]}/recevoir',{'lignes':[]}),(f'/transferts/{d["id"]}/annuler',{'justification':'Test'}),('/inventaires',{'nom':'Test','type':'COMPLET','zones':[{'nom':'Zone','emplacement_id':str(a['location'])}]}),(f'/zones/{z["id"]}/participants',{'utilisateur_id':str(a['user'])}),(f'/lignes-inventaire/{line["id"]}/comptages',{'quantite':10}),(f'/inventaires/{inv["id"]}/valider',{})]
+    for path,body in cases:post(c,a,path,body,403)
+    gen=db(c);s=next(gen)
+    try:
+        assert s.scalar(select(func.sum(StockEmplacementModel.physique)))==10
+        assert s.scalar(select(func.sum(StockEmplacementModel.reserve)))==1
+        assert s.scalar(select(InventaireModel.statut))=='OUVERT'
+    finally:gen.close()
+
+
+def test_transfert_fefo_multiligne_trace_immuable_et_mouvements_internes(raw_client,account):
+    c,a=raw_client,account;pack=init(c,a,True);assign(c,a,[a['denied']])
+    for number,days in [('PROCHE',10),('TARDIF',30)]:
+        l=lot(c,a,pack,number,str(date.today()+timedelta(days=days)));entry(c,a,l['id'],10)
+    late=l
+    t=post(c,a,'/transferts-internes',{'source_id':str(a['location']),'destination_id':str(a['denied']),'justification':'Dérogation autorisée tracée','lignes':[{'conditionnement_id':pack,'quantite':2,'lot_id':late['id']},{'conditionnement_id':pack,'quantite':3}]})
+    assert t['statut']=='RECUE' and sum(x['quantite'] for x in t['lignes'])==5
+    gen=db(c);s=next(gen)
+    try:
+        trace=s.scalar(select(DerogationFEFOModel));assert str(trace.reservation_id)==t['transfert']['reservation_id']
+        assert trace.choix==[{'lot_id':late['id'],'quantite':2}]
+        with pytest.raises(DBAPIError):s.execute(update(DerogationFEFOModel).values(justification='Remplacement interdit'));s.commit()
+        s.rollback()
+        assert set(s.scalars(select(MouvementStockModel.type)))>={'TRANSFERT_SORTIE','TRANSFERT_ENTREE'}
+    finally:gen.close()
+
+
+def test_inventaire_multizone_pagine_et_contexte_consultation_restraint(raw_client,account):
+    c,a=raw_client,account;pack=init(c,a);assign(c,a,[a['denied']])
+    # Actual entries only; catalogue and inventory never synthesize physical quantities.
+    for n in range(31):
+        l=lot(c,a,pack,'PAG-'+str(n));entry(c,a,l['id'],1)
+        if n==0:entry(c,a,l['id'],2,a['denied'])
+    inv=post(c,a,'/inventaires',{'nom':'Inventaire complet','type':'COMPLET','zones':[{'nom':'Réserve','emplacement_id':str(a['location'])},{'nom':'Comptoir','emplacement_id':str(a['denied'])}]})
+    assert sum(len(z['lignes']) for z in inv['zones'])==25
+    assert sorted(z['total'] for z in inv['zones'])==[1,31]
+    first=next(z for z in inv['zones'] if z['total']==31);second=next(z for z in inv['zones'] if z['total']==1)
+    resp=c.get(root(a)+f'/inventaires/{inv["id"]}',params={'zone_id':first['id'],'page':2}).json()
+    assert sum(len(z['lignes']) for z in resp['zones'])==6
+    resp=c.get(root(a)+f'/inventaires/{inv["id"]}',params={'zone_id':second['id']}).json()
+    assert sum(len(z['lignes']) for z in resp['zones'])==1
+    assert c.get(root(a)+'/stocks',params={'page_size':101}).status_code==422
+    gen=db(c);s=next(gen)
+    try:
+        role=s.scalar(select(RoleModel).where(RoleModel.code=='CATALOGUE'));s.execute(delete(RolePermissionModel).where(RolePermissionModel.role_id==role.id_role,RolePermissionModel.permission_id!=permission_id('stock.consulter')));s.commit()
+    finally:gen.close()
+    context=c.get(root(a)+'/contextes').json()
+    assert set(x['id'] for x in context['destinations'])=={str(a['location']),str(a['denied'])}
+    assert str(a['other_location']) not in {x['id'] for x in context['destinations']}
+
+
+def test_idempotence_ne_reutilise_pas_une_cle_avec_dautres_donnees(raw_client,account):
+    c,a=raw_client,account;pack=init(c,a);l=lot(c,a,pack);key=str(uuid4())
+    body={'cle':key,'lot_id':l['id'],'emplacement_id':str(a['location']),'quantite':5,'origine':'Document A','justification':'Entrée constatée'}
+    first=c.post(root(a)+'/mouvements',json=body);assert first.status_code==201
+    assert c.post(root(a)+'/mouvements',json=body).json()==first.json()
+    assert c.post(root(a)+'/mouvements',json={**body,'quantite':6}).status_code==409
+    assert stocks(c,a)[0]['physique']==5
+
+
+def test_inventaires_ouverts_non_recouvrants_annulation_tracee_sans_variation(raw_client,account):
+    c,a=raw_client,account;pack=init(c,a);l=lot(c,a,pack);entry(c,a,l['id'],10)
+    inv=inventory(c,a,pack)
+    post(c,a,'/inventaires',{'nom':'Chevauchement','type':'COMPLET','zones':[{'nom':'Zone','emplacement_id':str(a['location'])}]},409)
+    post(c,a,f'/inventaires/{inv["id"]}/annuler',{'justification':'Périmètre à reprendre'},200)
+    assert stocks(c,a)[0]['physique']==10
+    assert inventory(c,a,pack)['statut']=='OUVERT'
+    post(c,a,f'/inventaires/{inv["id"]}/valider',status=409)
+    gen=db(c);s=next(gen)
+    try:assert s.scalar(select(func.count()).select_from(OperationStockModel).where(OperationStockModel.empreinte.is_not(None)))>0
+    finally:gen.close()
+
+
+@pytest.mark.parametrize('kind',['ENTREE_IDEMPOTENTE','SORTIE','TRANSFERT_INTERNE'])
+def test_concurrence_postgresql_mutations_et_double_envoi(raw_client,account,kind):
+    c,a=raw_client,account;pack=init(c,a);l=lot(c,a,pack);entry(c,a,l['id'],10);assign(c,a,[a['denied']])
+    gen=db(c);session=next(gen);engine=session.get_bind();gen.close()
+    if engine.dialect.name!='postgresql':pytest.skip('Deux transactions PostgreSQL indépendantes')
+    common=uuid4()
+    def worker():
+        with Session(engine) as s:
+            service=StockService(s,a['org'],a['user'],lambda *args:None)
+            if kind=='ENTREE_IDEMPOTENTE':
+                data={'lot_id':l['id'],'emplacement_id':a['location'],'quantite':3,'origine':'Double envoi','justification':'Entrée réelle unique'};action=lambda:service.entree(data);key=common
+            elif kind=='SORTIE':
+                data={'conditionnement_id':pack,'emplacement_id':a['location'],'quantite':7,'origine':'Sortie concurrente'};action=lambda:service.sortie(data);key=uuid4()
+            else:
+                data={'source_id':a['location'],'destination_id':a['denied'],'justification':'Transfert concurrent','lignes':[{'conditionnement_id':pack,'quantite':7}]};action=lambda:service.transfert_interne(data);key=uuid4()
+            try:service.operation(key,kind,data,action);return 'ok'
+            except ConflitStock:return 'insuffisant'
+    with ThreadPoolExecutor(max_workers=2) as pool:results=sorted(pool.map(lambda _:worker(),range(2)))
+    if kind=='ENTREE_IDEMPOTENTE':assert results==['ok','ok'] and sum(r['physique'] for r in stocks(c,a))==13
+    else:
+        assert results==['insuffisant','ok']
+        source=next(r for r in stocks(c,a) if r['emplacement_id']==str(a['location']));assert source['physique']==3 and source['reserve']==0
+        if kind=='TRANSFERT_INTERNE':assert sum(r['physique'] for r in stocks(c,a))==10

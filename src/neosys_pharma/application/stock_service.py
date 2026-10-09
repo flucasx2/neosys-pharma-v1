@@ -86,7 +86,7 @@ class StockService:
         rows=self.s.execute(select(StockEmplacementModel,LotModel).join(LotModel,StockEmplacementModel.lot_id==LotModel.id).where(StockEmplacementModel.organisation_id==self.org,StockEmplacementModel.emplacement_id==loc.id_emplacement,LotModel.conditionnement_id==pack)).all()
         return sorted(rows,key=lambda x:ordre_fefo(x[1]))
 
-    def reserver(self,data,permission='stock.reserver'):
+    def reserver(self,data,permission='stock.reserver',reservation=None):
         loc=self.emplacement(data['emplacement_id'],permission);pack,rules=self.conditionnement(data['conditionnement_id']);q=quantite(data['quantite'])
         candidates=[(b,l) for b,l in self.disponibles(pack.id_conditionnement,loc) if b.physique>b.reserve and (not rules['gestion_peremption'] or (l.peremption is not None and not perime(l.peremption,self.jour)))]
         def allocate(rows):
@@ -104,7 +104,7 @@ class StockService:
         if bypass:
             self.access('stock.fefo.deroger',loc.site_id,loc.id_emplacement)
             if not data.get('justification'):raise ValueError('Dérogation FEFO : justification obligatoire.')
-        reservation=self.ajouter(ReservationStockModel,origine=data['origine'],auteur_id=self.user)
+        reservation=reservation or self.ajouter(ReservationStockModel,origine=data['origine'],auteur_id=self.user)
         for balance,lot,n in chosen:
             self.ajouter(AllocationReservationModel,reservation_id=reservation.id,stock_id=balance.id,quantite=n)
             self.mouvement(balance,0,n,'RESERVATION',data['origine'],data.get('justification'))
@@ -152,12 +152,9 @@ class StockService:
         d=self.demande_scope(key,permission)
         if d.statut!='DEMANDEE':raise ConflitStock('Demande déjà traitée.')
         combined=self.ajouter(ReservationStockModel,origine='Transfert '+str(d.id),auteur_id=self.user)
-        # Chaque ligne utilise le même moteur FEFO ; allocations fusionnées dans la réservation du transfert.
+        # Allocation directe dans la réservation commune : la trace FEFO reste immuable.
         for line in d.lignes:
-            r=self.reserver({**line,'emplacement_id':d.source_id,'origine':combined.origine,'justification':d.justification},permission)
-            for a in self.lignes(AllocationReservationModel,reservation_id=ident(r['id'])):a.reservation_id=combined.id
-            for override in self.lignes(DerogationFEFOModel,reservation_id=ident(r['id'])):override.reservation_id=combined.id
-            self.obtenir(ReservationStockModel,r['id']).statut='FUSIONNEE';self.s.flush()
+            self.reserver({**line,'emplacement_id':d.source_id,'origine':combined.origine,'justification':d.justification},permission,combined)
         t=self.ajouter(TransfertStockModel,demande_id=d.id,reservation_id=combined.id,valide_par=self.user)
         totals={}
         for a in self.lignes(AllocationReservationModel,reservation_id=combined.id):
@@ -165,14 +162,14 @@ class StockService:
         for lot,q in totals.items():self.ajouter(LigneTransfertStockModel,transfert_id=t.id,lot_id=lot,quantite=q,recue=0)
         d.statut='VALIDEE';self.s.flush();return self.transfert_detail(d)
 
-    def expedier(self,key):
+    def expedier(self,key,kind="EXPEDITION"):
         d=self.demande_scope(key,'stock.transferer')
         if d.statut!='VALIDEE':raise ConflitStock('Valider la demande avant expédition.')
         t=self.s.scalar(select(TransfertStockModel).where(TransfertStockModel.demande_id==d.id))
-        self.terminer_reservation(t.reservation_id,True,'EXPEDITION','stock.transferer',True)
+        self.terminer_reservation(t.reservation_id,True,kind,'stock.transferer',True)
         t.expedie_par=self.user;t.expedie_le=now();d.statut='EXPEDIEE';self.s.flush();return self.transfert_detail(d)
 
-    def recevoir(self,key,data,permission="stock.transfert.recevoir"):
+    def recevoir(self,key,data,permission="stock.transfert.recevoir",kind="RECEPTION"):
         d=self.demande_scope(key,permission,True)
         if d.statut not in ('EXPEDIEE','RECEPTION_PARTIELLE'):raise ConflitStock('Aucune expédition disponible à recevoir.')
         dest=self.emplacement(d.destination_id,permission);t=self.s.scalar(select(TransfertStockModel).where(TransfertStockModel.demande_id==d.id))
@@ -184,7 +181,7 @@ class StockService:
             if line.transfert_id!=t.id:raise PermissionError('Ligne d’un autre transfert.')
             q=quantite(entry['quantite'])
             if line.recue+q>line.quantite:raise ConflitStock('Réception supérieure à la quantité expédiée.')
-            lot=self.obtenir(LotModel,line.lot_id);self.mouvement(self.balance(lot,dest),q,0,'RECEPTION','Transfert '+str(d.id),data.get('justification'));line.recue+=q
+            lot=self.obtenir(LotModel,line.lot_id);self.mouvement(self.balance(lot,dest),q,0,kind,'Transfert '+str(d.id),data.get('justification'));line.recue+=q
         ecarts=[{'ligne_id':str(l.id),'manquant':l.quantite-l.recue} for l in self.lignes(LigneTransfertStockModel,transfert_id=t.id) if l.quantite!=l.recue]
         if data.get('cloturer') and ecarts and not data.get('justification'):raise ValueError('Clôture avec écart : justification obligatoire.')
         self.ajouter(ReceptionTransfertModel,transfert_id=t.id,lignes=jsonable_encoder(data['lignes']),ecarts=ecarts,justification=data.get('justification'),auteur_id=self.user)
@@ -193,9 +190,9 @@ class StockService:
     def transfert_interne(self,data):
         source=self.emplacement(data['source_id'],'stock.transferer');dest=self.emplacement(data['destination_id'],'stock.transferer')
         if source.site_id!=dest.site_id:raise ValueError('Transfert interne : même site requis.')
-        d=self.creer_demande(data);self.valider_demande(d['id'],'stock.transferer');self.expedier(d['id'])
+        d=self.creer_demande(data);self.valider_demande(d['id'],'stock.transferer');self.expedier(d['id'],'TRANSFERT_SORTIE')
         t=self.transfert_detail(self.obtenir(DemandeTransfertModel,d['id']))
-        return self.recevoir(d['id'],{'lignes':[{'ligne_id':l['id'],'quantite':l['quantite']} for l in t['lignes']],'cloturer':True,'justification':data['justification']},'stock.transferer')
+        return self.recevoir(d['id'],{'lignes':[{'ligne_id':l['id'],'quantite':l['quantite']} for l in t['lignes']],'cloturer':True,'justification':data['justification']},'stock.transferer','TRANSFERT_ENTREE')
 
     def transfert_detail(self,d):
         t=self.s.scalar(select(TransfertStockModel).where(TransfertStockModel.demande_id==d.id))
@@ -226,6 +223,8 @@ class StockService:
             if not rows:raise ValueError('Zone sans stock enregistré : enregistrer les lots/emplacements avant la photographie.')
             for b in rows:
                 if b.id in stocks:raise ValueError('Un stock ne peut appartenir à deux zones de cet inventaire.')
+                overlap=self.s.scalar(select(LigneInventaireModel.id).join(ZoneInventaireModel,ZoneInventaireModel.id==LigneInventaireModel.zone_id).join(InventaireModel,InventaireModel.id==ZoneInventaireModel.inventaire_id).where(LigneInventaireModel.stock_id==b.id,InventaireModel.statut=='OUVERT',InventaireModel.id!=inventory.id))
+                if overlap:raise ConflitStock('Stock déjà photographié dans un inventaire ouvert : valider ou annuler celui-ci avant une nouvelle photographie.')
                 stocks.add(b.id);self.ajouter(LigneInventaireModel,zone_id=zone.id,stock_id=b.id,theorique=b.physique)
         return self.inventaire_detail(inventory,manage=True)
 

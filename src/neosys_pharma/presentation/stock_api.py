@@ -25,7 +25,7 @@ POLICY={
  'transferts':('stock.consulter','stock.transferer','stock.transfert.valider','stock.transfert.recevoir'),'transfert_lire':('stock.consulter','stock.transferer','stock.transfert.valider','stock.transfert.recevoir'),
  'demande_creer':('stock.transferer',),'interne':('stock.transferer',),'demande_valider':('stock.transfert.valider',),'demande_annuler':('stock.transfert.valider',),'demande_expedier':('stock.transferer',),'demande_recevoir':('stock.transfert.recevoir',),
  'inventaires':('stock.inventaire.gerer','stock.inventaire.compter','stock.inventaire.valider'),'inventaire_lire':('stock.inventaire.gerer','stock.inventaire.compter','stock.inventaire.valider'),
- 'inventaire_creer':('stock.inventaire.gerer',),'participant_creer':('stock.inventaire.gerer',),'comptage':('stock.inventaire.compter',),'inventaire_valider':('stock.inventaire.valider',),
+ 'inventaire_creer':('stock.inventaire.gerer',),'participant_creer':('stock.inventaire.gerer',),'comptage':('stock.inventaire.compter',),'inventaire_valider':('stock.inventaire.valider',),'inventaire_annuler':('stock.inventaire.gerer',),
  'motifs':('stock.inventaire.gerer','stock.inventaire.compter','stock.inventaire.valider'),'motif_creer':('stock.inventaire.gerer',),'contextes':('stock.consulter','stock.gerer','stock.reserver','stock.transferer','stock.transfert.valider','stock.transfert.recevoir','stock.inventaire.gerer','stock.inventaire.compter','stock.inventaire.valider'),
 }
 
@@ -41,8 +41,9 @@ def stock_context(request:Request,organisation_id:UUID,user=Depends(utilisateur_
         if not authorized:raise PermissionError('Permission Stock et affectation au site requises.')
         location=request.headers.get('X-Emplacement-ID')
         if location:
-            if not any(controle.droits.autorise(user.id_utilisateur,site,p,jour_courant(),UUID(location)) for p in authorized):raise PermissionError('Emplacement courant non autorisé.')
-            controle.verifier(authorized[0],site,UUID(location))
+            effective=next((p for p in authorized if controle.droits.autorise(user.id_utilisateur,site,p,jour_courant(),UUID(location))),None)
+            if not effective:raise PermissionError('Emplacement courant non autorisé.')
+            controle.verifier(effective,site,UUID(location))
         request.state.stock_site=site;request.state.stock_controle=controle;request.state.stock_permissions=authorized
     except (ValueError,PermissionError) as exc:raise HTTPException(403,str(exc) or 'Contexte Stock requis.') from exc
 
@@ -133,7 +134,11 @@ def contextes(request:Request,s=Depends(service)):
     current=request.state.stock_site;perms=request.state.stock_permissions
     locs=set()
     for p in perms:locs.update(locations(s,p,current))
-    return {'site_id':current,'utilisateur_id':s.user,'emplacements':[{'id':str(x.id_emplacement),'nom':x.nom,'site_id':str(x.site_id)} for x in s.s.scalars(select(EmplacementModel).where(EmplacementModel.id_emplacement.in_(locs)))],'destinations':[{'id':str(x.id_emplacement),'nom':x.nom,'site_id':str(x.site_id)} for x in s.s.scalars(select(EmplacementModel).join(SiteModel,SiteModel.id_site==EmplacementModel.site_id).where(SiteModel.organisation_id==s.org,EmplacementModel.actif.is_(True),SiteModel.actif.is_(True)))]}
+    destinations=select(EmplacementModel).join(SiteModel,SiteModel.id_site==EmplacementModel.site_id).where(SiteModel.organisation_id==s.org,EmplacementModel.actif.is_(True),SiteModel.actif.is_(True))
+    # Seules les permissions du workflow transfert permettent le choix d'une destination intersite.
+    if not any(p.startswith('stock.transfert') or p=='stock.transferer' for p in perms):destinations=destinations.where(EmplacementModel.id_emplacement.in_(locs))
+    return {'site_id':current,'utilisateur_id':s.user,'emplacements':[{'id':str(x.id_emplacement),'nom':x.nom,'site_id':str(x.site_id)} for x in s.s.scalars(select(EmplacementModel).where(EmplacementModel.id_emplacement.in_(locs)))],'destinations':[{'id':str(x.id_emplacement),'nom':x.nom,'site_id':str(x.site_id)} for x in s.s.scalars(destinations)]}
+
 
 @router.get('/stocks')
 def stocks(request:Request,q:str=Query('',max_length=200),page:int=Query(1,ge=1),page_size:int=Query(25,ge=1,le=100),emplacement_id:UUID | None=None,conditionnement_id:UUID | None=None,s=Depends(service)):
@@ -149,7 +154,7 @@ def stocks(request:Request,q:str=Query('',max_length=200),page:int=Query(1,ge=1)
     result=[]
     for b in rows:
         lot=s.obtenir(LotModel,b.lot_id);pack,rules=s.conditionnement(lot.conditionnement_id,False);prod=s.s.get(ProduitModel,pack.produit_id);loc=s.s.get(EmplacementModel,b.emplacement_id)
-        expired=bool(rules['gestion_peremption'] and lot.peremption and lot.peremption<s.jour)
+        expired=bool(rules['gestion_peremption'] and (lot.peremption is None or lot.peremption<s.jour))
         result.append({**serial(b),'vendable':b.physique-b.reserve,'sortie_autorisee':not expired,'alerte':'PÉRIMÉ' if expired else 'RUPTURE' if b.physique==b.reserve else None,'produit':prod.nom,'conditionnement':pack.libelle,'conditionnement_id':str(pack.id_conditionnement),'emplacement':loc.nom,'lot':lot.numero,'peremption':str(lot.peremption) if lot.peremption else None})
     return {'items':result,'total':total,'page':page,'page_size':page_size}
 
@@ -297,6 +302,15 @@ def comptage(ligne_id:UUID,data:CompteInput,s=Depends(service)):
 @router.post('/inventaires/{inventaire_id}/valider')
 def inventaire_valider(inventaire_id:UUID,data:Mutation,s=Depends(service)):
     execute(lambda:s.inventaire_scope(inventaire_id,'stock.inventaire.valider'));return mutate(s,data,'INVENTAIRE_VALIDER:'+str(inventaire_id),lambda:s.valider_inventaire(inventaire_id))
+
+@router.post('/inventaires/{inventaire_id}/annuler')
+def inventaire_annuler(inventaire_id:UUID,data:Justifie,s=Depends(service)):
+    execute(lambda:s.inventaire_scope(inventaire_id,'stock.inventaire.gerer'))
+    def action():
+        inv=s.inventaire_scope(inventaire_id,'stock.inventaire.gerer')
+        if inv.statut!='OUVERT':raise ConflitStock('Inventaire déjà clôturé.')
+        inv.statut='ANNULE';s.s.flush();return s.inventaire_detail(inv,manage=True)
+    return mutate(s,data,'ANNULER_INVENTAIRE:'+str(inventaire_id),action)
 
 @router.get('/motifs')
 def motifs(s=Depends(service)):return [serial(x) for x in s.lignes(MotifEcartInventaireModel)]
