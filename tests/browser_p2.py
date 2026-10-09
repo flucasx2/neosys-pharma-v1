@@ -108,7 +108,7 @@ with sync_playwright() as p:
     ref=page.locator('#catalogue-reference-modal-form');fill(ref,{'valeur':'0012347'});submit(ref,'#catalogue-reference-modal')
     page.locator('#catalogue-edit').click();create.locator('[name="nom"]').fill('Produit QA modifié');submit(create,'#catalogue-product-modal')
     # Creating a laboratory from an existing edit must not discard unsaved product fields.
-    page.locator('#catalogue-edit').click();create.locator('[name="description"]').fill('Brouillon fiche conservé')
+    page.locator('#catalogue-edit').click();expect(page.locator('#catalogue-message')).to_have_text('');create.locator('[name="description"]').fill('Brouillon fiche conservé')
     create.locator('[data-catalogue-create="laboratoires"]').click();fill(meta,{'code':'LAB-NEST','nom':'Laboratoire depuis fiche'})
     submit(meta,'#catalogue-data-modal');expect(create.locator('[name="description"]')).to_have_value('Brouillon fiche conservé')
     expect(create.locator('[name="laboratoire_id"] option:checked')).to_have_text('LABORATOIRE DEPUIS FICHE');submit(create,'#catalogue-product-modal')

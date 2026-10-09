@@ -197,6 +197,7 @@ function catalogueModalLock(lock){
   if(!lock)authGate();
 }
 function catalogueModalOptions(save,refresh){
+  $("catalogue-message").textContent="";
   const org=authState.me?.organisation.id_organisation,site=authState.site;
   return {allowed:()=>authHas("catalogue.gerer")&&authState.me?.organisation.id_organisation===org&&authState.site===site,
     lock:catalogueModalLock,save,refresh,confirm:()=>{$("catalogue-message").textContent="Enregistrement réussi — données actualisées.";}};

@@ -26,7 +26,7 @@ with sync_playwright() as p:
     nature=reference('natures','N-QA','Nature explicite QA');mode=reference('modes','M-QA','Délivrance explicite QA')
     principe=reference('principes','P-QA','Principe actif QA');classe=reference('classes','C-QA','Classe thérapeutique QA');groupe=reference('groupes','G-QA','Groupe de substitution QA')
     # Dated TVA created through the same accessible modal workflow.
-    page.locator('#p2-tab-tarification').click();page.locator('#p2-tarif-type').select_option('tva');page.locator('#p2-tarif-new').click();tarif=page.locator('#p2-tarif-modal')
+    page.locator('#p2-tab-tarification').click();expect(page).to_have_title('NeoSys Pharma · Tarification & TVA');page.locator('#p2-tarif-type').select_option('tva');page.locator('#p2-tarif-new').click();tarif=page.locator('#p2-tarif-modal')
     fill(tarif,{'code':'TVA-QA','nom':'TVA QA','taux':'18','debut':'2026-01-01'});save(tarif)
     page.locator('#p2-tab-produits').click();page.locator('#catalogue-search').fill('Produit QA modifié');expect(page.locator('#catalogue-products tr')).to_have_count(1)
     page.locator('#catalogue-products button').filter(has_text='Modifier').click();product=page.locator('#catalogue-product-modal')
