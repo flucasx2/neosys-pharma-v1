@@ -20,7 +20,7 @@ from neosys_pharma.domain.stock import ConflitStock
 from neosys_pharma.domain.catalogue import texte
 
 POLICY={
- 'stocks':('stock.consulter',),'lots':('stock.consulter',),'lot_creer':('stock.gerer',),'mouvements':('stock.consulter',),'entree':('stock.gerer',),'sortie':('stock.gerer',),
+ 'stocks':('stock.consulter',),'lots':('stock.consulter','stock.gerer','stock.reserver'),'lot_creer':('stock.gerer',),'mouvements':('stock.consulter',),'entree':('stock.gerer',),'sortie':('stock.gerer',),
  'reservation_creer':('stock.reserver',),'reservation_lire':('stock.reserver',),'reservation_liberer':('stock.reserver',),'reservation_consommer':('stock.reserver',),
  'transferts':('stock.consulter','stock.transferer','stock.transfert.valider','stock.transfert.recevoir'),'transfert_lire':('stock.consulter','stock.transferer','stock.transfert.valider','stock.transfert.recevoir'),
  'demande_creer':('stock.transferer',),'interne':('stock.transferer',),'demande_valider':('stock.transfert.valider',),'demande_annuler':('stock.transfert.valider',),'demande_expedier':('stock.transferer',),'demande_recevoir':('stock.transfert.recevoir',),
@@ -168,7 +168,11 @@ def mouvements(request:Request,stock_id:UUID | None=None,page:int=Query(1,ge=1),
     if stock_id:
         balance=execute(lambda:s.obtenir(StockEmplacementModel,stock_id));execute(lambda:s.emplacement(balance.emplacement_id,'stock.consulter'));query=query.where(MouvementStockModel.stock_id==stock_id)
     total,rows=s.repo.paginer(query.order_by(MouvementStockModel.sequence.desc()),page,page_size)
-    return {'items':[serial(x) for x in rows],'total':total}
+    result=[]
+    for x in rows:
+        b=s.obtenir(StockEmplacementModel,x.stock_id);lot=s.obtenir(LotModel,b.lot_id);pack=s.s.get(ConditionnementModel,lot.conditionnement_id);prod=s.s.get(ProduitModel,pack.produit_id);loc=s.s.get(EmplacementModel,b.emplacement_id);author=s.s.get(UtilisateurModel,x.auteur_id)
+        result.append({**serial(x),'produit':prod.nom+' · '+pack.libelle,'lot':lot.numero,'emplacement':loc.nom,'auteur':author.nom})
+    return {'items':result,'total':total}
 
 @router.post('/mouvements',status_code=201)
 def entree(data:MouvementInput,s=Depends(service)):
@@ -262,12 +266,15 @@ def inventaire_creer(data:InventaireInput,request:Request,s=Depends(service)):
     return mutate(s,data,'INVENTAIRE',lambda:s.creer_inventaire(data.model_dump(),request.state.stock_site))
 
 @router.get('/inventaires/{inventaire_id}')
-def inventaire_lire(inventaire_id:UUID,request:Request,s=Depends(service)):
+def inventaire_lire(inventaire_id:UUID,request:Request,zone_id:UUID | None=None,page:int=Query(1,ge=1),page_size:int=Query(25,ge=1,le=100),s=Depends(service)):
     def action():
         inv=s.obtenir(InventaireModel,inventaire_id)
         if inv.site_id!=request.state.stock_site:raise PermissionError('Inventaire d’un autre site.')
         reveal='stock.inventaire.valider' in request.state.stock_permissions;manage='stock.inventaire.gerer' in request.state.stock_permissions
-        result=s.inventaire_detail(inv,reveal,manage)
+        if zone_id:
+            zone=s.obtenir(ZoneInventaireModel,zone_id)
+            if zone.inventaire_id!=inv.id:raise PermissionError('Zone d’un autre inventaire.')
+        result=s.inventaire_detail(inv,reveal,manage,zone_id,page,page_size)
         if not result['zones']:raise PermissionError('Aucune zone affectée accessible.')
         return result
     return execute(action)
@@ -296,3 +303,33 @@ def motifs(s=Depends(service)):return [serial(x) for x in s.lignes(MotifEcartInv
 
 @router.post('/motifs',status_code=201)
 def motif_creer(data:MotifInput,s=Depends(service)):return mutate(s,data,'MOTIF',lambda:serial(s.ajouter(MotifEcartInventaireModel,code=texte(data.code,80),nom=texte(data.nom,200))))
+
+POLICY.update({'conditionnements':POLICY['contextes'],'reservations':('stock.reserver',),'participants_disponibles':('stock.inventaire.gerer',)})
+
+@router.get('/conditionnements')
+def conditionnements(q:str=Query('',max_length=200),page:int=Query(1,ge=1),page_size:int=Query(20,ge=1,le=100),s=Depends(service)):
+    query=select(ConditionnementModel).join(ProduitModel,ProduitModel.id_produit==ConditionnementModel.produit_id).where(ConditionnementModel.organisation_id==s.org,ConditionnementModel.actif.is_(True),ProduitModel.actif.is_(True))
+    if q:
+        refs=select(ReferenceProduitModel.id_reference).where(ReferenceProduitModel.conditionnement_id==ConditionnementModel.id_conditionnement,ReferenceProduitModel.valeur.contains(q,autoescape=True)).exists()
+        query=query.where(or_(func.upper(ProduitModel.nom).contains(q.upper(),autoescape=True),refs))
+    total,rows=s.repo.paginer(query.order_by(ProduitModel.nom,ConditionnementModel.id_conditionnement),page,page_size)
+    return {'items':[{'id':str(x.id_conditionnement),'nom':s.s.get(ProduitModel,x.produit_id).nom+' · '+x.libelle} for x in rows],'total':total}
+
+@router.get('/reservations')
+def reservations(request:Request,statut:str | None=None,page:int=Query(1,ge=1),page_size:int=Query(25,ge=1,le=100),s=Depends(service)):
+    allowed=locations(s,'stock.reserver',request.state.stock_site)
+    query=select(ReservationStockModel).where(ReservationStockModel.organisation_id==s.org,select(AllocationReservationModel.id).join(StockEmplacementModel,StockEmplacementModel.id==AllocationReservationModel.stock_id).where(AllocationReservationModel.reservation_id==ReservationStockModel.id,StockEmplacementModel.emplacement_id.in_(allowed)).exists())
+    if statut:query=query.where(ReservationStockModel.statut==statut)
+    total,rows=s.repo.paginer(query.order_by(ReservationStockModel.cree_le.desc(),ReservationStockModel.id),page,page_size)
+    return {'items':[s.reservation_detail(x) for x in rows],'total':total}
+
+@router.get('/participants-disponibles')
+def participants_disponibles(emplacement_id:UUID,q:str=Query('',max_length=200),page:int=Query(1,ge=1),page_size:int=Query(25,ge=1,le=100),s=Depends(service)):
+    loc=execute(lambda:s.emplacement(emplacement_id,'stock.inventaire.gerer'))
+    # Pagination SQL sur utilisateurs possédant une affectation Site/Role/Permission effective.
+    from neosys_pharma.infrastructure.securite_models import AffectationSiteModel,AffectationEmplacementModel,AffectationRoleModel,RoleModel,RolePermissionModel,PermissionModel
+    ids=select(AffectationSiteModel.utilisateur_id).join(AffectationEmplacementModel,AffectationEmplacementModel.affectation_site_id==AffectationSiteModel.id_affectation_site).join(AffectationRoleModel,AffectationRoleModel.affectation_site_id==AffectationSiteModel.id_affectation_site).join(RoleModel,RoleModel.id_role==AffectationRoleModel.role_id).join(RolePermissionModel,RolePermissionModel.role_id==RoleModel.id_role).join(PermissionModel,PermissionModel.id_permission==RolePermissionModel.permission_id).where(AffectationSiteModel.site_id==loc.site_id,AffectationEmplacementModel.emplacement_id==loc.id_emplacement,AffectationSiteModel.actif.is_(True),AffectationSiteModel.date_debut<=s.jour,or_(AffectationSiteModel.date_fin.is_(None),AffectationSiteModel.date_fin>=s.jour),RoleModel.actif.is_(True),PermissionModel.code=='stock.inventaire.compter')
+    query=select(UtilisateurModel).where(UtilisateurModel.organisation_id==s.org,UtilisateurModel.actif.is_(True),UtilisateurModel.id_utilisateur.in_(ids))
+    if q:query=query.where(or_(UtilisateurModel.nom.contains(q,autoescape=True),UtilisateurModel.identifiant.contains(q,autoescape=True)))
+    total,rows=s.repo.paginer(query.order_by(UtilisateurModel.nom,UtilisateurModel.id_utilisateur),page,page_size)
+    return {'items':[{'id':str(x.id_utilisateur),'nom':x.nom+' · '+x.identifiant} for x in rows],'total':total}

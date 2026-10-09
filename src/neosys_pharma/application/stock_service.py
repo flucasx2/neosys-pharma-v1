@@ -112,7 +112,11 @@ class StockService:
         return self.reservation_detail(reservation)
 
     def reservation_detail(self,row):
-        return {**serial(row),'allocations':[serial(x) for x in self.lignes(AllocationReservationModel,reservation_id=row.id)]}
+        allocations=[]
+        for x in self.lignes(AllocationReservationModel,reservation_id=row.id):
+            b=self.obtenir(StockEmplacementModel,x.stock_id);l=self.obtenir(LotModel,b.lot_id)
+            allocations.append({**serial(x),'lot':l.numero,'emplacement_id':str(b.emplacement_id)})
+        return {**serial(row),'allocations':allocations}
 
     def reservation_scope(self,key,permission):
         row=self.obtenir(ReservationStockModel,key)
@@ -195,7 +199,14 @@ class StockService:
 
     def transfert_detail(self,d):
         t=self.s.scalar(select(TransfertStockModel).where(TransfertStockModel.demande_id==d.id))
-        return {**serial(d),'transfert':serial(t) if t else None,'lignes': [serial(x) for x in self.lignes(LigneTransfertStockModel,transfert_id=t.id)] if t else d.lignes,'receptions':[serial(x) for x in self.lignes(ReceptionTransfertModel,transfert_id=t.id)] if t else []}
+        lines=[]
+        for x in self.lignes(LigneTransfertStockModel,transfert_id=t.id) if t else []:
+            l=self.obtenir(LotModel,x.lot_id);p=self.s.get(ConditionnementModel,l.conditionnement_id);prod=self.s.get(ProduitModel,p.produit_id)
+            lines.append({**serial(x),'lot':l.numero,'produit':prod.nom+' · '+p.libelle})
+        if not t:
+            for x in d.lignes:
+                p,_=self.conditionnement(x['conditionnement_id'],False);prod=self.s.get(ProduitModel,p.produit_id);lines.append({**x,'produit':prod.nom+' · '+p.libelle})
+        return {**serial(d),'transfert':serial(t) if t else None,'lignes':lines,'receptions':[serial(x) for x in self.lignes(ReceptionTransfertModel,transfert_id=t.id)] if t else []}
 
     def creer_inventaire(self,data,site):
         if data['type']=='COMPLET':
@@ -261,15 +272,20 @@ class StockService:
                     self.mouvement(self.obtenir(StockEmplacementModel,line.stock_id),line.ecart,0,'AJUSTEMENT_INVENTAIRE','Inventaire '+str(inv.id),line.justification)
         inv.statut='VALIDE';inv.valide_par=self.user;inv.valide_le=now();self.s.flush();return self.inventaire_detail(inv,True)
 
-    def inventaire_detail(self,inv,reveal=False,manage=False):
+    def inventaire_detail(self,inv,reveal=False,manage=False,selected_zone=None,line_page=1,line_size=25):
         result={**serial(inv),'zones':[]}
+        first=True
         if not reveal:result.pop('snapshot_sequence',None)
         for zone in self.lignes(ZoneInventaireModel,inventaire_id=inv.id):
             participants=self.lignes(ParticipantZoneInventaireModel,zone_id=zone.id)
             if not reveal and not manage and not any(x.utilisateur_id==self.user for x in participants):continue
             self.emplacement(zone.emplacement_id,'stock.inventaire.valider' if reveal else 'stock.inventaire.gerer' if manage else 'stock.inventaire.compter')
             rows=[]
-            for line in self.lignes(LigneInventaireModel,zone_id=zone.id):
+            active=(zone.id==selected_zone) if selected_zone else first
+            first=False
+            total=self.s.scalar(select(func.count()).select_from(LigneInventaireModel).where(LigneInventaireModel.zone_id==zone.id))
+            query=select(LigneInventaireModel).where(LigneInventaireModel.zone_id==zone.id).order_by(LigneInventaireModel.id).offset((line_page-1)*line_size).limit(line_size)
+            for line in list(self.s.scalars(query)) if active else []:
                 b=self.obtenir(StockEmplacementModel,line.stock_id);lot=self.obtenir(LotModel,b.lot_id);pack=self.s.get(ConditionnementModel,lot.conditionnement_id);prod=self.s.get(ProduitModel,pack.produit_id)
                 row={**serial(line),'produit':prod.nom,'conditionnement':pack.libelle,'lot':lot.numero,'peremption':str(lot.peremption) if lot.peremption else None,'comptages':[serial(x) for x in self.lignes(ComptageInventaireModel,ligne_id=line.id)]}
                 if reveal:row['ecart_calcule']=self.ecart(line,inv) if line.compte is not None else None
@@ -277,5 +293,5 @@ class StockService:
                     for field in ('theorique','ecart','stock_id','comptage_sequence'):row.pop(field,None)
                     for c in row['comptages']:c.pop('sequence',None)
                 rows.append(row)
-            result['zones'].append({**serial(zone),'participants':[serial(x) for x in participants],'lignes':rows})
+            result['zones'].append({**serial(zone),'participants':[serial(x) for x in participants],'lignes':rows,'total':total,'page':line_page if active else 1,'active':active})
         return result
