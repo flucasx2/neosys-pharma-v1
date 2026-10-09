@@ -16,7 +16,7 @@ with sync_playwright() as p:
         modal.get_by_role('button',name='Enregistrer',exact=True).click();expect(modal).not_to_be_visible();expect(page.locator('#catalogue-message')).to_contain_text('Enregistrement réussi')
     def shot(name):
         page.evaluate('document.activeElement?.blur();window.scrollTo({top:0,behavior:"instant"})');page.screenshot(path='qa/'+name,full_page=True)
-    login('catalogue.qa');expect(page.locator('#catalogue-count')).to_contain_text('58 résultats');initial_context=page.evaluate('[document.getElementById("organisations").value,document.getElementById("sites").value,document.getElementById("emplacements").value]')
+    login('catalogue.qa');expect(page.locator('#catalogue-count')).to_contain_text('58 résultats');initial_context=page.evaluate('[document.getElementById("organisations").value,document.getElementById("sites").value,document.getElementById("equipement-emplacement").value]')
     page.on('request',lambda r:documents.append(r.url) if r.resource_type=='document' else None)
     page.locator('#catalogue-data-disclosure summary').click()
     meta=page.locator('#catalogue-data-modal')
@@ -115,6 +115,6 @@ with sync_playwright() as p:
     for endpoint in ['/imports/previsualisation','/conseils/appliquer','/tarification/sites','/principes']:
         assert page.request.post(root+endpoint,headers=headers,data={}).status==403
     page.evaluate('p2NewTarif("sites")');expect(tarif).not_to_be_visible()
-    assert not documents,documents;assert page.evaluate('[document.getElementById("organisations").value,document.getElementById("sites").value,document.getElementById("emplacements").value]')==initial_context
+    assert not documents,documents;assert page.evaluate('[document.getElementById("organisations").value,document.getElementById("sites").value,document.getElementById("equipement-emplacement").value]')==initial_context
     assert not errors,errors
     browser.close();print('P2 complet Chromium : compositions/classifications, priorités, TVA, historique, import, réimport, validation des conseils, modales et lecture seule : OK')
