@@ -9,7 +9,8 @@ with sync_playwright() as p:
     def login(name):
         for k,v in {'organisation_id':f['organisation_id'],'identifiant':name,'password':f['password']}.items():page.locator(f'#login-form [name="{k}"]').fill(v)
         page.locator('#login-form button').click();expect(page.locator('#app-shell')).to_be_visible();page.locator('#nav-stock').click();expect(page.locator('#stock-rows')).to_have_attribute('aria-busy','false')
-    def ready():expect(page.locator('#etats-rows')).to_have_attribute('aria-busy','false')
+    def ready():
+        expect(page.locator('#stock-rows')).to_have_attribute('aria-busy','false');expect(page.locator('#etats-rows')).to_have_attribute('aria-busy','false')
     def kind(value):
         with page.expect_response(lambda r:'/etats/'+value+'?' in r.url):page.locator('#etats-type').select_option(value)
         ready()
@@ -39,7 +40,7 @@ with sync_playwright() as p:
     page.set_viewport_size({'width':390,'height':844});shot('p3-etats-mobile.png');assert not page.evaluate('document.documentElement.scrollWidth>innerWidth');page.set_viewport_size({'width':1440,'height':1000})
     page.locator('#sites').select_option(f['p3_other_site']);expect(page.locator('#etats-summary')).to_contain_text('1 résultat(s)');expect(page.locator('#etats-rows')).not_to_contain_text('PAG-P3-')
     page.locator('#logout-button').click();login('stock.lecture.qa');page.locator('[data-stock-view="etats"]').click();ready();expect(page.locator('#etats-panel')).to_be_visible()
-    assert page.locator('#etats-type option[value="inventaire"]').get_attribute('hidden') is not None
+    expect(page.locator('#etats-type option[value="inventaire"]')).to_have_attribute('hidden','')
     r=page.request.get('http://127.0.0.1:8000/api/stock/organisations/'+f['organisation_id']+'/etats/inventaire/export?format=csv',headers={'X-Site-ID':f['site_id']});assert r.status==403,r.text()
     page.locator('#logout-button').click();login('stock.compteur.qa');expect(page.locator('[data-stock-view="etats"]')).to_be_hidden()
     assert not documents,documents;assert not errors,errors
