@@ -20,6 +20,7 @@ from neosys_pharma.domain.stock import ConflitStock
 from neosys_pharma.domain.catalogue import texte
 
 POLICY={
+ 'etat_lire':('stock.consulter','stock.inventaire.valider'),'etat_exporter':('stock.consulter','stock.inventaire.valider'),
  'stocks':('stock.consulter',),'stock_enregistrer':('stock.gerer',),'lots':('stock.consulter','stock.gerer','stock.reserver'),'lot_creer':('stock.gerer',),'mouvements':('stock.consulter',),'entree':('stock.gerer',),'sortie':('stock.gerer',),
  'reservation_creer':('stock.reserver',),'reservation_lire':('stock.reserver',),'reservation_liberer':('stock.reserver',),'reservation_consommer':('stock.reserver',),
  'transferts':('stock.consulter','stock.transferer','stock.transfert.valider','stock.transfert.recevoir'),'transfert_lire':('stock.consulter','stock.transferer','stock.transfert.valider','stock.transfert.recevoir'),
@@ -396,3 +397,36 @@ def participants_disponibles(emplacement_id:UUID,q:str=Query('',max_length=200),
     if q:query=query.where(or_(UtilisateurModel.nom.contains(q,autoescape=True),UtilisateurModel.identifiant.contains(q,autoescape=True)))
     total,rows=s.repo.paginer(query.order_by(UtilisateurModel.nom,UtilisateurModel.id_utilisateur),page,page_size)
     return {'items':[{'id':str(x.id_utilisateur),'nom':x.nom+' · '+x.identifiant} for x in rows],'total':total}
+
+
+# Un unique lecteur métier alimente la consultation et tous les formats.
+class EtatFiltres(Input):
+    emplacement_id:UUID | None=None
+    produit_id:UUID | None=None
+    conditionnement_id:UUID | None=None
+    lot_id:UUID | None=None
+    inventaire_id:UUID | None=None
+    q:str=Field(default='',max_length=200)
+    debut:date | None=None
+    fin:date | None=None
+    reference:date | None=None
+    horizon:int=Field(default=90,ge=0,le=3650)
+
+
+def lire_etat(genre,request,s,filtres):
+    from neosys_pharma.application.etats_service import EtatsService
+    permission='stock.inventaire.valider' if genre in ('inventaire','ecarts') else 'stock.consulter'
+    return execute(lambda:EtatsService(s,request.state.stock_site).lire(genre,locations(s,permission,request.state.stock_site),**filtres.model_dump()))
+
+@router.get('/etats/{genre}')
+def etat_lire(genre:str,request:Request,filtres:EtatFiltres=Depends(),page:int=Query(1,ge=1),page_size:int=Query(25,ge=1,le=100),s=Depends(service)):
+    report=lire_etat(genre,request,s,filtres)
+    report['items']=report['items'][(page-1)*page_size:page*page_size]
+    return {**report,'page':page,'page_size':page_size}
+
+@router.get('/etats/{genre}/export')
+def etat_exporter(genre:str,request:Request,filtres:EtatFiltres=Depends(),format:Literal['pdf','xlsx','csv']='pdf',s=Depends(service)):
+    from fastapi.responses import Response
+    from neosys_pharma.infrastructure.etats_exports import exporter,MIME
+    report=lire_etat(genre,request,s,filtres)
+    return Response(exporter(report,format),media_type=MIME[format],headers={'Content-Disposition':f'attachment; filename="neosys-{genre}-{report["reference"]}.{format}"','X-Report-Reference':report['reference'],'X-Report-Rows':str(report['total'])})
