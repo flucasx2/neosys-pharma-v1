@@ -7,7 +7,7 @@ from playwright.sync_api import sync_playwright,expect
 f=json.loads(Path('/tmp/p1-browser-fixture.json').read_text())
 with sync_playwright() as p:
     browser=p.chromium.launch();page=browser.new_page(viewport={'width':1440,'height':1000});errors=[];documents=[]
-    page.on('pageerror',lambda e:errors.append(str(e)));page.goto('http://127.0.0.1:8000')
+    page.on('pageerror',lambda e:(errors.append(str(e)),print('Erreur JavaScript P3 :',e)));page.goto('http://127.0.0.1:8000')
     def login(user):
         for k,v in {'organisation_id':f['organisation_id'],'identifiant':user,'password':f['password']}.items():page.locator(f'#login-form [name="{k}"]').fill(v)
         page.locator('#login-form button').click();expect(page.locator('#app-shell')).to_be_visible();page.locator('#nav-stock').click();expect(page.locator('#stock-pane')).to_be_visible();expect(page.locator('#stock-rows')).to_have_attribute('aria-busy','false')

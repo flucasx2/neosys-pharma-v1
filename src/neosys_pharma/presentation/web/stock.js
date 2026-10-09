@@ -45,12 +45,12 @@ function stockPackFields(form,row=null){
  const product=stockField(form,"produit_id","Produit sélectionné","hidden",false);product.closest("label").hidden=true;
  const pack=stockField(form,"conditionnement_id","Produit et conditionnement","select");
  const detail=stockText(form,"Saisir au moins 3 caractères, puis choisir un résultat.");detail.className="stock-picker-detail";detail.setAttribute("aria-live","polite");
- const nav=document.createElement("div");nav.className="p2-actions";form.append(nav);const previous=stockButton(nav,"Résultats précédents",()=>{}),next=stockButton(nav,"Résultats suivants",()=>{});previous.disabled=next.disabled=true;previous.classList.add("stock-picker-previous");next.classList.add("stock-picker-next");
+ const nav=document.createElement("div");nav.className="p2-actions stock-picker-navigation";form.append(nav);
  if(row){const option=new Option(row.produit+" · "+row.conditionnement,row.conditionnement_id,true,true);option.dataset.produitId=row.produit_id||"";pack.add(option);detail.textContent=option.text;product.value=option.dataset.produitId;}
  return {search,pack};
 }
 function stockPackInitialize(entry,rows,change){
- const form=entry.form,search=form.elements.recherche,pack=form.elements.conditionnement_id,product=form.elements.produit_id,detail=form.querySelector(".stock-picker-detail"),previous=form.querySelector(".stock-picker-previous"),next=form.querySelector(".stock-picker-next");let generation=0,timer,page=1;previous.disabled=next.disabled=true;
+ const form=entry.form,search=form.elements.recherche,pack=form.elements.conditionnement_id,product=form.elements.produit_id,detail=form.querySelector(".stock-picker-detail"),previous=stockButton(form.querySelector(".stock-picker-navigation"),"Résultats précédents",()=>{}),next=stockButton(form.querySelector(".stock-picker-navigation"),"Résultats suivants",()=>{});let generation=0,timer,page=1;previous.disabled=next.disabled=true;
  const select=()=>{const option=pack.selectedOptions[0];product.value=option?.dataset.produitId||"";detail.textContent=pack.value?option.text:"Choisir un produit et son conditionnement dans les résultats.";change?.();};
  const load=async()=>{const version=++generation,q=search.value.trim();previous.disabled=next.disabled=true;
   if([...q].length<3){pack.replaceChildren(new Option("Saisir au moins 3 caractères",""));product.value="";detail.textContent="Saisir au moins 3 caractères pour rechercher.";change?.();return;}
