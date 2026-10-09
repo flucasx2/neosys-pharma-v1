@@ -56,6 +56,8 @@ def test_stocks_pagination_recherche_peremption_et_valorisation_inconnue(raw_cli
         l=lot(c,a,pack,'LOT-é-'+str(i),str(today+timedelta(days=i-2)));entry(c,a,l['id'],i+1)
     reserve(c,a,pack,2)
     r=report(c,a,page=2,page_size=2);assert r['total']==6 and len(r['items'])==2
+    assert 'horizon' not in r['filtres'] and 'reference' not in r['filtres']
+    assert c.get(root(a)+'/etats/stocks',params={'debut':str(today)}).status_code==422
     assert r['synthese']['totaux_quantites']=={'physique':21,'reserve':2,'vendable':19}
     assert report(c,a,q='lot-É-3')['total']==1
     r=report(c,a,'valorisation');assert r['synthese']['total_valorisation'] is None and r['synthese']['lignes_non_valorisables']==6

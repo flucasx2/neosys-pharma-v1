@@ -21,10 +21,12 @@ class EtatsService:
     def lire(self, genre, allowed, *, emplacement_id=None, produit_id=None, conditionnement_id=None, lot_id=None, inventaire_id=None, q='', debut=None, fin=None, reference=None, horizon=90):
         s=self.stock
         if genre not in TITRES: raise ValueError('État inconnu.')
-        if debut and fin and debut>fin: raise ValueError('La date de début doit précéder la date de fin.')
         inventaire=genre in ('inventaire','ecarts')
         permission='stock.inventaire.valider' if inventaire else 'stock.consulter'
         s.access(permission,self.site)
+        if debut and fin and debut>fin: raise ValueError('La date de début doit précéder la date de fin.')
+        if (debut or fin) and genre not in ('mouvements','comptabilite'):raise ValueError('La période est réservée au journal des mouvements. Les soldes sont actuels.')
+        if reference and genre!='peremptions':raise ValueError('La date de référence est réservée aux péremptions.')
         if emplacement_id:
             s.emplacement(emplacement_id,permission);allowed=[emplacement_id]
         # Même si un site est autorisé, aucune ligne sans AffectationEmplacement.
@@ -91,4 +93,4 @@ class EtatsService:
         notes=['Quantités exprimées en unités de conditionnement, sans conversion. Les totaux de conditionnements différents ne sont pas des unités homogènes.','Coûts d’acquisition historiques indisponibles : aucun prix fournisseur conseillé ou prix de vente utilisé. Aucune écriture comptable générée.']
         if genre in ('stocks','valorisation','peremptions'):notes.append('Soldes actuels extraits à la génération ; aucune reconstitution historique à une date passée.')
         if inventaire:notes.append('Écart = compté − (photographie + mouvements jusqu’au comptage). Les mouvements postérieurs au comptage restent conservés.')
-        return dict(reference=str(uuid4()),titre=TITRES[genre],genre=genre,organisation_id=str(s.org),organisation=org.nom_commercial,site_id=str(self.site),site=site.code+' — '+site.nom,genere_le=datetime.now(timezone.utc).isoformat(),filtres={k:str(v) for k,v in dict(emplacement_id=emplacement_id,produit_id=produit_id,conditionnement_id=conditionnement_id,lot_id=lot_id,q=q,debut=debut,fin=fin,reference=reference,horizon=horizon).items() if v not in (None,'')},inventaire=dict(id=str(inv.id),nom=inv.nom,type=inv.type,statut=inv.statut,date=inv.date.isoformat(),snapshot_sequence=inv.snapshot_sequence,valide_par=str(inv.valide_par) if inv.valide_par else None,valide_le=inv.valide_le.isoformat() if inv.valide_le else None) if inv else None,columns=[dict(key=k,label=v) for k,v in columns+TECH],items=rows,total=len(rows),synthese=summary,notes=notes)
+        return dict(reference=str(uuid4()),titre=TITRES[genre],genre=genre,organisation_id=str(s.org),organisation=org.nom_commercial,site_id=str(self.site),site=site.code+' — '+site.nom,genere_le=datetime.now(timezone.utc).isoformat(),filtres={k:str(v) for k,v in dict(emplacement_id=emplacement_id,produit_id=produit_id,conditionnement_id=conditionnement_id,lot_id=lot_id,q=q,debut=debut if movement else None,fin=fin if movement else None,reference=reference if genre=='peremptions' else None,horizon=horizon if genre=='peremptions' else None).items() if v not in (None,'')},inventaire=dict(id=str(inv.id),nom=inv.nom,type=inv.type,statut=inv.statut,date=inv.date.isoformat(),snapshot_sequence=inv.snapshot_sequence,valide_par=str(inv.valide_par) if inv.valide_par else None,valide_le=inv.valide_le.isoformat() if inv.valide_le else None) if inv else None,columns=[dict(key=k,label=v) for k,v in columns+TECH],items=rows,total=len(rows),synthese=summary,notes=notes)
