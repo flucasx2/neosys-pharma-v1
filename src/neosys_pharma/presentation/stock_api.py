@@ -20,7 +20,7 @@ from neosys_pharma.domain.stock import ConflitStock
 from neosys_pharma.domain.catalogue import texte
 
 POLICY={
- 'stocks':('stock.consulter',),'lots':('stock.consulter','stock.gerer','stock.reserver'),'lot_creer':('stock.gerer',),'mouvements':('stock.consulter',),'entree':('stock.gerer',),'sortie':('stock.gerer',),
+ 'stocks':('stock.consulter',),'stock_enregistrer':('stock.gerer',),'lots':('stock.consulter','stock.gerer','stock.reserver'),'lot_creer':('stock.gerer',),'mouvements':('stock.consulter',),'entree':('stock.gerer',),'sortie':('stock.gerer',),
  'reservation_creer':('stock.reserver',),'reservation_lire':('stock.reserver',),'reservation_liberer':('stock.reserver',),'reservation_consommer':('stock.reserver',),
  'transferts':('stock.consulter','stock.transferer','stock.transfert.valider','stock.transfert.recevoir'),'transfert_lire':('stock.consulter','stock.transferer','stock.transfert.valider','stock.transfert.recevoir'),
  'demande_creer':('stock.transferer',),'interne':('stock.transferer',),'demande_valider':('stock.transfert.valider',),'demande_annuler':('stock.transfert.valider',),'demande_expedier':('stock.transferer',),'demande_recevoir':('stock.transfert.recevoir',),
@@ -56,6 +56,9 @@ class LotInput(Mutation):
     conditionnement_id:UUID
     numero:str | None=Field(default=None,min_length=1,max_length=100)
     peremption:date | None=None
+class StockInput(Justifie):
+    lot_id:UUID
+    emplacement_id:UUID
 class MouvementInput(Justifie):
     lot_id:UUID
     emplacement_id:UUID
@@ -157,6 +160,16 @@ def stocks(request:Request,q:str=Query('',max_length=200),page:int=Query(1,ge=1)
         expired=bool(rules['gestion_peremption'] and (lot.peremption is None or lot.peremption<s.jour))
         result.append({**serial(b),'vendable':b.physique-b.reserve,'sortie_autorisee':not expired,'alerte':'PÉRIMÉ' if expired else 'RUPTURE' if b.physique==b.reserve else None,'produit':prod.nom,'conditionnement':pack.libelle,'conditionnement_id':str(pack.id_conditionnement),'emplacement':loc.nom,'lot':lot.numero,'peremption':str(lot.peremption) if lot.peremption else None})
     return {'items':result,'total':total,'page':page,'page_size':page_size}
+
+@router.post('/stocks',status_code=201)
+def stock_enregistrer(data:StockInput,s=Depends(service)):
+    execute(lambda:s.emplacement(data.emplacement_id,'stock.gerer'))
+    def action():
+        loc=s.emplacement(data.emplacement_id,'stock.gerer');lot=s.obtenir(LotModel,data.lot_id);s.conditionnement(lot.conditionnement_id)
+        b=s.balance(lot,loc)
+        # Enregistrer un suivi n'est ni une entrée physique ni une remise à zéro d'un solde existant.
+        return {'id':str(b.id),'lot_id':str(lot.id),'emplacement_id':str(loc.id_emplacement),'justification':data.justification,'auteur_id':str(s.user)}
+    return mutate(s,data,'SUIVI_STOCK',action)
 
 @router.get('/lots')
 def lots(conditionnement_id:UUID,q:str=Query('',max_length=100),selected_lot_id:UUID | None=None,page:int=Query(1,ge=1),page_size:int=Query(25,ge=1,le=100),s=Depends(service)):

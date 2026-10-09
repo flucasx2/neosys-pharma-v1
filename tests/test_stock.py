@@ -176,7 +176,7 @@ def test_validation_inventaire_rollback_si_stock_reserve_et_compteur_aveugle(raw
     assert c.get(root(a)+'/stocks').status_code==403
     post(c,a,f'/inventaires/{inv["id"]}/valider',status=403)
 
-@pytest.mark.parametrize('path',['/lots','/mouvements','/sorties','/reservations','/transferts','/transferts-internes','/inventaires','/motifs'])
+@pytest.mark.parametrize('path',['/stocks','/lots','/mouvements','/sorties','/reservations','/transferts','/transferts-internes','/inventaires','/motifs'])
 def test_routes_mutation_401_403_csrf_independantes_interface(raw_client,account,path):
     c,a=raw_client,account
     assert c.post(root(a)+path,json={}).status_code==401
@@ -398,3 +398,17 @@ def test_routes_actions_objets_refusees_sans_session_et_en_lecture_seule(raw_cli
     for path in paths:assert c.post(root(a)+path,json={}).status_code==401
     grant(c,a,('stock.consulter',));login(c,a)
     for path in paths:assert c.post(root(a)+path,json={}).status_code==403
+
+
+def test_inventaire_initial_suivi_zero_sans_stock_fictif_et_sans_remise_a_zero(raw_client,account):
+    c,a=raw_client,account;pack=init(c,a);l=lot(c,a,pack);assert stocks(c,a)==[]
+    body={'lot_id':l['id'],'emplacement_id':str(a['location']),'justification':'Préparation inventaire initial'}
+    post(c,a,'/stocks',body);assert stocks(c,a)[0]['physique']==0 and stocks(c,a)[0]['reserve']==0
+    assert c.get(root(a)+'/mouvements').json()['total']==0
+    inv=inventory(c,a,pack);z=inv['zones'][0];line=z['lignes'][0];post(c,a,f'/zones/{z["id"]}/participants',{'utilisateur_id':str(a['user'])});m=post(c,a,'/motifs',{'code':'INITIAL','nom':'Comptage initial'})
+    post(c,a,f'/lignes-inventaire/{line["id"]}/comptages',{'quantite':3,'motif_id':m['id'],'justification':'Trois boîtes physiquement constatées'});post(c,a,f'/inventaires/{inv["id"]}/valider',status=200)
+    assert stocks(c,a)[0]['physique']==3
+    post(c,a,'/stocks',{**body,'emplacement_id':str(a['denied'])},403)
+    post(c,a,'/stocks',body);assert stocks(c,a)[0]['physique']==3
+    assert c.get(root(a)+'/mouvements').json()['total']==1
+    entry(c,a,l['id'],1,a['denied'],status=403)

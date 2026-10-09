@@ -56,3 +56,8 @@ body.modal-open{overflow:hidden}.creation-dialog{width:min(840px,calc(100vw - 32
 #stock-detail-content section { margin-top: 20px; }
 #stock-pane .catalogue-fields { align-items: end; }
 #stock-pane .catalogue-fields button { width: auto; align-self: end; }
+
+#stock-pane { min-width: 0; }
+#stock-pane .catalogue-table-wrap { overflow-x: auto; max-width: 100%; min-width: 0; }
+#stock-pane .catalogue-fields button { justify-self: start; }
+#stock-detail-content table { min-width: 700px; }
