@@ -26,5 +26,7 @@ with SessionLocal() as s:
     catalogue=CatalogueService(SqlAlchemyCatalogueRepository(s));cat=CategorieProduit(organisation_id=org,code='P3-QA',nom='Stock QA P3',gestion_lot=True,gestion_peremption=True,fefo=True);catalogue.enregistrer(cat)
     prod=Produit(organisation_id=org,nom='Stock QA P3',categorie_id=cat.id_categorie);pack=Conditionnement(organisation_id=org,produit_id=prod.id_produit,code='B20-P3',libelle='Boîte de 20')
     catalogue.enregistrer(prod,nouveau=True,premier_conditionnement=pack);catalogue.enregistrer(ReferenceProduit(organisation_id=org,conditionnement_id=pack.id_conditionnement,type_reference=TypeReference.CIP7,valeur='9912345'))
-    fixture.update(p3_pack=str(pack.id_conditionnement),p3_destination=str(dest.id_emplacement),p3_other_site=str(other.id_site),p3_other_location=str(otherloc.id_emplacement),p3_users=users)
+    for i in range(25):catalogue.enregistrer(Conditionnement(organisation_id=org,produit_id=prod.id_produit,code=f'PICK-{i}',libelle=f'Conditionnement secondaire {i}'))
+    catalogue.enregistrer(ReferenceProduit(organisation_id=org,conditionnement_id=pack.id_conditionnement,type_reference=TypeReference.EAN,valeur='9912345678901'))
+    fixture.update(p3_product=str(prod.id_produit),p3_pack=str(pack.id_conditionnement),p3_destination=str(dest.id_emplacement),p3_other_site=str(other.id_site),p3_other_location=str(otherloc.id_emplacement),p3_users=users)
 Path('/tmp/p1-browser-fixture.json').write_text(json.dumps(fixture))

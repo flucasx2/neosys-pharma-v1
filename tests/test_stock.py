@@ -412,3 +412,55 @@ def test_inventaire_initial_suivi_zero_sans_stock_fictif_et_sans_remise_a_zero(r
     post(c,a,'/stocks',body);assert stocks(c,a)[0]['physique']==3
     assert c.get(root(a)+'/mouvements').json()['total']==1
     entry(c,a,l['id'],1,a['denied'],status=403)
+
+
+def test_selecteur_produits_pagine_references_securite_et_ids(raw_client,account):
+    c,a=raw_client,account;pack=init(c,a)
+    from neosys_pharma.infrastructure.catalogue_models import ReferenceProduitModel,ConditionnementModel
+    gen=db(c);session=next(gen)
+    try:
+        first=session.get(ConditionnementModel,UUID(pack))
+        product=first.produit_id
+        for i in range(25):
+            session.add(ConditionnementModel(id_conditionnement=uuid4(),organisation_id=a['org'],produit_id=product,code=f'PICK-{i}',libelle=f'Boîte sélection {i}',actif=True))
+        for typ,val in [('CIP7','0012345'),('EAN','1234567890128'),('HISTORIQUE','Référence-historique')]:
+            session.add(ReferenceProduitModel(id_reference=uuid4(),organisation_id=a['org'],conditionnement_id=UUID(pack),type_reference=typ,valeur=val,actif=True))
+        session.commit()
+        from neosys_pharma.domain.organisation.entities import Organisation
+        from neosys_pharma.infrastructure.organisation_repository import SqlAlchemyOrganisationRepository
+        from neosys_pharma.domain.catalogue import Produit,Conditionnement,CategorieProduit
+        from neosys_pharma.application.catalogue_service import CatalogueService
+        from neosys_pharma.infrastructure.catalogue_repository import SqlAlchemyCatalogueRepository
+        foreign=Organisation(nom_commercial='Autre org',raison_sociale='Autre org')
+        SqlAlchemyOrganisationRepository(session).ajouter(foreign);session.commit()
+        catalogue=CatalogueService(SqlAlchemyCatalogueRepository(session));category=CategorieProduit(organisation_id=foreign.id_organisation,code='PICK',nom='Autre catégorie');catalogue.enregistrer(category)
+        outside=Produit(organisation_id=foreign.id_organisation,nom='Produit test étranger',categorie_id=category.id_categorie)
+        foreignpack=Conditionnement(organisation_id=foreign.id_organisation,produit_id=outside.id_produit,code='PICK',libelle='Autre boîte')
+        catalogue.enregistrer(outside,nouveau=True,premier_conditionnement=foreignpack)
+    finally:gen.close()
+    assert c.get(root(a)+'/conditionnements/'+str(foreignpack.id_conditionnement)).status_code==403
+    for q in ['', 'pr', '  pr ']:assert c.get(root(a)+'/conditionnements',params={'q':q}).json()['items']==[]
+    for q in ['duit tes','0012345','456789012','férence-hist']:
+        r=c.get(root(a)+'/conditionnements',params={'q':q,'page_size':20});assert r.status_code==200,r.text
+        assert r.json()['total']>=1
+        row=r.json()['items'][0];assert row['produit_id']==str(product) and row['conditionnement_id'] and row['designation']=='PRODUIT TEST'
+    r=c.get(root(a)+'/conditionnements',params={'q':'Produit test','page_size':20}).json();assert r['total']==26 and len(r['items'])==20
+    r=c.get(root(a)+'/conditionnements',params={'q':'Produit test','page':2,'page_size':20}).json();assert len(r['items'])==6
+    assert c.get(root(a)+'/conditionnements',params={'q':'%__'}).json()['total']==0
+    post(c,a,'/lots',{'conditionnement_id':pack,'produit_id':str(uuid4())},422)
+    chosen=post(c,a,'/lots',{'conditionnement_id':pack,'produit_id':str(product)},201)
+    post(c,a,'/mouvements',{'lot_id':chosen['id'],'produit_id':str(uuid4()),'emplacement_id':str(a['location']),'quantite':1,'origine':'TEST','justification':'Test cohérence'},422)
+    c.headers['X-Site-ID']=str(uuid4());assert c.get(root(a)+'/conditionnements',params={'q':'Produit'}).status_code==403
+    c.headers['X-Site-ID']=str(a['site']);c.headers['X-Emplacement-ID']=str(a['denied']);assert c.get(root(a)+'/conditionnements',params={'q':'Produit'}).status_code==403
+
+
+def test_recherche_stock_authentification_permission_et_organisation(raw_client,account):
+    c,a=raw_client,account
+    assert c.get(root(a)+'/conditionnements',params={'q':'Produit'}).status_code==401
+    login(c,a)
+    assert c.get(root(a)+'/conditionnements',params={'q':'Produit'}).status_code==403
+    grant(c,a,('stock.consulter',));login(c,a)
+    assert c.get(root(a)+'/conditionnements',params={'q':'Produit'}).status_code==200
+    assert c.get(root({'org':uuid4()})+'/conditionnements',params={'q':'Produit'}).status_code==403
+    assert c.get(root(a)+'/conditionnements/'+str(uuid4())).status_code==403
+    post(c,a,'/lots',{'conditionnement_id':str(uuid4())},403)

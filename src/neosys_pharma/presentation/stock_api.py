@@ -50,7 +50,9 @@ def stock_context(request:Request,organisation_id:UUID,user=Depends(utilisateur_
 router=APIRouter(prefix='/api/stock/organisations/{organisation_id}',tags=['Stock & Inventaire'],dependencies=[Depends(stock_context)])
 
 class Input(BaseModel):model_config=ConfigDict(extra='forbid',str_strip_whitespace=True)
-class Mutation(Input):cle:UUID
+class Mutation(Input):
+    cle:UUID
+    produit_id:UUID | None=None
 class Justifie(Mutation):justification:str=Field(min_length=1,max_length=2000)
 class LotInput(Mutation):
     conditionnement_id:UUID
@@ -73,6 +75,7 @@ class ReservationInput(Mutation):
     lot_id:UUID | None=None
     justification:str | None=Field(default=None,min_length=1,max_length=2000)
 class LigneDemande(Input):
+    produit_id:UUID | None=None
     conditionnement_id:UUID
     quantite:int=Field(strict=True,gt=0,le=1_000_000_000)
     lot_id:UUID | None=None
@@ -123,7 +126,23 @@ def execute(action):
     except IntegrityError as exc:raise HTTPException(409,'Conflit de contrainte ou entité déjà enregistrée.') from exc
 
 
-def mutate(s,data,kind,action):return execute(lambda:s.operation(data.cle,kind,data.model_dump(exclude={'cle'}),action))
+def mutate(s,data,kind,action):
+    def checked():
+        rows=getattr(data,'lignes',None) or [data]
+        for row in rows:
+            product=getattr(row,'produit_id',None)
+            if product:
+                pack_id=getattr(row,'conditionnement_id',None)
+                if not pack_id and getattr(row,'lot_id',None):pack_id=s.obtenir(LotModel,row.lot_id).conditionnement_id
+                if not pack_id:raise ValueError('Conditionnement requis pour le produit sélectionné.')
+                pack,_=s.conditionnement(pack_id)
+                if pack.produit_id!=product:raise ValueError('Produit et conditionnement incompatibles.')
+        return action()
+    def fingerprint(value):
+        if isinstance(value,dict):return {k:fingerprint(v) for k,v in value.items() if k!='produit_id' or v is not None}
+        if isinstance(value,list):return [fingerprint(v) for v in value]
+        return value
+    return execute(lambda:s.operation(data.cle,kind,fingerprint(data.model_dump(exclude={'cle'})),checked))
 
 def locations(s,permission,site):
     result=[]
@@ -158,7 +177,7 @@ def stocks(request:Request,q:str=Query('',max_length=200),page:int=Query(1,ge=1)
     for b in rows:
         lot=s.obtenir(LotModel,b.lot_id);pack,rules=s.conditionnement(lot.conditionnement_id,False);prod=s.s.get(ProduitModel,pack.produit_id);loc=s.s.get(EmplacementModel,b.emplacement_id)
         expired=bool(rules['gestion_peremption'] and (lot.peremption is None or lot.peremption<s.jour))
-        result.append({**serial(b),'vendable':b.physique-b.reserve,'sortie_autorisee':not expired,'alerte':'PÉRIMÉ' if expired else 'RUPTURE' if b.physique==b.reserve else None,'produit':prod.nom,'conditionnement':pack.libelle,'conditionnement_id':str(pack.id_conditionnement),'emplacement':loc.nom,'lot':lot.numero,'peremption':str(lot.peremption) if lot.peremption else None})
+        result.append({**serial(b),'vendable':b.physique-b.reserve,'sortie_autorisee':not expired,'alerte':'PÉRIMÉ' if expired else 'RUPTURE' if b.physique==b.reserve else None,'produit_id':str(prod.id_produit),'produit':prod.nom,'conditionnement':pack.libelle,'conditionnement_id':str(pack.id_conditionnement),'emplacement':loc.nom,'lot':lot.numero,'peremption':str(lot.peremption) if lot.peremption else None})
     return {'items':result,'total':total,'page':page,'page_size':page_size}
 
 @router.post('/stocks',status_code=201)
@@ -339,16 +358,24 @@ def motifs(s=Depends(service)):return [serial(x) for x in s.lignes(MotifEcartInv
 @router.post('/motifs',status_code=201)
 def motif_creer(data:MotifInput,s=Depends(service)):return mutate(s,data,'MOTIF',lambda:serial(s.ajouter(MotifEcartInventaireModel,code=texte(data.code,80),nom=texte(data.nom,200))))
 
-POLICY.update({'conditionnements':POLICY['contextes'],'reservations':('stock.reserver',),'participants_disponibles':('stock.inventaire.gerer',)})
+POLICY.update({'conditionnement_selection':POLICY['contextes'],'conditionnements':POLICY['contextes'],'reservations':('stock.reserver',),'participants_disponibles':('stock.inventaire.gerer',)})
 
 @router.get('/conditionnements')
 def conditionnements(q:str=Query('',max_length=200),page:int=Query(1,ge=1),page_size:int=Query(20,ge=1,le=100),s=Depends(service)):
+    q=q.strip()
+    if len(q)<3:return {'items':[],'total':0,'page':page,'page_size':page_size}
     query=select(ConditionnementModel).join(ProduitModel,ProduitModel.id_produit==ConditionnementModel.produit_id).where(ConditionnementModel.organisation_id==s.org,ConditionnementModel.actif.is_(True),ProduitModel.actif.is_(True))
     if q:
         refs=select(ReferenceProduitModel.id_reference).where(ReferenceProduitModel.conditionnement_id==ConditionnementModel.id_conditionnement,s.repo.upper(ReferenceProduitModel.valeur).contains(s.repo.terme(q),autoescape=True)).exists()
         query=query.where(or_(s.repo.upper(ProduitModel.nom).contains(s.repo.terme(q),autoescape=True),refs))
     total,rows=s.repo.paginer(query.order_by(ProduitModel.nom,ConditionnementModel.id_conditionnement),page,page_size)
-    return {'items':[{'id':str(x.id_conditionnement),'nom':s.s.get(ProduitModel,x.produit_id).nom+' · '+x.libelle} for x in rows],'total':total}
+    return {'items':[{'id':str(x.id_conditionnement),'conditionnement_id':str(x.id_conditionnement),'produit_id':str(prod.id_produit),'designation':prod.nom,'conditionnement':x.libelle,'nom':prod.nom+' · '+x.libelle} for x in rows for prod in [s.s.get(ProduitModel,x.produit_id)]],'total':total,'page':page,'page_size':page_size}
+
+@router.get('/conditionnements/{conditionnement_id}')
+def conditionnement_selection(conditionnement_id:UUID,s=Depends(service)):
+    pack,_=execute(lambda:s.conditionnement(conditionnement_id))
+    prod=s.s.get(ProduitModel,pack.produit_id)
+    return {'id':str(pack.id_conditionnement),'conditionnement_id':str(pack.id_conditionnement),'produit_id':str(prod.id_produit),'designation':prod.nom,'conditionnement':pack.libelle,'nom':prod.nom+' · '+pack.libelle}
 
 @router.get('/reservations')
 def reservations(request:Request,statut:str | None=None,page:int=Query(1,ge=1),page_size:int=Query(25,ge=1,le=100),s=Depends(service)):
