@@ -22,6 +22,8 @@ with sync_playwright() as p:
     expect(page.locator('#etats-rows tr')).to_have_count(25)
     page.locator('#etats-next').click();expect(page.locator('#etats-page')).to_have_text('Page 2 sur 2');expect(page.locator('#etats-rows tr')).to_have_count(5)
     page.locator('#etats-search').fill('LOT-P3-01');apply();expect(page.locator('#etats-rows tr')).to_have_count(2);shot('p3-etats-stocks.png')
+    picker=page.locator('#etats-product-filter');picker.locator('[name="recherche"]').fill('9912345');expect(picker.locator('[name="conditionnement_id"] option')).to_have_count(2);picker.locator('[name="conditionnement_id"]').select_option(f['p3_pack']);apply();expect(page.locator('#etats-rows tr')).to_have_count(2)
+    picker.locator('[name="recherche"]').fill('');apply()
     for fmt in ('pdf','xlsx','csv'):
         with page.expect_download() as event:page.locator(f'[data-etats-export="{fmt}"]').click()
         download=event.value;download.save_as('qa/etats-stocks.'+fmt);assert Path('qa/etats-stocks.'+fmt).stat().st_size>0
