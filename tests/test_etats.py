@@ -177,6 +177,8 @@ def test_pdf_lisible_multipage_dates_entetes_et_references(kind):
         assert 'ÉLODIE RESPONSABLE' in text and r['inventaire']['valide_par'] in text
         assert 'Récapitulatif par conditionnement' in text and 'Signatures des responsables' in text
         assert 'Photographie' in text and '1080' in text and '990' in text and '-90' in text
+        for t in texts:
+            if 'Récapitulatif par conditionnement' in t:assert 'Produit / conditionnement' in t
 
 
 def test_pdf_totaux_par_uuid_incomplets_et_validateur_inconnu():

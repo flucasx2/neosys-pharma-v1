@@ -101,7 +101,8 @@ def pdf_export(report):
             pdfmetrics.registerFont(TTFont(name,str(Path(reportlab.__file__).parent/'fonts'/filename)))
     normal=ParagraphStyle('normal',fontName='NeoSys',fontSize=8,leading=11,spaceAfter=4)
     cell=ParagraphStyle('cell',parent=normal,fontSize=7,leading=9,spaceAfter=0)
-    heading=ParagraphStyle('heading',parent=normal,fontName='NeoSysBold',fontSize=10,leading=13,spaceBefore=10,spaceAfter=7)
+    heading=ParagraphStyle('heading',parent=normal,fontName='NeoSysBold',fontSize=10,leading=13,spaceBefore=10,spaceAfter=7,keepWithNext=True)
+    lead=ParagraphStyle('lead',parent=normal,keepWithNext=True)
     title=ParagraphStyle('title',parent=heading,fontSize=13,leading=16)
     def p(value,style=normal):return Paragraph(escape(str(value)) if value is not None else '-',style)
     def human_date(value):
@@ -113,6 +114,7 @@ def pdf_export(report):
     labels={c['key']:c['label'] for c in report['columns']}
     def pretty(key,value):
         if key in ('date','peremption','debut','fin','reference','valide_le','genere_le'):return human_date(value)
+        if key=='type' and value:return {'ENTREE':'Entrée','SORTIE':'Sortie'}.get(value,str(value).replace('_',' ').capitalize())
         return value
     out=io.BytesIO();width,height=landscape(A4);available=width-56
     class Numbered(Canvas):
@@ -134,7 +136,7 @@ def pdf_export(report):
     story.append(p('Filtres : '+('; '.join(filter_labels.get(k,k)+' : '+str(pretty(k,v)) for k,v in report['filtres'].items()) or 'Aucun filtre supplémentaire')))
     inv=report.get('inventaire')
     if inv:
-        story += [p('Inventaire : '+inv['nom'],heading),p('Référence inventaire : '+inv['id']),p('Type : '+inv['type']+' / Statut : '+inv['statut']),p('Date : '+human_date(inv['date'])+' / Séquence de photographie : '+str(inv['snapshot_sequence']))]
+        story += [p('Inventaire : '+inv['nom'],heading),p('Référence inventaire : '+inv['id']),p('Type : '+str(pretty('type',inv['type']))+' / Statut : '+{'VALIDE':'VALIDÉ'}.get(inv['statut'],inv['statut'])),p('Date : '+human_date(inv['date'])+' / Séquence de photographie : '+str(inv['snapshot_sequence']))]
         if inv['statut']=='VALIDE':
             story.append(p('Validation : '+human_date(inv['valide_le'])+' / Responsable : '+(report.get('responsable_validation') or 'Nom indisponible')))
             story.append(p('Référence du validateur : '+(inv.get('valide_par') or 'Non disponible')))
@@ -164,7 +166,7 @@ def pdf_export(report):
             group['manquants']+=row.get('compte') is None
             group['connus']+=row.get('compte') is not None
         story.append(p('Récapitulatif par conditionnement (unités homogènes)',heading))
-        story.append(p('Aucun total global entre conditionnements différents. Les lignes non comptées sont signalées ; leurs quantités ne sont pas assimilées à zéro.'))
+        story.append(p('Aucun total global entre conditionnements différents. Les lignes non comptées sont signalées ; leurs quantités ne sont pas assimilées à zéro.',lead))
         headers=['Produit / conditionnement','Photographie','Théorique au comptage','Compté','Écart','Non comptées']
         rows=[[p(v,cell) for v in headers]]
         for g in groups.values():
