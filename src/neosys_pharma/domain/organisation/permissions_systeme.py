@@ -11,7 +11,19 @@ P1_PERMISSIONS = (
     ("role.consulter", "Consulter les rôles et permissions"),
     ("role.gerer", "Gérer les rôles personnalisés"),
 )
-PERMISSIONS = P1_PERMISSIONS + (
+P3_PERMISSIONS = (
+    ("stock.consulter", "Consulter stocks et mouvements"),
+    ("stock.gerer", "Enregistrer les entrées, sorties et corrections"),
+    ("stock.reserver", "Réserver, libérer et consommer le stock"),
+    ("stock.transferer", "Demander, expédier et transférer le stock"),
+    ("stock.transfert.valider", "Valider ou annuler une demande de transfert"),
+    ("stock.transfert.recevoir", "Recevoir un transfert et traiter ses écarts"),
+    ("stock.fefo.deroger", "Déroger à FEFO avec justification"),
+    ("stock.inventaire.gerer", "Créer les inventaires et affecter les zones"),
+    ("stock.inventaire.compter", "Compter les zones explicitement affectées"),
+    ("stock.inventaire.valider", "Consulter les écarts et valider les inventaires"),
+)
+PERMISSIONS = P1_PERMISSIONS + P3_PERMISSIONS + (
     ("catalogue.consulter", "Consulter le catalogue"),
     ("catalogue.gerer", "Gérer le catalogue"),
 )

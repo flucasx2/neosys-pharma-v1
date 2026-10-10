@@ -12,7 +12,7 @@ function creationDialogClose(entry,force=false){
   if(!force&&entry.returnFocus?.isConnected)entry.returnFocus.focus({preventScroll:true});
   return true;
 }
-function creationDialogReset(){for(const entry of creationDialogs.entries.values())creationDialogClose(entry,true);}
+function creationDialogReset(include=()=>true){for(const entry of creationDialogs.entries.values())if(include(entry))creationDialogClose(entry,true);}
 function creationDialogCreate(id,source){
   const dialog=document.createElement("dialog");dialog.id=id;dialog.className="creation-dialog";dialog.setAttribute("aria-labelledby",id+"-title");
   const header=document.createElement("div");header.className="creation-dialog-header";

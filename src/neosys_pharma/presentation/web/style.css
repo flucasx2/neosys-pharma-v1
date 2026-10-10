@@ -45,3 +45,19 @@ body.modal-open{overflow:hidden}.creation-dialog{width:min(840px,calc(100vw - 32
 #p2-regles{margin-top:12px}
 
 #catalogue-product-description{white-space:pre-line}
+/* P3 reuses the catalogue density and accessible creation dialogs. */
+#stock-tabs { margin-bottom: 20px; }
+#stock-tabs [aria-pressed="true"] { background: var(--primary, #177657); color: white; }
+#stock-actions button, #stock-detail-content button { width: auto; margin: 4px; }
+#stock-rows td:last-child { min-width: 150px; }
+#stock-rows td { font-variant-numeric: tabular-nums; }
+#stock-message:empty { display: none; }
+#stock-message:not(:empty) { padding: 12px; border-radius: 8px; background: #e8f2ed; }
+#stock-detail-content section { margin-top: 20px; }
+#stock-pane .catalogue-fields { align-items: end; }
+#stock-pane .catalogue-fields button { width: auto; align-self: end; }
+
+#stock-pane { min-width: 0; }
+#stock-pane .catalogue-table-wrap { overflow-x: auto; max-width: 100%; min-width: 0; }
+#stock-pane .catalogue-fields button { justify-self: start; }
+#stock-detail-content table { min-width: 700px; }

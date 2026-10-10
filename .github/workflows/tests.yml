@@ -1,4 +1,4 @@
-name: P1 and P2 tests and PostgreSQL migrations
+name: P1 P2 P3 tests and PostgreSQL migrations
 on: [push, pull_request]
 jobs:
   tests:
@@ -65,8 +65,15 @@ jobs:
           python tests/seed_browser_p2.py
           python tests/browser_p2.py
           python tests/browser_p2_complete.py
+          python tests/seed_browser_p3.py
+          python tests/browser_p3.py
+          python tests/browser_etats_p3.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: p1-browser-screenshots
-          path: qa/*.png
+          path: |
+            qa/*.png
+            qa/etats-*.pdf
+            qa/etats-*.xlsx
+            qa/etats-*.csv
