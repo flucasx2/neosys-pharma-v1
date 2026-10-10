@@ -23,7 +23,17 @@ P3_PERMISSIONS = (
     ("stock.inventaire.compter", "Compter les zones explicitement affectées"),
     ("stock.inventaire.valider", "Consulter les écarts et valider les inventaires"),
 )
-PERMISSIONS = P1_PERMISSIONS + P3_PERMISSIONS + (
+P4_PERMISSIONS = (
+    ("vente.consulter", "Consulter les préparations autorisées"),
+    ("vente.preparer", "Créer et modifier les préparations"),
+    ("vente.valider", "Valider une préparation sans encaissement"),
+    ("vente.transmettre", "Transmettre une préparation à une caisse autorisée"),
+    ("vente.annuler", "Annuler une préparation et libérer ses réservations"),
+    ("vente.credit", "Préparer le mode crédit sans finalisation financière"),
+    ("vente.remise.demander", "Demander une remise de ligne ou globale"),
+    ("vente.remise.autoriser", "Décider les demandes de remise dans le périmètre autorisé"),
+)
+PERMISSIONS = P1_PERMISSIONS + P3_PERMISSIONS + P4_PERMISSIONS + (
     ("catalogue.consulter", "Consulter le catalogue"),
     ("catalogue.gerer", "Gérer le catalogue"),
 )

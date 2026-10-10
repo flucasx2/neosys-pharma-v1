@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, String, UniqueConstraint, Uuid
+from sqlalchemy import ForeignKey, String, UniqueConstraint, Uuid, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from neosys_pharma.infrastructure.database import Base
@@ -44,7 +44,7 @@ class EmplacementModel(Base):
 
 class PosteVenteModel(Base):
     __tablename__ = "postes_vente"
-    __table_args__ = (UniqueConstraint("emplacement_id", "code", name="uq_poste_emplacement_code"),)
+    __table_args__ = (UniqueConstraint("emplacement_id", "code", name="uq_poste_emplacement_code"), Index("uq_poste_id_emplacement", "id_poste_vente", "emplacement_id", unique=True),)
     id_poste_vente: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     emplacement_id: Mapped[UUID] = mapped_column(ForeignKey("emplacements.id_emplacement"), index=True)
     code: Mapped[str] = mapped_column(String(80))
@@ -54,7 +54,7 @@ class PosteVenteModel(Base):
 
 class CaisseModel(Base):
     __tablename__ = "caisses"
-    __table_args__ = (UniqueConstraint("emplacement_id", "code", name="uq_caisse_emplacement_code"),)
+    __table_args__ = (UniqueConstraint("emplacement_id", "code", name="uq_caisse_emplacement_code"), Index("uq_caisse_id_emplacement", "id_caisse", "emplacement_id", unique=True),)
     id_caisse: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     emplacement_id: Mapped[UUID] = mapped_column(ForeignKey("emplacements.id_emplacement"), index=True)
     code: Mapped[str] = mapped_column(String(80))

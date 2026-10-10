@@ -1,4 +1,4 @@
-name: P1 P2 P3 tests and PostgreSQL migrations
+name: P1 P2 P3 P4 tests and PostgreSQL migrations
 on: [push, pull_request]
 jobs:
   tests:
