@@ -179,3 +179,15 @@ def test_migration_p4_additive_cycle_et_aucun_droit_implicite(tmp_path,monkeypat
             assert conn.execute(text('SELECT sequence, delta_physique FROM stock_mouvements ORDER BY sequence')).all()==before
         command.upgrade(cfg,'head');command.check(cfg)
     finally:engine.dispose();get_settings.cache_clear()
+
+
+def test_annulation_multiligne_liberation_unique_transaction(raw_client,account):
+    c,a=raw_client,account;prod,pack,pid,_=setup(c,a);v=line(c,a,create(c,a,pid),prod,pack,2);v=line(c,a,v,prod,pack,3)
+    assert stocks(c,a)[0]['reserve']==5
+    v=act(c,a,v,'annuler',justification='Annulation de tout le panier')
+    assert stocks(c,a)[0]['reserve']==0
+    assert all(r['statut']=='LIBEREE' for l in v['lignes'] for r in l['reservations'])
+    from test_stock import root as stock_root
+    movements=c.get(stock_root(a)+'/mouvements').json()['items']
+    assert sum(m['delta_reserve'] for m in movements)==0
+    assert len([m for m in movements if m['type']=='LIBERATION'])==2

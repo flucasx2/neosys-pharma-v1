@@ -128,7 +128,7 @@ class StockService:
         if not interne and self.s.scalar(select(TransfertStockModel.id).where(TransfertStockModel.reservation_id==row.id)):raise ConflitStock('Réservation pilotée par un transfert ; utiliser son workflow.')
         if not interne:
             from sqlalchemy import inspect
-            if inspect(self.s.get_bind()).has_table('vente_reservations'):
+            if inspect(self.s.connection()).has_table('vente_reservations'):
                 from neosys_pharma.infrastructure.vente_models import ReservationVenteModel
                 if self.s.scalar(select(ReservationVenteModel.id).where(ReservationVenteModel.reservation_id==row.id,ReservationVenteModel.organisation_id==self.org)):
                     raise ConflitStock('Réservation pilotée par une vente ; utiliser son workflow.')
