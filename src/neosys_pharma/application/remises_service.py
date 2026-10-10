@@ -66,6 +66,11 @@ class RemisesService:
         # A pending request has no chosen approver/cap and is checked at decision time.
         for v in self.s.scalars(select(VenteModel).where(VenteModel.organisation_id==self.org,VenteModel.etat.in_(['PREPARATION','EN_ATTENTE','VALIDEE_PREPARATION','TRANSMISE']))):
             self.invalider_plafond(v,cap)
+        from neosys_pharma.application.proforma_service import ProformaService
+        from neosys_pharma.infrastructure.proforma_models import VersionProformaModel
+        service=ProformaService(self.stock,self.site)
+        for version in self.s.scalars(select(VersionProformaModel).where(VersionProformaModel.organisation_id==self.org,VersionProformaModel.etat=='BROUILLON')):
+            service.invalider_plafond(version,cap)
         return serial(cap)
 
     def invalider_plafond(self,v,cap):

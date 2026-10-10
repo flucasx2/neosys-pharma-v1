@@ -55,7 +55,7 @@ class VenteService(RemisesService):
 
     def invalider_remises(self,v):
         for line in self.lignes(v):line.remise_appliquee=None
-        for r in self.stock.lignes(DemandeRemiseModel,vente_id=v.id):
+        for r in self.stock.lignes(self.remise_model,vente_id=v.id):
             if r.statut in ('DEMANDEE','AUTORISEE'):
                 r.statut='INVALIDEE';self.evenement(v,'REMISE_INVALIDEE',demande_id=r.id,revision=v.revision)
 
@@ -97,7 +97,7 @@ class VenteService(RemisesService):
             if v.mode!='SANS_TIERS':raise ValueError('Règles de tiers payant ou crédit indisponibles : préparation non validable.')
             rows=[r for r in self.lignes(v) if r.actif]
             if not rows:raise ValueError('Au moins une ligne commerciale est obligatoire.')
-            if any(r.statut in ('DEMANDEE',) for r in self.stock.lignes(DemandeRemiseModel,vente_id=v.id)):raise ValueError('Demande de remise en attente : validation interdite.')
+            if any(r.statut in ('DEMANDEE',) for r in self.stock.lignes(self.remise_model,vente_id=v.id)):raise ValueError('Demande de remise en attente : validation interdite.')
             for row in rows:
                 links=self.stock.lignes(ReservationVenteModel,ligne_id=row.id)
                 active=[self.stock.obtenir(ReservationStockModel,x.reservation_id) for x in links if self.stock.obtenir(ReservationStockModel,x.reservation_id).statut=='ACTIVE']
@@ -121,7 +121,7 @@ class VenteService(RemisesService):
         previous=v.etat;v.etat=target;v.revision+=1
         if target in ('EN_ATTENTE','PREPARATION'):
             # Workflow-only transitions preserve the unchanged financial base.
-            for pending in self.stock.lignes(DemandeRemiseModel,vente_id=v.id):
+            for pending in self.stock.lignes(self.remise_model,vente_id=v.id):
                 if pending.statut=='DEMANDEE':pending.revision_vente=v.revision
         self.evenement(v,'TRANSITION',avant=previous,apres=target,justification=data.get('justification'),caisse_id=v.caisse_id,instantane_financier=self.finance(v))
         return self.detail(v)
@@ -132,13 +132,13 @@ class VenteService(RemisesService):
         if line_id:
             line=self.stock.obtenir(LigneVenteModel,line_id)
             if line.vente_id!=v.id or not line.actif:raise PermissionError('Ligne de remise incompatible.')
-        r=self.stock.ajouter(DemandeRemiseModel,vente_id=v.id,ligne_id=line_id,type=data['type'],valeur=value,revision_vente=v.revision,auteur_id=self.stock.user,justification=data['justification'])
+        r=self.stock.ajouter(self.remise_model,vente_id=v.id,ligne_id=line_id,type=data['type'],valeur=value,revision_vente=v.revision,auteur_id=self.stock.user,justification=data['justification'])
         from neosys_pharma.domain.remises import montant_remise
-        if any(x.id!=r.id and x.ligne_id==line_id and x.statut=='DEMANDEE' for x in self.stock.lignes(DemandeRemiseModel,vente_id=v.id)):raise ConflitStock('Une demande est déjà en attente pour cette portée.')
+        if any(x.id!=r.id and x.ligne_id==line_id and x.statut=='DEMANDEE' for x in self.stock.lignes(self.remise_model,vente_id=v.id)):raise ConflitStock('Une demande est déjà en attente pour cette portée.')
         montant_remise(r.type,r.valeur,self.eligible(v,r))
         self.evenement(v,'REMISE_DEMANDEE',demande=serial(r));return serial(r)
 
     def detail(self,v):
         rows=[r for r in self.lignes(v) if r.actif]
         finance=self.finance(v);totals=finance['totaux']
-        return {**serial(v),'lignes':[{**serial(r),'montants_appliques':finance['lignes'][str(r.id)],'reservations':[self.stock.reservation_detail(self.stock.obtenir(ReservationStockModel,x.reservation_id)) for x in self.stock.lignes(ReservationVenteModel,ligne_id=r.id)]} for r in rows],'totaux':totals,'part_client':totals['ttc'] if v.mode=='SANS_TIERS' else None,'prise_en_charge_disponible':v.mode=='SANS_TIERS','remises':[serial(r) for r in self.stock.lignes(DemandeRemiseModel,vente_id=v.id)]}
+        return {**serial(v),'lignes':[{**serial(r),'montants_appliques':finance['lignes'][str(r.id)],'reservations':[self.stock.reservation_detail(self.stock.obtenir(ReservationStockModel,x.reservation_id)) for x in self.stock.lignes(ReservationVenteModel,ligne_id=r.id)]} for r in rows],'totaux':totals,'part_client':totals['ttc'] if v.mode=='SANS_TIERS' else None,'prise_en_charge_disponible':v.mode=='SANS_TIERS','remises':[serial(r) for r in self.stock.lignes(self.remise_model,vente_id=v.id)]}

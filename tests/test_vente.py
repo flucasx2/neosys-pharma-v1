@@ -173,7 +173,12 @@ def test_migration_p4_additive_cycle_et_aucun_droit_implicite(tmp_path,monkeypat
         with engine.connect() as conn:
             assert conn.execute(text("SELECT count(*) FROM permissions WHERE code LIKE 'vente.%'")).scalar()==9
             assert conn.execute(text("SELECT count(*) FROM roles_permissions JOIN permissions ON permissions.id_permission=roles_permissions.permission_id WHERE permissions.code LIKE 'vente.%'")).scalar()==0
+            assert conn.execute(text("SELECT count(*) FROM permissions WHERE code LIKE 'proforma.%'")).scalar()==5
+            assert conn.execute(text("SELECT count(*) FROM roles_permissions JOIN permissions ON permissions.id_permission=roles_permissions.permission_id WHERE permissions.code LIKE 'proforma.%'")).scalar()==0
             before=conn.execute(text('SELECT sequence, delta_physique FROM stock_mouvements ORDER BY sequence')).all()
+        command.downgrade(cfg,'6bf467c26d78')
+        assert 'proformas' not in inspect(engine).get_table_names() and 'ventes' in inspect(engine).get_table_names()
+        command.upgrade(cfg,'head');command.check(cfg)
         command.downgrade(cfg,'2b3c30f2b213')
         assert 'ventes' not in inspect(engine).get_table_names()
         with engine.connect() as conn:

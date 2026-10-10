@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 from uuid import UUID,uuid4
-from datetime import date
+from datetime import date,timedelta
 from neosys_pharma.infrastructure.database import SessionLocal
 from neosys_pharma.infrastructure.securite_repository import SqlAlchemySecuriteRepository
 from neosys_pharma.infrastructure.catalogue_repository import SqlAlchemyCatalogueRepository
@@ -19,7 +19,7 @@ from neosys_pharma.application.stock_service import StockService
 f=json.loads(Path('/tmp/p1-browser-fixture.json').read_text());org,site,loc=[UUID(f[k]) for k in ('organisation_id','site_id','location_id')]
 with SessionLocal() as s:
     repo=SqlAlchemySecuriteRepository(s);roles={};users={}
-    for name,perms in [('vente.qa',tuple(p for p,n in P4_PERMISSIONS if p!='vente.remise.autoriser')+('stock.reserver','stock.consulter','organisation.consulter')),('responsable.qa',('vente.consulter','vente.remise.autoriser','organisation.consulter')),('vente.lecture.qa',('vente.consulter','organisation.consulter'))]:
+    for name,perms in [('vente.qa',tuple(p for p,n in P4_PERMISSIONS if p!='vente.remise.autoriser')+('stock.reserver','stock.consulter','organisation.consulter')),('responsable.qa',('vente.consulter','vente.remise.autoriser','proforma.consulter','organisation.consulter')),('vente.lecture.qa',('vente.consulter','proforma.consulter','organisation.consulter'))]:
         r=Role(organisation_id=org,code=name,nom=name,type_role=TypeRole.PERSONNALISE);repo.ajouter(r)
         for p in perms:repo.ajouter(RolePermission(role_id=r.id_role,permission_id=permission_id(p)))
         s.commit();u=Utilisateur(organisation_id=org,identifiant=name,nom=name);provisionner(s,u,[site],[loc],[r.id_role],f['password']);roles[name]=r.id_role;users[name]=u.id_utilisateur
@@ -35,7 +35,7 @@ with SessionLocal() as s:
     for p in [pack,second]:
         tarifs.enregistrer(TarifReference(organisation_id=org,conditionnement_id=p.id_conditionnement,montant_ht=100,devise='XAF',debut=date.today()))
         # Isolate this QA product from site coefficients configured by P2 browser tests.
-        tarifs.enregistrer(TarifProduitSite(organisation_id=org,site_id=site,produit_id=prod.id_produit,conditionnement_id=p.id_conditionnement,montant_ht=100,devise='XAF',debut=date.today(),provenance='Recette isolée P4'))
+        tarifs.enregistrer(TarifProduitSite(organisation_id=org,site_id=site,produit_id=prod.id_produit,conditionnement_id=p.id_conditionnement,montant_ht=100,devise='XAF',debut=date.today()-timedelta(days=1),provenance='Recette isolée P4'))
     poste,caisse=uuid4(),uuid4();s.add_all([PosteVenteModel(id_poste_vente=poste,emplacement_id=loc,code='P4-QA',nom='Poste préparation P4'),CaisseModel(id_caisse=caisse,emplacement_id=loc,code='P4-QA',nom='Caisse P4')]);s.commit()
     stock=StockService(s,org,users['vente.qa'],lambda *args:None)
     for p in [pack,second]:

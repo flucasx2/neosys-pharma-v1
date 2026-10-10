@@ -24,6 +24,11 @@ P3_PERMISSIONS = (
     ("stock.inventaire.valider", "Consulter les écarts et valider les inventaires"),
 )
 P4_PERMISSIONS = (
+    ("proforma.consulter", "Consulter les proformas autorisées et leurs documents"),
+    ("proforma.gerer", "Créer et modifier les brouillons de proforma"),
+    ("proforma.emettre", "Émettre une version immuable de proforma"),
+    ("proforma.reprendre", "Reprendre une proforma en préparation"),
+    ("proforma.parametrer", "Paramétrer la validité des proformas du site"),
     ("vente.remise.parametrer", "Configurer les plafonds de remise des rôles"),
     ("vente.consulter", "Consulter les préparations autorisées"),
     ("vente.preparer", "Créer et modifier les préparations"),

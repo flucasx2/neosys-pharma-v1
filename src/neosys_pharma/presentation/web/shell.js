@@ -1,6 +1,7 @@
 "use strict";
 // Navigation de présentation uniquement ; authHas reste la source des droits UI.
 const shellViews={
+  proforma:{title:"Factures proforma",allowed:()=>authHas("proforma.consulter")||authHas("proforma.gerer")},
   vente:{title:"Préparation des ventes",allowed:()=>["vente.consulter","vente.preparer","vente.remise.autoriser","vente.remise.parametrer"].some(p=>authHas(p))},
   stock:{title:"Stock & Inventaire",allowed:()=>authContext()?.permissions_site.some(p=>p.startsWith("stock.")&&p!=="stock.fefo.deroger")},
   catalogue:{title:"Produits",allowed:()=>authHas("catalogue.consulter")||authHas("catalogue.gerer")},
@@ -29,12 +30,13 @@ function shellReset(){
 function shellNavigate(view,{focus=true,remember=true}={}){
   if($("security-operation").disabled)return;
   shellState.view=shellAllowed(view)?view:"dashboard";
-  if(!["dashboard","catalogue","stock","vente"].includes(shellState.view))shellState.lastAdmin=shellState.view;
+  if(!["dashboard","catalogue","stock","vente","proforma"].includes(shellState.view))shellState.lastAdmin=shellState.view;
   if(remember)history.replaceState(null,"",shellState.view==="dashboard"?"#tableau-de-bord":`#administration/${shellState.view}`);
   shellSync();shellMobile(false);
   if(shellState.view==="catalogue")catalogueLoad();
   if(shellState.view==="stock")stockLoad();
   if(shellState.view==="vente")venteLoad();
+  if(shellState.view==="proforma")proformaLoad();
   if(focus){$("module-title").focus();window.scrollTo({top:0,behavior:"instant"});}
 }
 function shellStart(){
@@ -48,17 +50,17 @@ function shellSync(){
   const view=shellState.view,isAdmin=view!=="dashboard";
   $("dashboard").hidden=isAdmin;$("administration").hidden=!isAdmin;
   $("module-title").textContent=shellViews[view].title;
-  $("module-eyebrow").textContent=view==="vente"?"VENTE & CAISSE":view==="stock"?"STOCK & INVENTAIRE":view==="catalogue"?"CATALOGUE":isAdmin?"ADMINISTRATION":"ESPACE DE GESTION";
+  $("module-eyebrow").textContent=["vente","proforma"].includes(view)?"VENTE & CAISSE":view==="stock"?"STOCK & INVENTAIRE":view==="catalogue"?"CATALOGUE":isAdmin?"ADMINISTRATION":"ESPACE DE GESTION";
   document.title=`NeoSys Pharma · ${shellViews[view].title}`;
   $("identity-avatar").textContent=authState.me.utilisateur.nom.trim().split(/\s+/).slice(0,2).map(x=>x[0]).join("").toUpperCase();
-  const adminViews=Object.keys(shellViews).filter(v=>!["dashboard","catalogue","stock","vente"].includes(v)&&shellAllowed(v));
+  const adminViews=Object.keys(shellViews).filter(v=>!["dashboard","catalogue","stock","vente","proforma"].includes(v)&&shellAllowed(v));
   $("nav-administration").hidden=!adminViews.length;
   $("admin-subnav").hidden=!adminViews.length;
   for(const button of document.querySelectorAll("[data-view]")){
     const id=button.dataset.view;button.hidden=!shellAllowed(id);
     if(id===view)button.setAttribute("aria-current","page");else button.removeAttribute("aria-current");
   }
-  if(isAdmin&&view!=="catalogue"&&view!=="stock"&&view!=="vente")$("nav-administration").setAttribute("aria-current","page");else $("nav-administration").removeAttribute("aria-current");
+  if(isAdmin&&view!=="catalogue"&&view!=="stock"&&view!=="vente"&&view!=="proforma")$("nav-administration").setAttribute("aria-current","page");else $("nav-administration").removeAttribute("aria-current");
   for(const pane of document.querySelectorAll("[data-pane]"))pane.hidden=pane.dataset.pane!==view;
   $("user-context").hidden=!isAdmin||!["utilisateurs","affectations"].includes(view)||!authHas("utilisateur.consulter");
   $("location-context").hidden=!authHas("organisation.consulter")||!authContext()?.emplacements.length;
@@ -99,7 +101,7 @@ for(const [view,info] of Object.entries(shellViews)){
   button.append(document.createTextNode(info.title));const arrow=document.createElement("span");arrow.textContent="→";arrow.setAttribute("aria-hidden","true");button.append(arrow);$("quick-links").append(button);
 }
 for(const button of document.querySelectorAll("[data-view]"))button.addEventListener("click",()=>shellNavigate(button.dataset.view));
-$("nav-administration").addEventListener("click",()=>shellNavigate(shellAllowed(shellState.lastAdmin)?shellState.lastAdmin:Object.keys(shellViews).find(v=>!["dashboard","catalogue","stock","vente"].includes(v)&&shellAllowed(v))));
+$("nav-administration").addEventListener("click",()=>shellNavigate(shellAllowed(shellState.lastAdmin)?shellState.lastAdmin:Object.keys(shellViews).find(v=>!["dashboard","catalogue","stock","vente","proforma"].includes(v)&&shellAllowed(v))));
 $("sidebar-toggle").addEventListener("click",()=>shellMobile(!$("sidebar").classList.contains("is-open")));
 for(const id of ["sidebar-close","sidebar-backdrop"])$(id).addEventListener("click",()=>{shellMobile(false);$("sidebar-toggle").focus();});
 document.addEventListener("keydown",event=>{

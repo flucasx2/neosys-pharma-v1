@@ -1,4 +1,4 @@
-from neosys_pharma.presentation import tarification_api, import_catalogue_api, stock_api, vente_api
+from neosys_pharma.presentation import tarification_api, import_catalogue_api, stock_api, vente_api, proforma_api
 from fastapi import FastAPI, Depends, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -29,6 +29,7 @@ def create_app() -> FastAPI:
     app.include_router(catalogue_router)
     app.include_router(stock_api.router)
     app.include_router(vente_api.router)
+    app.include_router(proforma_api.router)
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, exc):
         # Never echo password input in validation responses.
