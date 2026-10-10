@@ -19,10 +19,11 @@ with sync_playwright() as p:
         form.locator('button').focus();page_.keyboard.press('Enter');expect(page_.locator('#app-shell')).to_be_visible()
         page_.locator('#nav-vente').focus();page_.keyboard.press('Enter');expect(page_.locator('#vente-panel')).to_be_visible();expect(page_.locator('#p4-list')).to_have_attribute('aria-busy','false')
     def modal():return page.locator('dialog[open]').last
-    def save():key_activate(modal().get_by_role('button',name='Enregistrer',exact=True));expect(page.locator('dialog[open]')).to_have_count(0)
+    def save():key_activate(modal().get_by_role('button',name='Enregistrer',exact=True));expect(page.locator('dialog[open]')).to_have_count(0);expect(page.locator('#vente-panel')).to_have_attribute('aria-busy','false')
     def shortcut(n):
+        expect(page.locator('#vente-panel')).to_have_attribute('aria-busy','false')
         page.keyboard.press('Alt+Shift+Digit'+str(n))
-        if n in (8,9,0):expect(page.locator('#p4-list')).to_have_attribute('aria-busy','false')
+        if n in (8,9,0):expect(page.locator('#vente-panel')).to_have_attribute('aria-busy','false')
     def shot(name):page.screenshot(path='qa/'+name,full_page=True)
     login(page,'vente.qa');shortcut(2);expect(modal()).to_be_visible();page.keyboard.press('Escape');expect(page.locator('dialog[open]')).to_have_count(0);shortcut(2);expect(modal()).to_be_visible();expect(modal().locator('[name=mode]')).to_be_focused()
     choice(modal().locator('[name=mode]'),'SANS_TIERS');choice(modal().locator('[name=emplacement_id]'),f['location_id']);choice(modal().locator('[name=poste_id]'),f['p4_poste']);save()
