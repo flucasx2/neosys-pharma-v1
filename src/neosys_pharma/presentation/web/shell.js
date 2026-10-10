@@ -48,7 +48,7 @@ function shellSync(){
   const view=shellState.view,isAdmin=view!=="dashboard";
   $("dashboard").hidden=isAdmin;$("administration").hidden=!isAdmin;
   $("module-title").textContent=shellViews[view].title;
-  $("module-eyebrow").textContent=view==="stock"?"STOCK & INVENTAIRE":view==="catalogue"?"CATALOGUE":isAdmin?"ADMINISTRATION":"ESPACE DE GESTION";
+  $("module-eyebrow").textContent=view==="vente"?"VENTE & CAISSE":view==="stock"?"STOCK & INVENTAIRE":view==="catalogue"?"CATALOGUE":isAdmin?"ADMINISTRATION":"ESPACE DE GESTION";
   document.title=`NeoSys Pharma · ${shellViews[view].title}`;
   $("identity-avatar").textContent=authState.me.utilisateur.nom.trim().split(/\s+/).slice(0,2).map(x=>x[0]).join("").toUpperCase();
   const adminViews=Object.keys(shellViews).filter(v=>!["dashboard","catalogue","stock","vente"].includes(v)&&shellAllowed(v));

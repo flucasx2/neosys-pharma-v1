@@ -138,3 +138,14 @@ def test_recherche_pagination_et_stock_scopes_p4(raw_client,account):
     r=c.get(root(a)+'/stocks',params={'emplacement_id':str(a['location']),'conditionnement_id':pack}).json();assert r['totaux']=={'physique':10,'reserve':0,'vendable':10}
     assert c.get(root(a)+'/stocks',params={'emplacement_id':str(a['denied']),'conditionnement_id':pack}).status_code==403
     assert c.get(root({'org':uuid4()})+'/conditionnements',params={'q':'produit'}).status_code==403
+
+
+def test_refus_identifiants_valides_sans_permission_et_corps_financier_forge(raw_client,account):
+    from test_authentification import PASSWORD
+    c,a=raw_client,account;prod,pack,pid,_=setup(c,a);v=line(c,a,create(c,a,pid),prod,pack);r=request(c,a,v)
+    gen=db(c);s=next(gen)
+    try:s.execute(delete(RolePermissionModel).where(RolePermissionModel.permission_id==permission_id('vente.remise.autoriser')));s.commit()
+    finally:gen.close()
+    post(c,a,f'/{v["id"]}/remises/{r["id"]}/locale',{'revision':v['revision'],'autoriser':True,'justification':'Refus attendu','identifiant':'alice','password':PASSWORD},403)
+    post(c,a,f'/{v["id"]}/lignes',{'revision':v['revision'],'produit_id':prod,'conditionnement_id':pack,'quantite':1,'remise_appliquee':{'ttc':'0'}},422)
+    assert current(c,a,v)['totaux']['ttc']=='301'
