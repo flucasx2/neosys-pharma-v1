@@ -87,46 +87,92 @@ def xlsx_export(report):
     return out.getvalue()
 
 def pdf_export(report):
+    """Présentation PDF uniquement ; aucun changement des calculs ni des autres formats."""
     import reportlab
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4, landscape
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, LongTable, TableStyle
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, LongTable, TableStyle, KeepTogether
     from reportlab.pdfgen.canvas import Canvas
-    font=Path(reportlab.__file__).parent/'fonts'/'Vera.ttf'
-    if 'NeoSys' not in pdfmetrics.getRegisteredFontNames():pdfmetrics.registerFont(TTFont('NeoSys',str(font)))
-    styles=getSampleStyleSheet();style=ParagraphStyle('cell',fontName='NeoSys',fontSize=7,leading=10,wordWrap='CJK')
-    normal=ParagraphStyle('normal',fontName='NeoSys',fontSize=9,leading=13)
-    def p(v,sty=style):return Paragraph(escape(str(v)) if v is not None else '—',sty)
-    out=io.BytesIO();width,height=landscape(A4)
+    for name, filename in (('NeoSys','Vera.ttf'),('NeoSysBold','VeraBd.ttf')):
+        if name not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(TTFont(name,str(Path(reportlab.__file__).parent/'fonts'/filename)))
+    normal=ParagraphStyle('normal',fontName='NeoSys',fontSize=8,leading=11,spaceAfter=4)
+    cell=ParagraphStyle('cell',parent=normal,fontSize=7,leading=9,spaceAfter=0)
+    heading=ParagraphStyle('heading',parent=normal,fontName='NeoSysBold',fontSize=10,leading=13,spaceBefore=10,spaceAfter=7)
+    title=ParagraphStyle('title',parent=heading,fontSize=13,leading=16)
+    def p(value,style=normal):return Paragraph(escape(str(value)) if value is not None else '-',style)
+    def human_date(value):
+        if not value:return '-'
+        try:
+            if len(str(value))==10:return date.fromisoformat(str(value)).strftime('%d/%m/%Y')
+            return datetime.fromisoformat(str(value)).strftime('%d/%m/%Y à %H:%M')+' UTC'
+        except ValueError:return str(value)
+    labels={c['key']:c['label'] for c in report['columns']}
+    def pretty(key,value):
+        if key in ('date','peremption','debut','fin','reference','valide_le','genere_le'):return human_date(value)
+        return value
+    out=io.BytesIO();width,height=landscape(A4);available=width-56
     class Numbered(Canvas):
         def __init__(self,*args,**kwargs):super().__init__(*args,**kwargs);self.states=[]
         def showPage(self):self.states.append(dict(self.__dict__));self._startPage()
         def save(self):
             total=len(self.states)
             for state in self.states:
-                self.__dict__.update(state);self.setFont('NeoSys',7)
-                self.drawString(26,18,'NeoSys Pharma · '+report['reference'])
-                self.drawRightString(width-26,18,f'Page {self._pageNumber} / {total}')
-                self.drawString(26,height-20,(report['organisation']+' · '+report['site'])[:145]);super().showPage()
+                self.__dict__.update(state)
+                header=Paragraph(escape(report['organisation']+' / '+report['site'])+'<br/>'+escape(report['titre']+' / '+human_date(report['genere_le'])),cell)
+                _,h=header.wrap(available,50);header.drawOn(self,28,height-20-h)
+                self.setFont('NeoSys',7)
+                self.drawString(28,21,'NeoSys Pharma / '+report['reference'])
+                self.drawRightString(width-28,21,f'Page {self._pageNumber} / {total}')
+                super().showPage()
             super().save()
-    story=[p(report['titre'],normal),p(report['organisation']+' · '+report['site'],normal),p('Généré le (UTC) : '+report['genere_le'],normal),p('Référence : '+report['reference'],normal),p('Filtres : '+str(report['filtres']),normal)]
-    if report['inventaire']:story.append(p('Inventaire : '+str(report['inventaire']),normal))
-    if report['genre'] in ('valorisation','ecarts','comptabilite'):story.append(p(f"{report['synthese']['lignes_non_valorisables']} ligne(s) non valorisable(s). Valorisation définitive : "+(report['synthese']['total_valorisation'] or 'INDISPONIBLE'),normal))
-    story += [p(n,normal) for n in report['notes']]+[Spacer(1,12)]
-    # Identifiants internes conservés intégralement dans CSV/Excel, références de
-    # document et ligne dans le PDF ; éviter une grille de 30 colonnes illisible.
+    story=[p(report['titre'],title),p('Date de génération : '+human_date(report['genere_le'])),p('Référence du document : '+report['reference'])]
+    filter_labels={'emplacement_id':'Emplacement (référence)','produit_id':'Produit (référence)','conditionnement_id':'Conditionnement (référence)','lot_id':'Lot (référence)','q':'Recherche','debut':'Du','fin':'Au','reference':'Date de référence','horizon':'Horizon (jours)'}
+    story.append(p('Filtres : '+('; '.join(filter_labels.get(k,k)+' : '+str(pretty(k,v)) for k,v in report['filtres'].items()) or 'Aucun filtre supplémentaire')))
+    inv=report.get('inventaire')
+    if inv:
+        story += [p('Inventaire : '+inv['nom'],heading),p('Référence inventaire : '+inv['id']),p('Type : '+inv['type']+' / Statut : '+inv['statut']),p('Date : '+human_date(inv['date'])+' / Séquence de photographie : '+str(inv['snapshot_sequence']))]
+        if inv['statut']=='VALIDE':
+            story.append(p('Validation : '+human_date(inv['valide_le'])+' / Responsable : '+(report.get('responsable_validation') or 'Nom indisponible')))
+            story.append(p('Référence du validateur : '+(inv.get('valide_par') or 'Non disponible')))
+        else:story.append(p('BROUILLON - inventaire non validé',heading))
+    if report['genre'] in ('valorisation','ecarts','comptabilite'):
+        value=report['synthese']['total_valorisation']
+        story.append(p(f"{report['synthese']['lignes_non_valorisables']} ligne(s) non valorisable(s). Valorisation définitive : "+(str(value)+' '+str(report['synthese'].get('devise') or '') if value is not None else 'INDISPONIBLE')))
+    story += [p(n) for n in report['notes']]+[Spacer(1,10)]
     keys={'stocks':['produit','conditionnement','emplacement','lot','peremption','physique','reserve','vendable'], 'valorisation':['produit','conditionnement','emplacement','lot','physique','cout_unitaire','montant','motif_valorisation'], 'peremptions':['produit','conditionnement','emplacement','lot','peremption','physique','etat_peremption'], 'mouvements':['date','type','produit','conditionnement','emplacement','lot','delta_physique','delta_reserve','origine','auteur'], 'comptabilite':['date','type','produit','conditionnement','emplacement','lot','delta_physique','montant','motif_valorisation'], 'inventaire':['zone','emplacement','produit','conditionnement','lot','peremption','theorique','theorique_au_comptage','compte','ecart'], 'ecarts':['zone','emplacement','produit','conditionnement','lot','compte','ecart','montant','motif','motif_valorisation']}[report['genre']]
-    labels={c['key']:c['label'] for c in report['columns']}
-    table=[[p(labels[k]) for k in keys]]+[[p(row.get(k)) for k in keys] for row in report['items']]
-    if not report['items']:story.append(p('Aucune ligne pour ces filtres.',normal))
+    weights={'produit':3.4,'conditionnement':2.0,'emplacement':1.8,'zone':1.5,'lot':1.7,'date':1.8,'peremption':1.4,'type':1.8,'origine':1.7,'auteur':1.7,'motif':2,'motif_valorisation':2.4,'theorique':1.5,'theorique_au_comptage':1.5}
+    def table(rows,widths):
+        t=LongTable(rows,colWidths=widths,repeatRows=1,hAlign='LEFT',splitInRow=1)
+        t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#dbecea')),('VALIGN',(0,0),(-1,-1),'TOP'),('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.white,colors.HexColor('#f3f7f7')]),('LINEBELOW',(0,0),(-1,0),.5,colors.grey),('LEFTPADDING',(0,0),(-1,-1),4),('RIGHTPADDING',(0,0),(-1,-1),4),('TOPPADDING',(0,0),(-1,-1),5),('BOTTOMPADDING',(0,0),(-1,-1),5)]))
+        return t
+    if report['items']:
+        total_weight=sum(weights.get(k,1) for k in keys)
+        widths=[available*weights.get(k,1)/total_weight for k in keys]
+        story.append(table([[p(labels[k],cell) for k in keys]]+[[p(pretty(k,row.get(k)),cell) for k in keys] for row in report['items']],widths))
+    else:story.append(p('Aucune ligne pour ces filtres.'))
+    if inv:
+        # Homogénéité par UUID de conditionnement, jamais par simple libellé.
+        groups={}
+        for row in report['items']:
+            group=groups.setdefault(row['conditionnement_id'],dict(produit=row['produit'],conditionnement=row['conditionnement'],theorique=0,theorique_au_comptage=0,compte=0,ecart=0,manquants=0,connus=0))
+            for key in ('theorique','theorique_au_comptage','compte','ecart'):
+                if row.get(key) is not None:group[key]+=row[key]
+            group['manquants']+=row.get('compte') is None
+            group['connus']+=row.get('compte') is not None
+        story.append(p('Récapitulatif par conditionnement (unités homogènes)',heading))
+        story.append(p('Aucun total global entre conditionnements différents. Les lignes non comptées sont signalées ; leurs quantités ne sont pas assimilées à zéro.'))
+        headers=['Produit / conditionnement','Photographie','Théorique au comptage','Compté','Écart','Non comptées']
+        rows=[[p(v,cell) for v in headers]]
+        for g in groups.values():
+            rows.append([p(g['produit']+' / '+g['conditionnement'],cell)]+[p('-' if k!='theorique' and not g['connus'] else str(g[k])+(' (partiel)' if g['manquants'] and k!='theorique' else ''),cell) for k in ('theorique','theorique_au_comptage','compte','ecart')]+[p(g['manquants'],cell)])
+        if groups:story.append(table(rows,[available*.44]+[available*.112]*5))
+        story.append(KeepTogether([p('Signatures des responsables',heading),p('Nom, qualité, date et signature - à compléter par les responsables habilités.'),table([[p('Responsable du comptage',cell),p('Responsable de validation',cell)],[p('Nom : __________________________',cell),p('Nom : '+(report.get('responsable_validation') or '__________________________'),cell)],[p('Date / signature :',cell),p('Date / signature :',cell)],[Spacer(1,38),Spacer(1,38)]],[available/2]*2)]))
     else:
-        widths=[(width-52)/len(keys)]*len(keys)
-        t=LongTable(table,colWidths=widths,repeatRows=1,hAlign='LEFT',splitInRow=1)
-        t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#dbecea')),('VALIGN',(0,0),(-1,-1),'TOP'),('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.white,colors.HexColor('#f3f7f7')]),('LINEBELOW',(0,0),(-1,0),.5,colors.grey),('LEFTPADDING',(0,0),(-1,-1),4),('RIGHTPADDING',(0,0),(-1,-1),4)]));story.append(t)
-    story.append(Spacer(1,12));story.append(p('Totaux des quantités : '+str(report['synthese']['totaux_quantites']),normal))
-    if report['inventaire']:story.append(p('Validation : '+('validée le '+str(report['inventaire']['valide_le'])+' par '+str(report['inventaire']['valide_par']) if report['inventaire']['statut']=='VALIDE' else 'BROUILLON — inventaire non validé'),normal))
-    SimpleDocTemplate(out,pagesize=(width,height),leftMargin=26,rightMargin=26,topMargin=36,bottomMargin=34,title=report['titre'],author=report['organisation']).build(story,canvasmaker=Numbered)
+        story.append(p('Rapprochement des quantités (conditionnements différents : ne pas interpréter comme un total homogène)',heading))
+        story += [p(labels.get(k,k)+' : '+str(v)) for k,v in report['synthese']['totaux_quantites'].items()]
+    SimpleDocTemplate(out,pagesize=(width,height),leftMargin=28,rightMargin=28,topMargin=65,bottomMargin=40,title=report['titre'],author=report['organisation']).build(story,canvasmaker=Numbered)
     return out.getvalue()

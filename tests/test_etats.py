@@ -104,6 +104,11 @@ def test_inventaire_pv_ecarts_mouvements_reconciliation_et_lecture_seule(raw_cli
     post(c,a,f'/inventaires/{inv["id"]}/valider',status=200)
     after=report(c,a,'ecarts',inventaire_id=inv['id']);assert after['items'][0]['ecart']==-1 and after['inventaire']['statut']=='VALIDE'
     assert after['synthese']['total_valorisation'] is None
+    gen=db(c);session=next(gen)
+    try:
+        from neosys_pharma.infrastructure.securite_models import UtilisateurModel
+        assert after['responsable_validation']==session.get(UtilisateurModel,a['user']).nom
+    finally:gen.close()
     candidates=report(c,a,'comptabilite');assert any(x['type']=='AJUSTEMENT_INVENTAIRE' for x in candidates['items'])
     assert all(x['montant'] is None and 'AUCUNE ÉCRITURE' in x['statut_comptable'] for x in candidates['items'])
     restrict(c,a,('stock.consulter',))
@@ -145,3 +150,42 @@ def test_peremption_absente_uniquement_si_suivi_requis(raw_client,account):
     finally:gen.close()
     response=c.put(f'/api/catalogue/organisations/{a["org"]}/categories/{category}',json={'code':'MED','nom':'Médicaments','gestion_lot':True,'gestion_peremption':True,'fefo':True});assert response.status_code==200,response.text
     rows=report(c,a,'peremptions')['items'];assert len(rows)==1 and rows[0]['etat_peremption']=='DATE ABSENTE' and rows[0]['peremption'] is None
+
+
+def pdf_fixture(kind='inventaire'):
+    """Jeu de présentation synthétique : aucun coût ni stock de production."""
+    keys=('zone','emplacement','produit','conditionnement','lot','peremption','theorique','theorique_au_comptage','compte','ecart','date','type','physique','reserve','vendable','delta_physique','delta_reserve','origine','auteur','cout_unitaire','montant','motif_valorisation','etat_peremption','motif')
+    return dict(genre=kind,titre='Procès-verbal d’inventaire' if kind=='inventaire' else 'État de recette',organisation='ORGANISATION ÉCHANTILLON',site='LBV01 - SITE DE RECETTE',reference=str(uuid4()),genere_le='2026-10-10T14:10:00+00:00',filtres={'q':'ÉCHANTILLON','debut':'2026-10-01'} if kind=='mouvements' else {},inventaire=dict(id=str(uuid4()),nom='INVENTAIRE ÉCHANTILLON',type='COMPLET',statut='VALIDE',date='2026-10-10',snapshot_sequence=45,valide_le='2026-10-10T14:00:00+00:00',valide_par=str(uuid4())) if kind in ('inventaire','ecarts') else None,responsable_validation='ÉLODIE RESPONSABLE',columns=[dict(key=k,label={'theorique':'Photographie','theorique_au_comptage':'Théorique au comptage','produit':'Produit'}.get(k,k.replace('_',' ').capitalize())) for k in keys],items=[],synthese=dict(totaux_quantites={'physique':10},lignes_non_valorisables=0,total_valorisation=None,devise=None),notes=['Quantités par conditionnement. Aucun coût inventé.'])
+
+
+@pytest.mark.parametrize('kind',GENRES)
+def test_pdf_lisible_multipage_dates_entetes_et_references(kind):
+    from neosys_pharma.infrastructure.etats_exports import pdf_export
+    r=pdf_fixture(kind)
+    for n in range(90):
+        r['items'].append(dict(zone='RÉSERVE GÉNÉRALE',emplacement='RÉSERVE MÉDICAMENTS',produit='SOLUTION BUVABLE PÉDIATRIQUE - DÉSIGNATION LONGUE',conditionnement='BOÎTE DE 20 COMPRIMÉS PELLICULÉS',conditionnement_id='pack-1',lot='LOT-LONG-2026-ABCDEFGHIJKLMN',peremption='2027-10-10',theorique=10,theorique_au_comptage=12,compte=11,ecart=-1,date='2026-10-10T14:10:00+00:00',type='ENTREE',physique=10,reserve=2,vendable=8,delta_physique=10,delta_reserve=0,origine='ENTRÉE DE RECETTE',auteur='ÉLODIE',cout_unitaire=None,montant=None,motif_valorisation='COÛT HISTORIQUE INDISPONIBLE',etat_peremption='PROCHE',motif='CASSE'))
+    doc=PdfReader(io.BytesIO(pdf_export(r)));assert len(doc.pages)>1
+    texts=[page.extract_text() for page in doc.pages];text='\n'.join(texts)
+    assert '2026-10-10T' not in text and "{'" not in text and "'snapshot_sequence':" not in text
+    assert '10/10/2026 à 14:10 UTC' in text and r['reference'] in text
+    assert 'ORGANISATION ÉCHANTILLON' in text and 'LBV01' in text
+    for i,(page,t) in enumerate(zip(doc.pages,texts),1):
+        assert f'Page {i} / {len(doc.pages)}' in t and r['titre'] in t
+        assert page.mediabox.width>page.mediabox.height
+        if 'LOT-LONG' in t:assert 'Produit' in t
+    if kind in ('inventaire','ecarts'):
+        assert 'ÉLODIE RESPONSABLE' in text and r['inventaire']['valide_par'] in text
+        assert 'Récapitulatif par conditionnement' in text and 'Signatures des responsables' in text
+        assert 'Photographie' in text and '1080' in text and '990' in text and '-90' in text
+
+
+def test_pdf_totaux_par_uuid_incomplets_et_validateur_inconnu():
+    from neosys_pharma.infrastructure.etats_exports import pdf_export
+    r=pdf_fixture();r['responsable_validation']=None
+    base=dict(zone='ZONE',emplacement='EMPLACEMENT',produit='PRODUIT',conditionnement='BOÎTE',lot='LOT',peremption=None,theorique=5,theorique_au_comptage=None,compte=None,ecart=None)
+    r['items']=[dict(base,conditionnement_id='pack-A'),dict(base,conditionnement_id='pack-B',theorique=7,theorique_au_comptage=7,compte=6,ecart=-1)]
+    text='\n'.join(p.extract_text() for p in PdfReader(io.BytesIO(pdf_export(r))).pages)
+    assert 'Nom indisponible' in text and 'ÉLODIE RESPONSABLE' not in text
+    # Deux UUID au même libellé : deux lignes, jamais une addition de 12 boîtes.
+    assert text.count('PRODUIT / BOÎTE')==2
+    assert 'non comptées' in text.lower() and 'Aucun total global' in text
