@@ -55,7 +55,7 @@ with sync_playwright() as p:
     with page.expect_download() as download:activate(page.locator('#pf-download'))
     download.value.save_as('/tmp/proforma-v1-again.pdf');assert Path('/tmp/proforma-v1-again.pdf').read_bytes()==bytes1
     with page.expect_popup() as opened:activate(page.locator('#pf-pdf'))
-    popup=opened.value;popup.wait_for_url('blob:*');popup.close()
+    popup=opened.value;popup.wait_for_url(lambda u:u.startswith('blob:'));popup.close()
     page.screenshot(path='qa/p4-proforma-historique.png',full_page=True)
     shortcut('Digit9');choice(modal().locator('[name=poste_id]'),f['p4_poste']);save();expect(page.locator('#vente-panel')).to_be_visible();expect(page.locator('#p4-totals')).to_contain_text('375 FCFA');expect(page.locator('#p4-discounts')).to_contain_text('DEMANDEE');page.screenshot(path='qa/p4-proforma-reprise.png',full_page=True)
     activate(page.locator('#nav-proforma'));expect(page.locator('#pf-list')).to_have_attribute('aria-busy','false');shortcut('KeyR');field(page.locator('#pf-search'),'Élodie');expect(page.locator('#pf-list tr')).to_have_count(1)
