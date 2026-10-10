@@ -17,10 +17,12 @@ with sync_playwright() as p:
         for field,value in [('organisation_id',f['organisation_id']),('identifiant',name),('password',f['password'])]:
             form.locator('[name='+field+']').focus();page_.keyboard.type(value)
         form.locator('button').focus();page_.keyboard.press('Enter');expect(page_.locator('#app-shell')).to_be_visible()
-        page_.locator('#nav-vente').focus();page_.keyboard.press('Enter');expect(page_.locator('#p4-list')).to_have_attribute('aria-busy','false')
+        page_.locator('#nav-vente').focus();page_.keyboard.press('Enter');expect(page_.locator('#vente-panel')).to_be_visible();expect(page_.locator('#p4-list')).to_have_attribute('aria-busy','false')
     def modal():return page.locator('dialog[open]').last
     def save():key_activate(modal().get_by_role('button',name='Enregistrer',exact=True));expect(page.locator('dialog[open]')).to_have_count(0)
-    def shortcut(n):page.keyboard.press('Alt+Shift+Digit'+str(n))
+    def shortcut(n):
+        page.keyboard.press('Alt+Shift+Digit'+str(n))
+        if n in (8,9,0):expect(page.locator('#p4-list')).to_have_attribute('aria-busy','false')
     def shot(name):page.screenshot(path='qa/'+name,full_page=True)
     login(page,'vente.qa');shortcut(2);expect(modal()).to_be_visible();page.keyboard.press('Escape');expect(page.locator('dialog[open]')).to_have_count(0);shortcut(2);expect(modal()).to_be_visible();expect(modal().locator('[name=mode]')).to_be_focused()
     choice(modal().locator('[name=mode]'),'SANS_TIERS');choice(modal().locator('[name=emplacement_id]'),f['location_id']);choice(modal().locator('[name=poste_id]'),f['p4_poste']);save()
@@ -30,9 +32,9 @@ with sync_playwright() as p:
     # Partial designation with several packs requires explicit choice.
     shortcut(3);type_field(modal().locator('[name=recherche]'),'préparation vente');page.keyboard.press('Enter');expect(modal().locator('[name=conditionnement_id]')).to_be_focused();choice(modal().locator('[name=conditionnement_id]'),f['p4_pack']);type_field(modal().locator('[name=quantite]'),'2');save();expect(page.locator('#p4-lines tr')).to_have_count(2)
     # Edit error preserves quantity, cancel warns before discarding.
-    page.locator('#p4-lines tr').first.focus();shortcut(4);expect(modal().locator('[name=quantite]')).to_have_value('3');type_field(modal().locator('[name=quantite]'),'999');key_activate(modal().get_by_role('button',name='Enregistrer',exact=True));expect(modal().locator('.creation-dialog-error')).to_be_visible();expect(modal().locator('[name=quantite]')).to_have_value('999')
+    page.locator('#p4-lines tr').first.focus();expect(page.locator('#p4-lines tr').first).to_be_focused();shortcut(4);expect(modal().locator('[name=quantite]')).to_have_value('3');type_field(modal().locator('[name=quantite]'),'999');key_activate(modal().get_by_role('button',name='Enregistrer',exact=True));expect(modal().locator('.creation-dialog-error')).to_be_visible();expect(modal().locator('[name=quantite]')).to_have_value('999')
     page.once('dialog',lambda d:d.accept());page.keyboard.press('Escape');expect(page.locator('dialog[open]')).to_have_count(0)
-    page.locator('#p4-lines tr').last.focus();page.keyboard.press('Delete');save();expect(page.locator('#p4-lines tr')).to_have_count(1)
+    page.locator('#p4-lines tr').last.focus();expect(page.locator('#p4-lines tr').last).to_be_focused();page.keyboard.press('Delete');save();expect(page.locator('#p4-lines tr')).to_have_count(1)
     # Line authorization local: manager enters own password, operator remains signed in.
     shortcut(6);type_field(modal().locator('[name=valeur]'),'10');type_field(modal().locator('[name=justification]'),'Demande ligne au clavier');save();expect(page.locator('#p4-totals')).to_contain_text('300 FCFA')
     shortcut(0);expect(page.locator('#p4-message')).to_contain_text('attente')
