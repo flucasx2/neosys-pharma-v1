@@ -24,6 +24,7 @@ P3_PERMISSIONS = (
     ("stock.inventaire.valider", "Consulter les écarts et valider les inventaires"),
 )
 P4_PERMISSIONS = (
+    ("vente.remise.parametrer", "Configurer les plafonds de remise des rôles"),
     ("vente.consulter", "Consulter les préparations autorisées"),
     ("vente.preparer", "Créer et modifier les préparations"),
     ("vente.valider", "Valider une préparation sans encaissement"),

@@ -23,7 +23,12 @@ def contexte(request:Request,organisation_id:UUID,user=Depends(utilisateur_coura
         site=UUID(request.headers.get('X-Site-ID',''))
         permission=POLICY.get(request.scope['route'].name)
         if not permission:raise PermissionError('Opération Vente non autorisée.')
-        control=ControleAcces(SqlAlchemySecuriteRepository(session),user,jour_courant());control.organisation(permission,organisation_id,site)
+        control=ControleAcces(SqlAlchemySecuriteRepository(session),user,jour_courant())
+        permissions=permission if isinstance(permission,tuple) else (permission,)
+        for candidate in permissions:
+            try:control.organisation(candidate,organisation_id,site);permission=candidate;break
+            except PermissionError:pass
+        else:raise PermissionError('Permission Vente requise.')
         loc=request.headers.get('X-Emplacement-ID')
         if loc:control.verifier(permission,site,UUID(loc))
         request.state.vente_site=site;request.state.vente_controle=control;request.state.vente_permission=permission
@@ -88,6 +93,86 @@ def ventes_liste(request:Request,page:int=Query(1,ge=1),page_size:int=Query(25,g
     query=select(VenteModel).where(VenteModel.organisation_id==s.org,VenteModel.site_id==s.site,VenteModel.emplacement_id.in_(allowed)).order_by(VenteModel.cree_le.desc(),VenteModel.id)
     total,rows=s.stock.repo.paginer(query,page,page_size)
     return {'items':[serial(v) for v in rows],'total':total,'page':page,'page_size':page_size}
+class Plafond(Mutation):
+    role_id:UUID
+    revision:int=Field(default=0,strict=True,ge=0)
+    max_pourcentage:Decimal|None=Field(default=None,gt=0,le=100,max_digits=5,decimal_places=2)
+    max_montant_xaf:Decimal|None=Field(default=None,gt=0,max_digits=18,decimal_places=2)
+    actif:bool=True
+class Locale(Decision):
+    identifiant:str=Field(min_length=1,max_length=80)
+    password:str=Field(min_length=1,max_length=128,repr=False)
+
+POLICY.update({'vente_contexte':('vente.consulter','vente.preparer','vente.remise.autoriser','vente.remise.parametrer'),'vente_conditionnements':('vente.consulter','vente.preparer'),'vente_stock':'stock.consulter','plafonds_liste':'vente.remise.parametrer','plafond_enregistrer':'vente.remise.parametrer','remises_attente':'vente.remise.autoriser','remise_locale':'vente.remise.demander'})
+
+@router.get('/contextes')
+def vente_contexte(request:Request,s=Depends(service)):
+    from neosys_pharma.infrastructure.organisation_models import EmplacementModel,PosteVenteModel,CaisseModel
+    result=[]
+    for loc in s.s.scalars(select(EmplacementModel).where(EmplacementModel.site_id==s.site,EmplacementModel.actif.is_(True))):
+        try:s.stock.emplacement(loc.id_emplacement,request.state.vente_permission)
+        except PermissionError:continue
+        result.append({'id':str(loc.id_emplacement),'nom':loc.nom,'postes':[{'id':str(p.id_poste_vente),'nom':p.nom} for p in s.s.scalars(select(PosteVenteModel).where(PosteVenteModel.emplacement_id==loc.id_emplacement,PosteVenteModel.actif.is_(True)))],'caisses':[{'id':str(p.id_caisse),'nom':p.nom} for p in s.s.scalars(select(CaisseModel).where(CaisseModel.emplacement_id==loc.id_emplacement,CaisseModel.actif.is_(True)))]})
+    return {'emplacements':result}
+
+@router.get('/conditionnements')
+def vente_conditionnements(q:str=Query('',max_length=200),page:int=Query(1,ge=1),page_size:int=Query(20,ge=1,le=100),s=Depends(service)):
+    from neosys_pharma.presentation.stock_api import conditionnements
+    return conditionnements(q=q,page=page,page_size=page_size,s=s.stock)
+
+@router.get('/stocks')
+def vente_stock(emplacement_id:UUID,conditionnement_id:UUID,page:int=Query(1,ge=1),page_size:int=Query(20,ge=1,le=100),s=Depends(service)):
+    from neosys_pharma.infrastructure.stock_models import StockEmplacementModel,LotModel
+    execute(lambda:s.stock.emplacement(emplacement_id,'stock.consulter'));execute(lambda:s.stock.conditionnement(conditionnement_id))
+    q=select(StockEmplacementModel).join(LotModel,LotModel.id==StockEmplacementModel.lot_id).where(StockEmplacementModel.organisation_id==s.org,StockEmplacementModel.emplacement_id==emplacement_id,LotModel.conditionnement_id==conditionnement_id)
+    total,rows=s.stock.repo.paginer(q.order_by(StockEmplacementModel.id),page,page_size)
+    from sqlalchemy import func
+    physique,reserve=s.s.execute(select(func.coalesce(func.sum(StockEmplacementModel.physique),0),func.coalesce(func.sum(StockEmplacementModel.reserve),0)).join(LotModel,LotModel.id==StockEmplacementModel.lot_id).where(StockEmplacementModel.organisation_id==s.org,StockEmplacementModel.emplacement_id==emplacement_id,LotModel.conditionnement_id==conditionnement_id)).one()
+    return {'items':[{**serial(b),'vendable':b.physique-b.reserve,'lot':s.stock.obtenir(LotModel,b.lot_id).numero,'peremption':s.stock.obtenir(LotModel,b.lot_id).peremption} for b in rows],'total':total,'page':page,'page_size':page_size,'totaux':{'physique':physique,'reserve':reserve,'vendable':physique-reserve}}
+
+@router.get('/plafonds')
+def plafonds_liste(s=Depends(service)):
+    from neosys_pharma.infrastructure.vente_models import PlafondRemiseModel
+    from neosys_pharma.infrastructure.securite_models import RoleModel
+    from neosys_pharma.infrastructure.securite_repository import SqlAlchemySecuriteRepository
+    repo=SqlAlchemySecuriteRepository(s.s)
+    roles=[{'id':str(r.id_role),'nom':r.nom} for r in s.s.scalars(select(RoleModel).where(RoleModel.actif.is_(True),(RoleModel.organisation_id==s.org)|(RoleModel.organisation_id.is_(None)))) if any(p.code=='vente.remise.autoriser' for p in repo.permissions_role(r.id_role))]
+    return {'items':[serial(r) for r in s.stock.lignes(PlafondRemiseModel)],'roles':roles}
+
+@router.post('/plafonds',status_code=201)
+def plafond_enregistrer(data:Plafond,s=Depends(service)):
+    if data.max_pourcentage is None and data.max_montant_xaf is None:raise HTTPException(422,'Au moins un plafond explicite est obligatoire.')
+    return mutation(s,data,'PLAFOND',lambda:s.configurer_plafond(data.model_dump()))
+
+@router.get('/remises-attente')
+def remises_attente(page:int=Query(1,ge=1),page_size:int=Query(25,ge=1,le=100),s=Depends(service)):
+    from neosys_pharma.infrastructure.vente_models import DemandeRemiseModel
+    from neosys_pharma.infrastructure.organisation_models import EmplacementModel
+    allowed=[]
+    for loc in s.s.scalars(select(EmplacementModel).where(EmplacementModel.site_id==s.site)):
+        try:s.stock.emplacement(loc.id_emplacement,'vente.remise.autoriser');allowed.append(loc.id_emplacement)
+        except PermissionError:pass
+    query=select(DemandeRemiseModel).join(VenteModel,VenteModel.id==DemandeRemiseModel.vente_id).where(DemandeRemiseModel.organisation_id==s.org,DemandeRemiseModel.statut=='DEMANDEE',VenteModel.site_id==s.site,VenteModel.emplacement_id.in_(allowed)).order_by(DemandeRemiseModel.id)
+    total,rows=s.stock.repo.paginer(query,page,page_size)
+    return {'items':[{'demande':serial(r),'vente':s.detail(s.obtenir(r.vente_id,'vente.remise.autoriser'))} for r in rows],'total':total,'page':page,'page_size':page_size}
+
+@router.post('/{vente_id}/remises/{demande_id}/locale')
+def remise_locale(vente_id:UUID,demande_id:UUID,data:Locale,request:Request,s=Depends(service)):
+    from neosys_pharma.infrastructure.authentification_repository import SqlAlchemyAuthRepository
+    from neosys_pharma.application.authentification_service import empreinte
+    from neosys_pharma.infrastructure.passwords import passwords
+    from neosys_pharma.presentation.authentification_api import maintenant
+    v=vente(s,request,vente_id);repo=SqlAlchemyAuthRepository(s.s)
+    for key,maximum in [('ip:'+str(request.client.host),60),('compte:'+str(s.org)+':'+data.identifiant.strip().lower(),10)]:
+        if not repo.tentative(empreinte(key),maintenant(),maximum=maximum):raise HTTPException(429,'Trop de tentatives. Réessayez dans cinq minutes.')
+    approver=repo.utilisateur_login(s.org,data.identifiant.strip().lower())
+    encoded=repo.password_hash(approver.id_utilisateur) if approver else None
+    valid=passwords.verifier(encoded,data.password)
+    if not approver or not valid or not approver.actif or not repo.organisation_active(s.org):raise HTTPException(401,'Authentification du responsable refusée.')
+    execute(lambda:ControleAcces(repo.securite,approver,jour_courant()).verifier('vente.remise.autoriser',v.site_id,v.emplacement_id))
+    body=data.model_dump(exclude={'cle','password','identifiant'});body['approbateur_id']=str(approver.id_utilisateur)
+    return execute(lambda:s.stock.operation(data.cle,'P4:LOCALE:'+str(demande_id),body,lambda:s.decider_remise(s.obtenir(vente_id,'vente.remise.demander'),demande_id,data.model_dump(exclude={'password','identifiant'}),approver.id_utilisateur,local=True)))
+
 @router.get('/{vente_id}')
 def vente_detail(vente_id:UUID,request:Request,s=Depends(service)):return execute(lambda:s.detail(vente(s,request,vente_id)))
 @router.get('/{vente_id}/historique')

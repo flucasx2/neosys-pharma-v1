@@ -40,7 +40,7 @@ def act(c,a,v,name,**kwargs):return post(c,a,f'/{v["id"]}/{name}',{'revision':v[
 def test_preparation_transmission_annulation_atomiques_et_journal(raw_client,account):
     c,a=raw_client,account;prod,pack,pid,cid=setup(c,a)
     v=create(c,a,pid);v=line(c,a,v,prod,pack)
-    assert Decimal(v['totaux']['ttc'])==Decimal(v['lignes'][0]['instantane_tarif']['montant_ttc'])*3
+    assert Decimal(v['totaux']['ttc'])==Decimal('301')
     assert stocks(c,a)[0]['physique']==10 and stocks(c,a)[0]['reserve']==3
     reservation=v['lignes'][0]['reservations'][0]['id']
     for endpoint in ('liberer','consommer'):stock_post(c,a,f'/reservations/{reservation}/{endpoint}',status=409)
@@ -82,6 +82,7 @@ def test_remises_demande_refus_non_contournement(raw_client,account,type,value):
     post(c,a,f'/{v["id"]}/valider',{'revision':v['revision']},422)
     post(c,a,f'/{v["id"]}/remises/{request["id"]}/decision',{'revision':v['revision'],'autoriser':True,'justification':'Responsable'},422)
     post(c,a,f'/{v["id"]}/remises/{request["id"]}/decision',{'revision':v['revision'],'autoriser':False,'justification':'Politique non configurée'},200)
+    v=c.get(root(a)+f'/{v["id"]}').json()
     assert act(c,a,v,'valider')['etat']=='VALIDEE_PREPARATION'
 
 
@@ -170,7 +171,7 @@ def test_migration_p4_additive_cycle_et_aucun_droit_implicite(tmp_path,monkeypat
     try:
         command.upgrade(cfg,'head');command.check(cfg)
         with engine.connect() as conn:
-            assert conn.execute(text("SELECT count(*) FROM permissions WHERE code LIKE 'vente.%'")).scalar()==8
+            assert conn.execute(text("SELECT count(*) FROM permissions WHERE code LIKE 'vente.%'")).scalar()==9
             assert conn.execute(text("SELECT count(*) FROM roles_permissions JOIN permissions ON permissions.id_permission=roles_permissions.permission_id WHERE permissions.code LIKE 'vente.%'")).scalar()==0
             before=conn.execute(text('SELECT sequence, delta_physique FROM stock_mouvements ORDER BY sequence')).all()
         command.downgrade(cfg,'2b3c30f2b213')

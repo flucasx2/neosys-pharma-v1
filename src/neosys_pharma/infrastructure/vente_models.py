@@ -74,3 +74,12 @@ for action in ('UPDATE','DELETE'):
     event.listen(table,'after_create',DDL(f"CREATE TRIGGER vente_evenements_{action.lower()}_immutable BEFORE {action} ON vente_evenements BEGIN SELECT RAISE(ABORT, 'Journal Vente immuable'); END").execute_if(dialect='sqlite'))
 event.listen(table,'after_create',DDL("CREATE OR REPLACE FUNCTION vente_evenements_immutable() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Journal Vente immuable'; END $$").execute_if(dialect='postgresql'))
 event.listen(table,'after_create',DDL("CREATE TRIGGER vente_evenements_immutable BEFORE UPDATE OR DELETE ON vente_evenements FOR EACH ROW EXECUTE FUNCTION vente_evenements_immutable()").execute_if(dialect='postgresql'))
+
+class PlafondRemiseModel(EntiteVente,Base):
+    __tablename__='vente_plafonds_remise'
+    __table_args__=(UniqueConstraint('organisation_id','role_id',name='uq_plafond_remise_role'),CheckConstraint('max_pourcentage IS NULL OR (max_pourcentage > 0 AND max_pourcentage <= 100)',name='ck_plafond_pourcentage'),CheckConstraint('max_montant_xaf IS NULL OR max_montant_xaf > 0',name='ck_plafond_montant'),CheckConstraint('max_pourcentage IS NOT NULL OR max_montant_xaf IS NOT NULL',name='ck_plafond_configure'))
+    role_id:Mapped[UUID]=mapped_column(ForeignKey('roles.id_role'))
+    max_pourcentage:Mapped[Decimal|None]=mapped_column(Numeric(5,2))
+    max_montant_xaf:Mapped[Decimal|None]=mapped_column(Numeric(18,2))
+    actif:Mapped[bool]=mapped_column(default=True)
+    revision:Mapped[int]=mapped_column(default=1)

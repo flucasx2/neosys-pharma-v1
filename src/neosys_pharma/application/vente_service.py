@@ -14,7 +14,9 @@ from neosys_pharma.application.catalogue_service import CatalogueService
 from neosys_pharma.application.tarification_service import TarificationService
 from neosys_pharma.infrastructure.catalogue_repository import SqlAlchemyCatalogueRepository
 
-class VenteService:
+from neosys_pharma.application.remises_service import RemisesService
+
+class VenteService(RemisesService):
     def __init__(self,stock,site):
         self.stock=stock;self.s=stock.s;self.org=stock.org;self.site=site
         self.tarifs=TarificationService(CatalogueService(SqlAlchemyCatalogueRepository(self.s)))
@@ -52,6 +54,7 @@ class VenteService:
             if r.statut=='ACTIVE':self.stock.terminer_reservation(r.id,permission='stock.reserver',interne=True)
 
     def invalider_remises(self,v):
+        for line in self.lignes(v):line.remise_appliquee=None
         for r in self.stock.lignes(DemandeRemiseModel,vente_id=v.id):
             if r.statut in ('DEMANDEE','AUTORISEE'):
                 r.statut='INVALIDEE';self.evenement(v,'REMISE_INVALIDEE',demande_id=r.id,revision=v.revision)
@@ -94,7 +97,7 @@ class VenteService:
             if v.mode!='SANS_TIERS':raise ValueError('Règles de tiers payant ou crédit indisponibles : préparation non validable.')
             rows=[r for r in self.lignes(v) if r.actif]
             if not rows:raise ValueError('Au moins une ligne commerciale est obligatoire.')
-            if any(r.statut in ('DEMANDEE','AUTORISEE') for r in self.stock.lignes(DemandeRemiseModel,vente_id=v.id)):raise ValueError('Demande de remise en attente ou calcul non configuré : validation interdite.')
+            if any(r.statut in ('DEMANDEE',) for r in self.stock.lignes(DemandeRemiseModel,vente_id=v.id)):raise ValueError('Demande de remise en attente : validation interdite.')
             for row in rows:
                 links=self.stock.lignes(ReservationVenteModel,ligne_id=row.id)
                 active=[self.stock.obtenir(ReservationStockModel,x.reservation_id) for x in links if self.stock.obtenir(ReservationStockModel,x.reservation_id).statut=='ACTIVE']
@@ -116,7 +119,7 @@ class VenteService:
             for r in self.lignes(v):self.liberer_ligne(r)
             self.invalider_remises(v)
         previous=v.etat;v.etat=target;v.revision+=1
-        self.evenement(v,'TRANSITION',avant=previous,apres=target,justification=data.get('justification'),caisse_id=v.caisse_id)
+        self.evenement(v,'TRANSITION',avant=previous,apres=target,justification=data.get('justification'),caisse_id=v.caisse_id,instantane_financier=self.finance(v))
         return self.detail(v)
 
     def demander_remise(self,v,data):
@@ -126,18 +129,12 @@ class VenteService:
             line=self.stock.obtenir(LigneVenteModel,line_id)
             if line.vente_id!=v.id or not line.actif:raise PermissionError('Ligne de remise incompatible.')
         r=self.stock.ajouter(DemandeRemiseModel,vente_id=v.id,ligne_id=line_id,type=data['type'],valeur=value,revision_vente=v.revision,auteur_id=self.stock.user,justification=data['justification'])
+        from neosys_pharma.domain.remises import montant_remise
+        if any(x.id!=r.id and x.ligne_id==line_id and x.statut=='DEMANDEE' for x in self.stock.lignes(DemandeRemiseModel,vente_id=v.id)):raise ConflitStock('Une demande est déjà en attente pour cette portée.')
+        montant_remise(r.type,r.valeur,self.eligible(v,r))
         self.evenement(v,'REMISE_DEMANDEE',demande=serial(r));return serial(r)
-
-    def decider_remise(self,v,key,data):
-        self.editable(v);self.revision(v,data['revision'])
-        r=self.stock.obtenir(DemandeRemiseModel,key)
-        if r.vente_id!=v.id:raise PermissionError('Demande d’une autre préparation.')
-        if r.statut!='DEMANDEE' or r.revision_vente!=v.revision:raise ConflitStock('Demande obsolète ou déjà décidée.')
-        if data['autoriser']:raise ValueError('Autorisation indisponible : limites, base HT/TTC et répartition globale à configurer après validation métier.')
-        r.statut='REFUSEE';r.autorisation={'auteur_id':str(self.stock.user),'motif':data['justification']}
-        self.evenement(v,'REMISE_REFUSEE',demande_id=r.id,motif=data['justification']);return serial(r)
 
     def detail(self,v):
         rows=[r for r in self.lignes(v) if r.actif]
-        totals={k:str(sum((Decimal(r.montants[k]) for r in rows),Decimal('0'))) for k in ('ht','tva','ttc')}
-        return {**serial(v),'lignes':[{**serial(r),'reservations':[self.stock.reservation_detail(self.stock.obtenir(ReservationStockModel,x.reservation_id)) for x in self.stock.lignes(ReservationVenteModel,ligne_id=r.id)]} for r in rows],'totaux':totals,'part_client':totals['ttc'] if v.mode=='SANS_TIERS' else None,'prise_en_charge_disponible':v.mode=='SANS_TIERS','remises':[serial(r) for r in self.stock.lignes(DemandeRemiseModel,vente_id=v.id)]}
+        finance=self.finance(v);totals=finance['totaux']
+        return {**serial(v),'lignes':[{**serial(r),'montants_appliques':finance['lignes'][str(r.id)],'reservations':[self.stock.reservation_detail(self.stock.obtenir(ReservationStockModel,x.reservation_id)) for x in self.stock.lignes(ReservationVenteModel,ligne_id=r.id)]} for r in rows],'totaux':totals,'part_client':totals['ttc'] if v.mode=='SANS_TIERS' else None,'prise_en_charge_disponible':v.mode=='SANS_TIERS','remises':[serial(r) for r in self.stock.lignes(DemandeRemiseModel,vente_id=v.id)]}
