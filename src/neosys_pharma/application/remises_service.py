@@ -12,11 +12,13 @@ from neosys_pharma.infrastructure.securite_models import RoleModel,UtilisateurMo
 from neosys_pharma.application.stock_service import serial
 
 class RemisesService:
+    remise_model=DemandeRemiseModel
+    permission_remise="vente.remise.autoriser"
     def finance(self,v,exclude=None):
-        return calculer([x for x in self.lignes(v) if x.actif],[x for x in self.stock.lignes(DemandeRemiseModel,vente_id=v.id) if x.id!=exclude])
+        return calculer([x for x in self.lignes(v) if x.actif],[x for x in self.stock.lignes(self.remise_model,vente_id=v.id) if x.id!=exclude])
 
     def eligible(self,v,r):
-        requests=[x for x in self.stock.lignes(DemandeRemiseModel,vente_id=v.id) if x.ligne_id!=r.ligne_id and (r.ligne_id is None or x.ligne_id is not None)]
+        requests=[x for x in self.stock.lignes(self.remise_model,vente_id=v.id) if x.ligne_id!=r.ligne_id and (r.ligne_id is None or x.ligne_id is not None)]
         finance=calculer([x for x in self.lignes(v) if x.actif],requests)
         if r.ligne_id:return Decimal(finance['lignes'][str(r.ligne_id)]['ttc_initial'])
         return sum((Decimal(x['ttc_initial'])-Decimal(x['remise_ligne']) for x in finance['lignes'].values()),Decimal(0))
@@ -54,19 +56,37 @@ class RemisesService:
         if not any(p.code=='vente.remise.autoriser' for p in repo.permissions_role(role.id_role)):raise ValueError('Le rôle doit déjà posséder vente.remise.autoriser ; aucun droit implicite ajouté.')
         cap=self.s.scalar(select(PlafondRemiseModel).where(PlafondRemiseModel.organisation_id==self.org,PlafondRemiseModel.role_id==role.id_role))
         if data.get('revision',0)!=(cap.revision if cap else 0):raise ConflitStock('Plafond modifié : actualiser.')
-        if not cap:cap=self.stock.ajouter(PlafondRemiseModel,role_id=role.id_role,max_pourcentage=data.get('max_pourcentage'),max_montant_xaf=data.get('max_montant_xaf'))
-        else:cap.revision+=1
-        cap.max_pourcentage=data.get('max_pourcentage');cap.max_montant_xaf=data.get('max_montant_xaf');cap.actif=data['actif']
-        # Invalidate authorizations and pending financial bases, retaining complete audit.
+        values={k:data.get(k) for k in ('max_pourcentage','max_montant_xaf','actif')}
+        if cap and all(getattr(cap,k)==value for k,value in values.items()):return serial(cap)
+        if not cap:cap=self.stock.ajouter(PlafondRemiseModel,role_id=role.id_role,**values)
+        else:
+            cap.revision+=1
+            for k,value in values.items():setattr(cap,k,value)
+        # Only authorizations actually issued under this cap are affected.
+        # A pending request has no chosen approver/cap and is checked at decision time.
         for v in self.s.scalars(select(VenteModel).where(VenteModel.organisation_id==self.org,VenteModel.etat.in_(['PREPARATION','EN_ATTENTE','VALIDEE_PREPARATION','TRANSMISE']))):
-            if not any(r.statut in ('DEMANDEE','AUTORISEE') for r in self.stock.lignes(DemandeRemiseModel,vente_id=v.id)):continue
-            previous=v.etat;self.invalider_remises(v);v.revision+=1
-            if v.etat in ('VALIDEE_PREPARATION','TRANSMISE'):v.etat='PREPARATION';v.caisse_id=None
-            self.evenement(v,'PLAFOND_MODIFIE',plafond=serial(cap),avant=previous,apres=v.etat)
+            self.invalider_plafond(v,cap)
         return serial(cap)
 
+    def invalider_plafond(self,v,cap):
+        requests=self.stock.lignes(self.remise_model,vente_id=v.id)
+        affected=[r for r in requests if r.statut=='AUTORISEE' and str((r.autorisation or {}).get('plafond',{}).get('id'))==str(cap.id)]
+        if not affected:return
+        # Changing an individual discount also changes the base of the global one.
+        global_dependent=any(r.ligne_id is not None for r in affected)
+        for r in requests:
+            if r in affected or r.statut=='DEMANDEE' or (global_dependent and r.statut=='AUTORISEE' and r.ligne_id is None):
+                r.statut='INVALIDEE';self.evenement(v,'REMISE_INVALIDEE',demande_id=r.id,plafond_id=cap.id,raison='PLAFOND_MODIFIE')
+        previous=v.etat;v.revision+=1
+        if v.etat in ('VALIDEE_PREPARATION','TRANSMISE'):v.etat='PREPARATION';v.caisse_id=None
+        finance=self.finance(v)
+        for line in self.lignes(v):
+            if line.actif:line.remise_appliquee={'montants':finance['lignes'][str(line.id)],'demandes':[str(r.id) for r in requests if r.statut=='AUTORISEE' and r.ligne_id in (None,line.id)]}
+        # Reservations keep their Vente links and remain cancellable atomically.
+        self.evenement(v,'PLAFOND_MODIFIE',plafond=serial(cap),avant=previous,apres=v.etat,reservations_conservees=True)
+
     def decider_remise(self,v,key,data,approver=None,local=False):
-        self.editable(v);self.revision(v,data['revision']);r=self.stock.obtenir(DemandeRemiseModel,key)
+        self.editable(v);self.revision(v,data['revision']);r=self.stock.obtenir(self.remise_model,key)
         if r.vente_id!=v.id:raise PermissionError('Demande d’une autre préparation.')
         if r.statut!='DEMANDEE' or r.revision_vente!=v.revision:raise ConflitStock('Demande obsolète ou déjà décidée.')
         approver=approver or self.stock.user
@@ -76,7 +96,7 @@ class RemisesService:
         repo=SqlAlchemySecuriteRepository(self.s);user=repo.utilisateur(approver)
         if not user or user.organisation_id!=self.org:raise PermissionError('Responsable hors organisation.')
         ControleAcces(repo,user,self.stock.jour).verifier('vente.remise.autoriser',v.site_id,v.emplacement_id)
-        for other in self.stock.lignes(DemandeRemiseModel,vente_id=v.id):
+        for other in self.stock.lignes(self.remise_model,vente_id=v.id):
             if other.id==r.id:continue
             if data['autoriser'] and (other.statut=='DEMANDEE' or (other.statut=='AUTORISEE' and (other.ligne_id==r.ligne_id or (r.ligne_id is not None and other.ligne_id is None)))):
                 other.statut='INVALIDEE';self.evenement(v,'REMISE_INVALIDEE',demande_id=other.id)
@@ -84,11 +104,11 @@ class RemisesService:
         v.revision+=1
         if not data['autoriser']:
             # A refusal changes workflow revision, not the financial base of the other requests.
-            for pending in self.stock.lignes(DemandeRemiseModel,vente_id=v.id):
+            for pending in self.stock.lignes(self.remise_model,vente_id=v.id):
                 if pending.statut=='DEMANDEE':pending.revision_vente=v.revision
         r.autorisation={'auteur_id':str(approver),'approbateur_nom':user.nom,'demandeur_id':str(r.auteur_id),'date':datetime.now(timezone.utc).isoformat(),'motif':data['justification'],'local':local,'plafond':serial(cap) if cap else None,'eligible_ttc':str(eligible),'remise_xaf':str(amount),'avant':before,'apres':self.finance(v),'revision':v.revision}
         finance=self.finance(v)
         for line in self.lignes(v):
-            if line.actif:line.remise_appliquee={'montants':finance['lignes'][str(line.id)],'demandes':[str(x.id) for x in self.stock.lignes(DemandeRemiseModel,vente_id=v.id) if x.statut=='AUTORISEE' and x.ligne_id in (None,line.id)]}
+            if line.actif:line.remise_appliquee={'montants':finance['lignes'][str(line.id)],'demandes':[str(x.id) for x in self.stock.lignes(self.remise_model,vente_id=v.id) if x.statut=='AUTORISEE' and x.ligne_id in (None,line.id)]}
         self.evenement(v,'REMISE_'+r.statut,demande_id=r.id,autorisation=r.autorisation)
         self.s.flush();return serial(r)

@@ -44,8 +44,8 @@ def test_remises_hors_eligible_refusees(kind,value,eligible):
 def test_plafonds_cumul_snapshot_invalidation_et_validation(raw_client,account):
     c,a=raw_client,account;prod,pack,pid,_=setup(c,a);v=line(c,a,create(c,a,pid),prod,pack,3)
     r=request(c,a,v,ligne_id=v['lignes'][0]['id']);decide(c,a,v,r,422)
-    cap(c,a);v=current(c,a,v);assert v['remises'][0]['statut']=='INVALIDEE'
-    r=request(c,a,v,ligne_id=v['lignes'][0]['id']);d=decide(c,a,v,r);assert d['statut']=='AUTORISEE'
+    cap(c,a);v=current(c,a,v);assert v['remises'][0]['statut']=='DEMANDEE'
+    d=decide(c,a,v,r);assert d['statut']=='AUTORISEE'
     v=current(c,a,v);assert v['totaux']['ttc']=='271';assert v['lignes'][0]['remise_appliquee']
     r=request(c,a,v);assert current(c,a,v)['totaux']['ttc']=='271'
     decide(c,a,v,r);v=current(c,a,v);assert v['totaux']['ttc']=='244'
@@ -56,7 +56,7 @@ def test_plafonds_cumul_snapshot_invalidation_et_validation(raw_client,account):
 
 def test_plafond_depasse_ou_desactive_et_droits(raw_client,account):
     c,a=raw_client,account;prod,pack,pid,_=setup(c,a);config=cap(c,a,max_pourcentage='5');v=line(c,a,create(c,a,pid),prod,pack);r=request(c,a,v);decide(c,a,v,r,422)
-    cap(c,a,revision=config['revision'],actif=False);v=current(c,a,v);r=request(c,a,v);decide(c,a,v,r,422)
+    cap(c,a,revision=config['revision'],actif=False);v=current(c,a,v);decide(c,a,v,r,422)
     gen=db(c);s=next(gen)
     try:s.execute(delete(RolePermissionModel).where(RolePermissionModel.permission_id==permission_id('vente.remise.parametrer')));s.commit()
     finally:gen.close()
@@ -168,3 +168,27 @@ def test_attente_reprise_preserve_la_base_des_demandes(raw_client,account):
     pending=next(x for x in v['remises'] if x['id']==r['id'])
     assert pending['statut']=='DEMANDEE' and pending['revision_vente']==v['revision']
     decide(c,a,v,pending);assert current(c,a,v)['totaux']['ttc']=='271'
+
+
+def test_plafond_cible_transmission_reservations_et_annulation(raw_client,account):
+    from test_stock import stocks
+    c,a=raw_client,account;prod,pack,pid,cid=setup(c,a)
+    own=cap(c,a);_,role=manager(c,a);other=cap(c,a,str(role))
+    v=line(c,a,create(c,a,pid),prod,pack,2);r=request(c,a,v);decide(c,a,v,r)
+    v=current(c,a,v);v=act(c,a,v,'valider');v=act(c,a,v,'transmettre',caisse_id=cid)
+    reservations=[x['id'] for l in v['lignes'] for x in l['reservations']]
+    cap(c,a,str(role),revision=other['revision'],max_pourcentage='30')
+    assert current(c,a,v)==v  # unrelated cap: no revision/state/amount changes
+    cap(c,a,revision=own['revision'])  # same values: no financial invalidation
+    assert current(c,a,v)==v
+    cap(c,a,revision=own['revision'],max_pourcentage='5')
+    changed=current(c,a,v)
+    assert changed['etat']=='PREPARATION' and changed['caisse_id'] is None
+    assert changed['totaux']['remise_globale']=='0' and changed['revision']==v['revision']+1
+    assert [x['id'] for l in changed['lignes'] for x in l['reservations']]==reservations
+    assert stocks(c,a)[0]['reserve']==2
+    stale=post(c,a,f'/{v["id"]}/transmettre',{'revision':v['revision'],'caisse_id':cid},409)
+    act(c,a,changed,'annuler',justification='Revalidation abandonnée')
+    assert stocks(c,a)[0]['reserve']==0 and stocks(c,a)[0]['physique']==10
+    history=c.get(root(a)+f'/{v["id"]}/historique').json()['items']
+    assert any(e['type']=='PLAFOND_MODIFIE' and e['donnees']['reservations_conservees'] for e in history)
