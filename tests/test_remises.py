@@ -159,3 +159,12 @@ def test_refus_preserve_les_autres_demandes_sans_changement_financier(raw_client
     pending=next(r for r in v['remises'] if r['id']==other['id'])
     assert pending['statut']=='DEMANDEE' and pending['revision_vente']==v['revision']
     decide(c,a,v,pending);assert current(c,a,v)['totaux']['ttc']=='271'
+
+
+def test_attente_reprise_preserve_la_base_des_demandes(raw_client,account):
+    c,a=raw_client,account;prod,pack,pid,_=setup(c,a);cap(c,a);v=line(c,a,create(c,a,pid),prod,pack)
+    r=request(c,a,v);v=act(c,a,v,'attendre');v=act(c,a,v,'reprendre')
+    assert v['totaux']['ttc']=='301'
+    pending=next(x for x in v['remises'] if x['id']==r['id'])
+    assert pending['statut']=='DEMANDEE' and pending['revision_vente']==v['revision']
+    decide(c,a,v,pending);assert current(c,a,v)['totaux']['ttc']=='271'

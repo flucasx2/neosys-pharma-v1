@@ -119,6 +119,10 @@ class VenteService(RemisesService):
             for r in self.lignes(v):self.liberer_ligne(r)
             self.invalider_remises(v)
         previous=v.etat;v.etat=target;v.revision+=1
+        if target in ('EN_ATTENTE','PREPARATION'):
+            # Workflow-only transitions preserve the unchanged financial base.
+            for pending in self.stock.lignes(DemandeRemiseModel,vente_id=v.id):
+                if pending.statut=='DEMANDEE':pending.revision_vente=v.revision
         self.evenement(v,'TRANSITION',avant=previous,apres=target,justification=data.get('justification'),caisse_id=v.caisse_id,instantane_financier=self.finance(v))
         return self.detail(v)
 
