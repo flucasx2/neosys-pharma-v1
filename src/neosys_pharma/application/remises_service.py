@@ -82,6 +82,10 @@ class RemisesService:
                 other.statut='INVALIDEE';self.evenement(v,'REMISE_INVALIDEE',demande_id=other.id)
         r.statut='AUTORISEE' if data['autoriser'] else 'REFUSEE'
         v.revision+=1
+        if not data['autoriser']:
+            # A refusal changes workflow revision, not the financial base of the other requests.
+            for pending in self.stock.lignes(DemandeRemiseModel,vente_id=v.id):
+                if pending.statut=='DEMANDEE':pending.revision_vente=v.revision
         r.autorisation={'auteur_id':str(approver),'approbateur_nom':user.nom,'demandeur_id':str(r.auteur_id),'date':datetime.now(timezone.utc).isoformat(),'motif':data['justification'],'local':local,'plafond':serial(cap) if cap else None,'eligible_ttc':str(eligible),'remise_xaf':str(amount),'avant':before,'apres':self.finance(v),'revision':v.revision}
         finance=self.finance(v)
         for line in self.lignes(v):

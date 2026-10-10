@@ -149,3 +149,13 @@ def test_refus_identifiants_valides_sans_permission_et_corps_financier_forge(raw
     post(c,a,f'/{v["id"]}/remises/{r["id"]}/locale',{'revision':v['revision'],'autoriser':True,'justification':'Refus attendu','identifiant':'alice','password':PASSWORD},403)
     post(c,a,f'/{v["id"]}/lignes',{'revision':v['revision'],'produit_id':prod,'conditionnement_id':pack,'quantite':1,'remise_appliquee':{'ttc':'0'}},422)
     assert current(c,a,v)['totaux']['ttc']=='301'
+
+
+def test_refus_preserve_les_autres_demandes_sans_changement_financier(raw_client,account):
+    c,a=raw_client,account;prod,pack,pid,_=setup(c,a);cap(c,a);v=line(c,a,create(c,a,pid),prod,pack)
+    first=request(c,a,v,ligne_id=v['lignes'][0]['id']);other=request(c,a,v)
+    decide(c,a,v,first,autoriser=False);v=current(c,a,v)
+    assert v['totaux']['remise_ligne']=='0' and v['totaux']['remise_globale']=='0'
+    pending=next(r for r in v['remises'] if r['id']==other['id'])
+    assert pending['statut']=='DEMANDEE' and pending['revision_vente']==v['revision']
+    decide(c,a,v,pending);assert current(c,a,v)['totaux']['ttc']=='271'
