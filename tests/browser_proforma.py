@@ -54,8 +54,12 @@ with sync_playwright() as p:
     choice(page.locator('#pf-versions'),v1['id']);expect(page.locator('#pf-title')).to_contain_text('Version 1');expect(page.locator('#pf-totals')).to_contain_text('270 FCFA')
     with page.expect_download() as download:activate(page.locator('#pf-download'))
     download.value.save_as('/tmp/proforma-v1-again.pdf');assert Path('/tmp/proforma-v1-again.pdf').read_bytes()==bytes1
-    with page.expect_popup() as opened:activate(page.locator('#pf-pdf'))
-    popup=opened.value;popup.wait_for_url(lambda u:u.startswith('blob:'));popup.close()
+    # Headless Chromium cannot render native PDF navigation (ERR_ABORTED).
+    # Check the real keyboard action, tab opening and authenticated historical PDF bytes.
+    with page.expect_popup() as opened, page.expect_response(lambda r:'/versions/'+v1['id']+'/pdf' in r.url) as preview:
+        activate(page.locator('#pf-pdf'))
+    assert preview.value.status==200 and preview.value.body()==bytes1
+    opened.value.close()
     page.screenshot(path='qa/p4-proforma-historique.png',full_page=True)
     shortcut('Digit9');choice(modal().locator('[name=poste_id]'),f['p4_poste']);save();expect(page.locator('#vente-panel')).to_be_visible();expect(page.locator('#p4-totals')).to_contain_text('375 FCFA');expect(page.locator('#p4-discounts')).to_contain_text('DEMANDEE');page.screenshot(path='qa/p4-proforma-reprise.png',full_page=True)
     activate(page.locator('#nav-proforma'));expect(page.locator('#pf-list')).to_have_attribute('aria-busy','false');shortcut('KeyR');field(page.locator('#pf-search'),'Élodie');expect(page.locator('#pf-list tr')).to_have_count(1)
