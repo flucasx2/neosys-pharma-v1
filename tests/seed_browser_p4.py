@@ -12,7 +12,7 @@ from neosys_pharma.infrastructure.provisionnement import provisionner
 from neosys_pharma.domain.organisation.securite import Role,RolePermission,TypeRole,Utilisateur
 from neosys_pharma.domain.organisation.permissions_systeme import P4_PERMISSIONS,permission_id
 from neosys_pharma.domain.catalogue import CategorieProduit,Produit,Conditionnement,ReferenceProduit,TypeReference
-from neosys_pharma.domain.tarification import TarifReference
+from neosys_pharma.domain.tarification import TarifReference,TarifProduitSite
 from neosys_pharma.infrastructure.organisation_models import PosteVenteModel,CaisseModel
 from neosys_pharma.infrastructure.vente_models import PlafondRemiseModel
 from neosys_pharma.application.stock_service import StockService
@@ -32,7 +32,10 @@ with SessionLocal() as s:
     catalogue.enregistrer(ReferenceProduit(organisation_id=org,conditionnement_id=pack.id_conditionnement,type_reference=TypeReference.EAN,valeur='8812345678901'))
     second=Conditionnement(organisation_id=org,produit_id=prod.id_produit,code='P4-B60',libelle='Boîte de 60 P4');catalogue.enregistrer(second)
     tarifs=TarificationService(catalogue)
-    for p in [pack,second]:tarifs.enregistrer(TarifReference(organisation_id=org,conditionnement_id=p.id_conditionnement,montant_ht=100,devise='XAF',debut=date.today()))
+    for p in [pack,second]:
+        tarifs.enregistrer(TarifReference(organisation_id=org,conditionnement_id=p.id_conditionnement,montant_ht=100,devise='XAF',debut=date.today()))
+        # Isolate this QA product from site coefficients configured by P2 browser tests.
+        tarifs.enregistrer(TarifProduitSite(organisation_id=org,site_id=site,produit_id=prod.id_produit,conditionnement_id=p.id_conditionnement,montant_ht=100,devise='XAF',debut=date.today(),provenance='Recette isolée P4'))
     poste,caisse=uuid4(),uuid4();s.add_all([PosteVenteModel(id_poste_vente=poste,emplacement_id=loc,code='P4-QA',nom='Poste préparation P4'),CaisseModel(id_caisse=caisse,emplacement_id=loc,code='P4-QA',nom='Caisse P4')]);s.commit()
     stock=StockService(s,org,users['vente.qa'],lambda *args:None)
     for p in [pack,second]:
