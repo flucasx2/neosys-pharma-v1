@@ -12,7 +12,7 @@ from neosys_pharma.presentation.stock_api import execute
 from neosys_pharma.application.regularisation_service import RegularisationService
 from neosys_pharma.application.caisse_service import serial
 from neosys_pharma.infrastructure.regularisation_models import *
-from neosys_pharma.infrastructure.caisse_models import SessionCaisseModel,PeriodeCaisseSiteModel,ConfirmationReglementModel,EncaissementModel,ReglementModel
+from neosys_pharma.infrastructure.caisse_models import SessionCaisseModel,PeriodeCaisseSiteModel,ConfirmationReglementModel,EncaissementModel,ReglementModel,EvenementCaisseModel
 from neosys_pharma.infrastructure.organisation_models import CoffreModel,EmplacementModel
 from neosys_pharma.infrastructure.stock_models import StockEmplacementModel,LotModel
 from neosys_pharma.infrastructure.vente_models import VenteModel,ReservationVenteModel,LigneVenteModel
@@ -139,12 +139,19 @@ def finance_remboursement(d:Remboursement,s=Depends(service)):
 def finance_refund_action(key:UUID,action:Literal['autoriser','executer'],d:Execution,s=Depends(service)):
     execute(lambda:s.refund_scope(key,'caisse.remboursement.'+action));return mutation(s,d,'REMBOURSEMENT:'+str(key)+':'+action,lambda:s.refund_action(key,d.model_dump(),action))
 @router.get('/documents/{genre}/{key}/pdf')
-def finance_pdf(genre:Literal['clotures','remboursements'],key:UUID,s=Depends(service)):
+def finance_pdf(genre:Literal['clotures','remboursements','transferts'],key:UUID,s=Depends(service)):
     def get():
         if genre=='clotures':
             row=s.stock.obtenir(ClotureModel,key)
             if row.site_id!=s.site:raise PermissionError('Document hors site.')
             if row.session_id:s.cash.session(row.session_id,'caisse.cloture.consulter')
+        elif genre=='transferts':
+            import base64
+            s.dossier(TransfertFondsModel,key,'caisse.cloture.consulter')
+            events=s.stock.lignes(EvenementCaisseModel,type='P4.5:TRANSFERT_RECEVOIR')
+            document=next((e.donnees.get('document') for e in events if e.donnees.get('dossier',{}).get('id')==str(key)),None)
+            if not document:raise ConflitStock('Justificatif disponible après réception confirmée.')
+            return Response(base64.b64decode(document['pdf_base64']),media_type='application/pdf',headers={'Content-Disposition':f'inline; filename="transfert-{key}.pdf"'})
         else:
             s.refund_scope(key,'caisse.cloture.consulter');rows=s.stock.lignes(PieceFinanciereModel,remboursement_id=key)
             if not rows:raise ConflitStock('Document disponible après remboursement confirmé.')

@@ -9,7 +9,6 @@ with sync_playwright() as p:
     def activate(target):target.focus();page.keyboard.press('Enter')
     def modal():return page.locator('dialog[open]')
     def save():activate(modal().get_by_role('button',name='Enregistrer',exact=True));expect(modal()).to_have_count(0)
-    def choose(genre):page.locator('#finance-genre').focus();page.keyboard.press('Home');options=['clotures','transferts','retours','remboursements','mouvements','quarantaine','ventes','paiements'];page.keyboard.press('ArrowDown') if False else None
     def select(target,value):
         target.focus();opts=target.locator('option').all();index=next(i for i,o in enumerate(opts) if o.get_attribute('value')==value);page.keyboard.press('Home')
         for _ in range(index):page.keyboard.press('ArrowDown')
@@ -25,6 +24,8 @@ with sync_playwright() as p:
     activate(page.get_by_role('button',name='Autoriser',exact=True));fill(modal().locator('[name=justification]'),'Autorisation habilitée');save();activate(page.get_by_role('button',name='Expédier',exact=True));fill(modal().locator('[name=justification]'),'Dérogation habilitée et auditée');save();expect(page.locator('#finance-rows')).to_contain_text('EN_TRANSIT');page.screenshot(path='qa/p45-fonds-transit.png',full_page=True)
     activate(page.get_by_role('button',name='Confirmer réception',exact=True));fill(modal().locator('[name=justification]'),'Même personne refusée');activate(modal().get_by_role('button',name='Enregistrer',exact=True));expect(modal().locator('.creation-dialog-error')).to_contain_text('différents');page.on('dialog',lambda d:d.accept());page.keyboard.press('Escape')
     activate(page.get_by_role('button',name='Se déconnecter',exact=True));login('responsable.p45.qa');tab('transferts');activate(page.get_by_role('button',name='Confirmer réception',exact=True));fill(modal().locator('[name=justification]'),'Réception comptée par responsable distinct');save();expect(page.locator('#finance-rows')).to_contain_text('RECU')
+    with page.expect_download() as download:activate(page.get_by_role('button',name='Justificatif PDF',exact=True))
+    download.value.save_as('qa/p45-transfert.pdf')
     activate(page.get_by_role('button',name='Se déconnecter',exact=True));login('caisse.qa');tab('ventes');expect(page.get_by_role('button',name='Créer un retour',exact=True)).not_to_have_count(0);activate(page.get_by_role('button',name='Créer un retour',exact=True).first);fill(modal().locator('[name=q_0]'),1);fill(modal().locator('[name=justification]'),'Produit remis pour contrôle');save();tab('quarantaine');expect(page.locator('#finance-rows')).to_contain_text('EN_CONTROLE');expect(page.locator('#finance-rows')).to_contain_text('vendable 0');page.screenshot(path='qa/p45-quarantaine.png',full_page=True)
     tab('retours');activate(page.get_by_role('button',name='Demander remboursement',exact=True).first);fill(modal().locator('[name=justification]'),'Remboursement historique par moyens originaux');save();tab('remboursements');activate(page.get_by_role('button',name='Autoriser',exact=True).first);fill(modal().locator('[name=justification]'),'Responsable habilité valide');save();activate(page.get_by_role('button',name='Confirmer exécution',exact=True).first)
     for field in modal().locator('input[name^=ref_]').all():fill(field,'REMBOURSEMENT-P45-QA')

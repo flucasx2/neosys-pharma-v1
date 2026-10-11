@@ -79,7 +79,13 @@ class RegularisationService:
             else:
                 self.cash.session(session.id,permission,True);self.mouvement('TRANSFERT_RECU',row.id,row.montant,data['justification'],session=session)
             row.receptionnaire_id=self.stock.user;row.etat='RECU';session.revision+=1
-        row.revision+=1;self.trace('TRANSFERT_'+action.upper(),dossier=serial(row),justification=data['justification']);return serial(row)
+        row.revision+=1;document=None
+        if action=='recevoir':
+            import base64
+            names={k:self.s.get(UtilisateurModel,value).nom for k,value in [('autorisateur',row.autorisateur_id),('expediteur',row.expediteur_id),('receptionnaire',row.receptionnaire_id)] if value}
+            snapshot,pdf,digest=self.document('TRANSFERT DE FONDS CONFIRMÉ',row.id,[{'titre':'Circuit et montant','colonnes':['Sens','Caisse / session','Coffre','Montant FCFA'],'lignes':[[row.sens,str(session.id),coffre.nom,str(row.montant)]]},{'titre':'Responsables et preuve de réception','colonnes':['Intervenant','Identité'],'lignes':list(names.items())+[['Justification',data['justification']]]}])
+            document={'instantane':snapshot,'pdf_base64':base64.b64encode(pdf).decode(),'pdf_sha256':digest}
+        self.trace('TRANSFERT_'+action.upper(),dossier=serial(row),justification=data['justification'],document=document);return serial(row)
     def ecart(self,key,data):
         session=self.cash.session(key,'caisse.ecart.reconnaitre');self.revision(session,data)
         if session.etat!='FERMEE':raise ConflitStock('Reconnaissance après comptage et fermeture.')
@@ -247,7 +253,12 @@ class RegularisationService:
                 if value:self.mouvement('REMBOURSEMENT',row.id,-value,data['justification'],session=session,mode=mode)
             if row.retour_id:self.compenser(row.retour_id)
             row.etat='EXECUTE';session.revision+=1
-            snap,pdf,digest=self.document('REMBOURSEMENT CONFIRMÉ',row.id,[{'titre':'Règlements restitués','colonnes':['Moyen original','Moyen restitué','Montant FCFA','Référence','Preuve'],'lignes':[[p['mode_origine'],p['mode'],p['montant'],proof.get('reference') or 'REMIS EN ESPÈCES',proof.get('preuve') or data['justification']] for p,proof in zip(row.reglements,proofs,strict=True)]}])
+            source=[]
+            if row.retour_id:
+                ret=self.stock.obtenir(RetourVenteModel,row.retour_id);enc=self.stock.obtenir(EncaissementModel,ret.encaissement_id)
+                source=[{'titre':'Vente et retour historiques','colonnes':['Vente originale','Encaissement / période Z','Retour'],'lignes':[[str(enc.vente_id),enc.instantane['numero_encaissement']+' / '+str(enc.instantane['periode_z']),str(ret.id)]]},{'titre':'Produits retournés — montants après remises','colonnes':['Produit / conditionnement','Quantité','HT FCFA','TVA FCFA','TTC FCFA'],'lignes':[[l['designation']+' / '+l['conditionnement'],l['quantite'],l['ht'],l['tva'],l['ttc']] for l in ret.instantane['lignes']]}]
+            else:source=[{'titre':'Paiement acquis restitué','colonnes':['Vente','Confirmation originale','Référence'],'lignes':[[str(cf.vente_id),str(cf.id),cf.reference]]}]
+            snap,pdf,digest=self.document('REMBOURSEMENT CONFIRMÉ',row.id,source+[{'titre':'Règlements restitués','colonnes':['Moyen original','Moyen restitué','Montant FCFA','Référence','Preuve'],'lignes':[[p['mode_origine'],p['mode'],p['montant'],proof.get('reference') or 'REMIS EN ESPÈCES',proof.get('preuve') or data['justification']] for p,proof in zip(row.reglements,proofs,strict=True)]}])
             snap.update(dossier=serial(row),preuves=proofs,justification=data['justification'])
             self.stock.ajouter(PieceFinanciereModel,remboursement_id=row.id,auteur_id=self.stock.user,instantane=snap,pdf=pdf,pdf_sha256=digest)
         self.trace('REMBOURSEMENT_'+action.upper(),dossier=serial(row),justification=data['justification']);return serial(row)

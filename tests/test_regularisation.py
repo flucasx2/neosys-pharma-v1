@@ -73,6 +73,7 @@ def test_fonds_transfert_separation_transit_double_reception(raw_client,account)
     c,a=raw_client,account;v,s,*rest=setup45(c,a);coffre=rest[-1]
     post(c,a,'/fonds',{'session_id':s['id'],'revision':s['revision'],'sens':'SORTIE','montant':1001,'justification':'Sortie excessive'},409)
     t=post(c,a,'/transferts',{'session_id':s['id'],'revision':s['revision'],'coffre_id':coffre,'sens':'CAISSE_COFFRE','montant':100,'justification':'Dépôt sécurisé'})
+    assert c.get(root(a)+f'/documents/transferts/{t["id"]}/pdf').status_code==409
     post(c,a,f'/transferts/{t["id"]}/recevoir',{'revision':t['revision'],'justification':'Sans expédition'},409)
     t=post(c,a,f'/transferts/{t["id"]}/autoriser',{'revision':t['revision'],'justification':'Autorisation'},200)
     t=post(c,a,f'/transferts/{t["id"]}/expedier',{'revision':t['revision'],'justification':'Dérogation habilitée tracée'},200)
@@ -90,6 +91,8 @@ def test_fonds_transfert_separation_transit_double_reception(raw_client,account)
     csrf=c.cookies.get('neosys_csrf');c.headers['X-CSRF-Token']=csrf
     key=uuid4();payload={'revision':t['revision'],'justification':'Fonds reçus et comptés'};t=post(c,a,f'/transferts/{t["id"]}/recevoir',payload,200,key)
     assert t['etat']=='RECU';assert post(c,a,f'/transferts/{t["id"]}/recevoir',payload,200,key)==t
+    receipt=c.get(root(a)+f'/documents/transferts/{t["id"]}/pdf');assert receipt.status_code==200 and receipt.content.startswith(b'%PDF')
+    assert c.get(root(a)+f'/documents/transferts/{t["id"]}/pdf').content==receipt.content
     post(c,a,f'/transferts/{t["id"]}/recevoir',{'revision':t['revision'],'justification':'Double réception'},409)
     assert c.get(root(a)+'/contexte').json()['coffres'][0]['solde']=='100'
 

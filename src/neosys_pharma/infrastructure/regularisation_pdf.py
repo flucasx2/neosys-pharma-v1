@@ -1,5 +1,9 @@
 """Pièces P4.5 historiques, lisibles et paginées ; aucune valorisation inventée."""
 from io import BytesIO
+from pathlib import Path
+import reportlab
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from datetime import datetime
 from html import escape
 from reportlab.lib import colors
@@ -8,7 +12,10 @@ from reportlab.lib.pagesizes import A4,landscape
 from reportlab.platypus import SimpleDocTemplate,Paragraph,Spacer,LongTable,TableStyle,KeepTogether
 
 def document_pdf(data):
-    out=BytesIO();styles=getSampleStyleSheet();styles.add(ParagraphStyle(name='FinanceCell',fontName='Helvetica',fontSize=8,leading=11,splitLongWords=True))
+    out=BytesIO();fontdir=Path(reportlab.__file__).parent/'fonts'
+    for name,file in [('NeoFinance','Vera.ttf'),('NeoFinanceBold','VeraBd.ttf')]:
+        if name not in pdfmetrics.getRegisteredFontNames():pdfmetrics.registerFont(TTFont(name,str(fontdir/file)))
+    styles=getSampleStyleSheet();styles['Title'].fontName=styles['Heading2'].fontName='NeoFinanceBold';styles.add(ParagraphStyle(name='FinanceCell',fontName='NeoFinance',fontSize=8,leading=11,splitLongWords=True))
     def p(value):return Paragraph(escape(str(value if value is not None else 'NON DISPONIBLE')),styles['FinanceCell'])
     wide=any(len(x['colonnes'])>4 for x in data['sections']);paper=landscape(A4) if wide else A4;width=paper[0]-80
     story=[Paragraph(escape(data['titre']),styles['Title']),p(data['organisation']+' / '+data['site']),p('Référence : '+data['reference']),p('Émis le '+datetime.fromisoformat(data['date']).strftime('%d/%m/%Y à %H:%M UTC')),p('Responsable : '+(data.get('responsable') or 'IDENTITÉ NON DISPONIBLE')),Spacer(1,14)]
@@ -20,6 +27,6 @@ def document_pdf(data):
         story.extend([Paragraph(escape(section['titre']),styles['Heading2']),table,Spacer(1,12)])
     story.append(KeepTogether([p('Responsable : ____________________     Date : ______________'),Spacer(1,24),p('Signature : ____________________')]))
     def footer(canvas,doc):
-        canvas.saveState();canvas.setFont('Helvetica',8);canvas.drawString(40,24,data['reference']);canvas.drawRightString(paper[0]-40,24,'Page '+str(doc.page));canvas.restoreState()
+        canvas.saveState();canvas.setFont('NeoFinance',8);canvas.drawString(40,24,data['reference']);canvas.drawRightString(paper[0]-40,24,'Page '+str(doc.page));canvas.restoreState()
     SimpleDocTemplate(out,pagesize=paper,leftMargin=40,rightMargin=40,topMargin=36,bottomMargin=45,title=data['titre']).build(story,onFirstPage=footer,onLaterPages=footer)
     return out.getvalue()
