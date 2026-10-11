@@ -82,7 +82,7 @@ class RegularisationService:
         row.revision+=1;document=None
         if action=='recevoir':
             import base64
-            names={k:self.s.get(UtilisateurModel,value).nom for k,value in [('autorisateur',row.autorisateur_id),('expediteur',row.expediteur_id),('receptionnaire',row.receptionnaire_id)] if value}
+            names={k:self.s.get(UtilisateurModel,value).nom for k,value in [('demandeur',row.demandeur_id),('autorisateur',row.autorisateur_id),('expediteur',row.expediteur_id),('receptionnaire',row.receptionnaire_id)] if value}
             snapshot,pdf,digest=self.document('TRANSFERT DE FONDS CONFIRMÉ',row.id,[{'titre':'Circuit et montant','colonnes':['Sens','Caisse / session','Coffre','Montant FCFA'],'lignes':[[row.sens,str(session.id),coffre.nom,str(row.montant)]]},{'titre':'Responsables et preuve de réception','colonnes':['Intervenant','Identité'],'lignes':list(names.items())+[['Justification',data['justification']]]}])
             document={'instantane':snapshot,'pdf_base64':base64.b64encode(pdf).decode(),'pdf_sha256':digest}
         self.trace('TRANSFERT_'+action.upper(),dossier=serial(row),justification=data['justification'],document=document);return serial(row)
@@ -239,7 +239,7 @@ class RegularisationService:
             proofs=data['preuves']
             if len(proofs)!=len(row.reglements):raise ValueError('Une preuve par règlement de remboursement requise.')
             for payment,proof in zip(row.reglements,proofs,strict=True):
-                if payment['mode']!='ESPECES' and (not proof.get('reference') or not proof.get('preuve')):raise ValueError('Référence et preuve externe obligatoires ; aucun prestataire simulé.')
+                if payment['mode']!='ESPECES' and (not (proof.get('reference') or '').strip() or not (proof.get('preuve') or '').strip()):raise ValueError('Référence et preuve externe obligatoires ; aucun prestataire simulé.')
             for payment,proof in zip(row.reglements,proofs,strict=True):
                 if payment['mode']!='ESPECES':self.stock.ajouter(PreuveRemboursementModel,remboursement_id=row.id,mode=payment['mode'],reference=proof['reference'].strip(),preuve=proof['preuve'].strip())
             cash=sum((Decimal(x['montant']) for x in row.reglements if x['mode']=='ESPECES'),Decimal(0))

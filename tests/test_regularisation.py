@@ -124,6 +124,7 @@ def test_paiement_acquis_restitution_preuve_et_blocage_z(raw_client,account):
     r=post(c,a,'/remboursements',{'confirmation_id':cf['id'],'session_id':s['id'],'revision':s['revision'],'reglements':[{'mode':'CARTE','montant':100}],'justification':'Client abandonne'})
     r=post(c,a,f'/remboursements/{r["id"]}/autoriser',{'revision':r['revision'],'justification':'Autorisé'},200)
     post(c,a,f'/remboursements/{r["id"]}/executer',{'revision':r['revision'],'justification':'Sans preuve','preuves':[{}]},422)
+    post(c,a,f'/remboursements/{r["id"]}/executer',{'revision':r['revision'],'justification':'Preuve vide','preuves':[{'reference':'  ','preuve':' \t '}]},422)
     r=post(c,a,f'/remboursements/{r["id"]}/executer',{'revision':r['revision'],'justification':'Restitution constatée','preuves':[{'reference':'ANNULATION-TPE','preuve':'Preuve indépendante vérifiée'}]},200)
     assert c.get(root(a)+'/paiements/non-finalises').json()==[]
     pdf=c.get(root(a)+f'/documents/remboursements/{r["id"]}/pdf');assert pdf.status_code==200 and b'%PDF' in pdf.content
@@ -132,6 +133,11 @@ def test_paiement_acquis_restitution_preuve_et_blocage_z(raw_client,account):
 
 def test_401_403_csrf_scope_et_journaux_immutables(raw_client,account):
     c,a=raw_client,account;v,s,*_=setup45(c,a);e=final(c,a,v,s);r=ret(c,a,e)
+    assert c.get(root({'org':uuid4()})+'/contexte').status_code==403
+    c.headers['X-Site-ID']=str(a['other'])
+    assert c.get(root(a)+f'/recus/{e["id"]}/retournable').status_code==403
+    assert c.get(root(a)+'/stock/quarantaine').status_code==403
+    c.headers['X-Site-ID']=str(a['site'])
     gen=db(c);dbs=next(gen)
     try:
         for table in ('vente_retours','vente_lignes_retour'):
