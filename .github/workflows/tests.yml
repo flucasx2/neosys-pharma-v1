@@ -1,8 +1,87 @@
-name: P1 P2 P3 tests and PostgreSQL migrations
-on: [push, pull_request]
+name: NeoSys CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: Branche applicative à recetter (indépendante du workflow sélectionné)
+        required: true
+        type: string
+      expected_sha:
+        description: SHA exact attendu de cette branche (40 caractères)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Manual recipes have their own group and cannot be cancelled by an automatic run.
+concurrency:
+  group: neosys-${{ github.event_name == 'workflow_dispatch' && format('manual-{0}', github.run_id) || format('auto-{0}', github.event.pull_request.number || github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
 jobs:
-  tests:
+  changes:
+    name: CI / changements
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+    outputs:
+      sha: ${{ steps.plan.outputs.sha }}
+      control_sha: ${{ steps.plan.outputs.control_sha }}
+      code: ${{ steps.plan.outputs.code }}
+      sqlite: ${{ steps.plan.outputs.sqlite }}
+      full: ${{ steps.plan.outputs.full }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate CI policy (standard library only)
+        run: python3 -m unittest discover -s ci/tests -v
+      - name: Classify exact changed paths
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: python3 ci/policy.py
+      - name: Invalidate previous final validation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TESTED_SHA: ${{ steps.plan.outputs.sha }}
+        run: python3 ci/receipt.py start
+
+  sqlite:
+    needs: changes
+    if: needs.changes.outputs.sqlite == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - run: python -m pip install -e '.[dev]'
+      - name: SQLite complete suite including HTTP authorization and CSRF
+        run: pytest -q
+
+  postgres:
+    needs: [changes, sqlite]
+    if: needs.changes.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17
@@ -10,7 +89,7 @@ jobs:
           POSTGRES_USER: neosys_test
           POSTGRES_PASSWORD: isolated_ci_only
           POSTGRES_DB: neosys_test
-        ports: ["5432:5432"]
+        ports: ['5432:5432']
         options: >-
           --health-cmd pg_isready
           --health-interval 5s
@@ -18,62 +97,110 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.sha }}
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.14"
+          python-version: '3.14'
       - run: python -m pip install -e '.[dev]'
-      - run: pytest -q
-      - name: Separate disposable databases for migrations and browser
+      - name: Disposable migration database
         run: |
           python - <<'PY'
           import psycopg
-          with psycopg.connect("postgresql://neosys_test:isolated_ci_only@localhost:5432/neosys_test", autocommit=True) as connection:
-              connection.execute("CREATE DATABASE neosys_migration")
-              connection.execute("CREATE DATABASE neosys_browser")
+          with psycopg.connect('postgresql://neosys_test:isolated_ci_only@localhost:5432/neosys_test', autocommit=True) as c:
+              c.execute('CREATE DATABASE neosys_migration')
           PY
-      - name: PostgreSQL integration and migration checks
+      - name: PostgreSQL suite, concurrency, security and migration cycles
         env:
           TEST_DATABASE_URL: postgresql+psycopg://neosys_test:isolated_ci_only@localhost:5432/neosys_test
           TEST_MIGRATION_DATABASE_URL: postgresql+psycopg://neosys_test:isolated_ci_only@localhost:5432/neosys_migration
         run: pytest -q
-      - name: Install browser test dependencies
+
+  browser:
+    needs: [changes, sqlite]
+    if: needs.changes.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: neosys_test
+          POSTGRES_PASSWORD: isolated_ci_only
+          POSTGRES_DB: neosys_browser
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - run: python -m pip install -e '.[dev]'
+      - name: Chromium dependencies
         run: |
           python -m pip install playwright==1.58.0
           python -m playwright install --with-deps chromium
-      - name: Browser P1 journey
+      - name: Checkout pinned CI controller independently of application code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.control_sha }}
+          path: .ci-control
+          persist-credentials: false
+      - name: Existing browser journeys in seed order
         env:
           DATABASE_URL: postgresql+psycopg://neosys_test:isolated_ci_only@localhost:5432/neosys_browser
-          AUTH_COOKIE_SECURE: "false"
-        run: |
-          alembic upgrade head
-          python tests/seed_browser.py
-          uvicorn neosys_pharma.presentation.app:app --host 127.0.0.1 --port 8000 > /tmp/p1-server.log 2>&1 &
-          server_pid=$!
-          trap 'kill "$server_pid"' EXIT
-          python - <<'PY'
-          import time, urllib.request
-          for _ in range(50):
-              try:
-                  urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=1)
-                  break
-              except OSError:
-                  time.sleep(0.2)
-          else:
-              raise RuntimeError("Serveur de test non disponible")
-          PY
-          python tests/browser_p1.py
-          python tests/seed_browser_p2.py
-          python tests/browser_p2.py
-          python tests/browser_p2_complete.py
-          python tests/seed_browser_p3.py
-          python tests/browser_p3.py
-          python tests/browser_etats_p3.py
+          AUTH_COOKIE_SECURE: 'false'
+        run: python .ci-control/ci/browser.py
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ !cancelled() }}
         with:
-          name: p1-browser-screenshots
+          name: neosys-recipe-${{ needs.changes.outputs.sha }}-${{ github.run_id }}
+          # Does not delete or change retention of existing P4.5 artifacts.
+          retention-days: 30
           path: |
             qa/*.png
-            qa/etats-*.pdf
+            qa/*.pdf
             qa/etats-*.xlsx
             qa/etats-*.csv
+            /tmp/neosys-ci-server.log
+
+  result:
+    name: CI / synthèse
+    if: ${{ always() && !cancelled() }}
+    needs: [changes, sqlite, postgres, browser]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.sha || github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Checkout pinned CI controller independently of application code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.control_sha || github.event.pull_request.head.sha || github.sha }}
+          path: .ci-control
+          persist-credentials: false
+      - name: Publish exact-commit recipe status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TESTED_SHA: ${{ needs.changes.outputs.sha }}
+          FULL: ${{ needs.changes.outputs.full }}
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+          JOB_RESULTS: '{"sqlite":"${{ needs.sqlite.result }}","postgres":"${{ needs.postgres.result }}","browser":"${{ needs.browser.result }}"}'
+        run: |
+          ACTUAL_SHA=$(git rev-parse HEAD)
+          export ACTUAL_SHA
+          python3 .ci-control/ci/receipt.py finish
