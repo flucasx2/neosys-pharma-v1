@@ -88,6 +88,48 @@ def test_proforma_brouillon_montants_permissions_csrf_et_contextes(raw_client,ac
     for path in ('',f'/versions/{v["id"]}/lignes',f'/versions/{v["id"]}/emettre',f'/versions/{v["id"]}/reprendre','/parametrage'):post(c,a,path,{},403)
 
 
+def test_preparation_multiligne_remises_correspondance_uuid_et_stock_inchange(raw_client,account):
+    from test_remises import request,decide,current as sale_current
+    from test_vente import post as sale_post
+    c,a=raw_client,account;prod,pack,pid,_=setup(c,a);cap(c,a)
+    sale=line(c,a,create(c,a,pid),prod,pack,1)
+    removed=sale['lignes'][0]['id']
+    sale=line(c,a,sale,prod,pack,2);sale=line(c,a,sale,prod,pack,3)
+    sale=sale_post(c,a,f'/{sale["id"]}/lignes/{removed}/retirer',{'revision':sale['revision']},200)
+    source_rows={row['quantite']:row['id'] for row in sale['lignes']}
+    # Same product/pack appears twice: only the internal line identity distinguishes discounts.
+    for quantity,kind,value in [(2,'POURCENTAGE','10'),(3,'MONTANT_XAF','5')]:
+        sale=sale_current(c,a,sale)
+        r=request(c,a,sale,ligne_id=source_rows[quantity],type=kind,valeur=value)
+        decide(c,a,sale,r)
+    sale=sale_current(c,a,sale);r=request(c,a,sale,valeur='5');decide(c,a,sale,r)
+    sale=sale_current(c,a,sale);before=stocks(c,a);journal=c.get(stock_root(a)+'/mouvements').json()['total']
+    v=new(c,a,vente_id=sale['id'],revision_vente=sale['revision'])
+    assert len(v['lignes'])==2 and len(v['remises'])==3
+    target_rows={row['id']:row['quantite'] for row in v['lignes']}
+    observed={(target_rows.get(r['ligne_id']),r['type'],str(r['valeur'])) for r in v['remises']}
+    from decimal import Decimal
+    assert {(q,k,Decimal(value)) for q,k,value in observed}=={(2,'POURCENTAGE',Decimal(10)),(3,'MONTANT_XAF',Decimal(5)),(None,'POURCENTAGE',Decimal(5))}
+    assert all(r['statut']=='DEMANDEE' and r['autorisation'] is None for r in v['remises'])
+    assert not set(target_rows).intersection(source_rows.values())
+    post(c,a,f'/versions/{v["id"]}/emettre',{'revision':v['revision']},422)
+    other=add(c,a,new(c,a),prod,pack,1)
+    post(c,a,f'/versions/{v["id"]}/remises',{'revision':v['revision'],'ligne_id':other['lignes'][0]['id'],'type':'MONTANT_XAF','valeur':'1','justification':'Autre version interdite'},403)
+    post(c,a,f'/versions/{v["id"]}/remises',{'revision':v['revision'],'ligne_id':source_rows[2],'type':'MONTANT_XAF','valeur':'1','justification':'Ligne vente interdite'},404)
+    for r in sorted(v['remises'],key=lambda r:r['ligne_id'] is None):
+        v=current(c,a,v)
+        copied=next(x for x in v['remises'] if x['id']==r['id'])
+        # An individual approval invalidates pending requests whose financial base changed.
+        if copied['statut']=='INVALIDEE':
+            copied=post(c,a,f'/versions/{v["id"]}/remises',{'revision':v['revision'],'ligne_id':r['ligne_id'],'type':r['type'],'valeur':r['valeur'],'justification':'Nouvelle demande sur base actualisée'})
+        post(c,a,f'/versions/{v["id"]}/remises/{copied["id"]}/decision',{'revision':v['revision'],'autoriser':True,'justification':'Revalidation indépendante'},200)
+    v=action(c,a,current(c,a,v),'emettre');content=pdf(c,a,v).content
+    assert v['totaux']==sale['totaux']
+    assert sale_current(c,a,sale)==sale and stocks(c,a)==before
+    assert c.get(stock_root(a)+'/mouvements').json()['total']==journal
+    assert pdf(c,a,v).content==content
+
+
 def test_validite_recherche_pagination_preparation_source(raw_client,account):
     c,a=raw_client,account;prod,pack,pid,_=setup(c,a)
     post(c,a,'/parametrage',{'revision':0,'duree_jours':45},200)
@@ -157,17 +199,33 @@ def test_proforma_locale_et_historique_remise_immutables(raw_client,account):
     assert current(c,a,v)['totaux']['ttc']=='276'
 
 
-def test_pdf_longues_designations_entetes_pagination_et_tva(tmp_path):
+@pytest.mark.parametrize('rates',[(18,),(0,10,18)],ids=['taux-unique','taux-mixtes'])
+def test_pdf_longues_designations_entetes_pagination_et_tva(tmp_path,rates):
     from io import BytesIO
     from pypdf import PdfReader
     from neosys_pharma.infrastructure.proforma_pdf import proforma_pdf
     row={'reference':'8812345','designation':'MÉDICAMENT PÉDIATRIQUE À LIBÉRATION PROLONGÉE - DÉSIGNATION LONGUE POUR CONTRÔLE DE MISE EN PAGE','conditionnement':'BOÎTE DE 20 COMPRIMÉS PELLICULÉS','quantite':3,'instantane_tarif':{'montant_ttc':'118','taux_tva':'18'},'montants_appliques':{'ttc_initial':'354','remise_ligne':'0','remise_globale':'0','ttc':'354','ht':'300','tva':'54'}}
     snapshot={'organisation':{'nom':'PHARMACIE DE RECETTE','raison_sociale':'PHARMACIE TEST','coordonnees':'Libreville - Gabon','informations_legales':'DOCUMENT DE TEST'},'site':{'code':'LBV','nom':'Site de test','adresse':'Libreville','telephone':'01000000','email':None},'destinataire':{'nom':'Élodie - destinataire de recette','adresse':'Libreville'},'reference':'PF-LBV-TEST-000001','numero':1,'emis_le':'2026-10-10T20:00:00+00:00','valide_jusqu_au':'2026-11-09','lignes':[row for _ in range(50)],'totaux':{'ttc_initial':'17700','remise_ligne':'0','remise_globale':'0','ttc':'17700','ht':'15000','tva':'2700'}}
+    from copy import deepcopy
+    from decimal import Decimal
+    for index in range(50):
+        r=deepcopy(row);rate=rates[index%len(rates)]
+        r['instantane_tarif']={'montant_ttc':str(100+rate),'taux_tva':str(rate)}
+        r['montants_appliques'].update(ttc_initial=str(300+3*rate),ttc=str(300+3*rate),ht='300',tva=str(3*rate))
+        r['designation']=f"LIGNE {index+1:03d} - "+r['designation'];snapshot['lignes'][index]=r
+    for key in snapshot['totaux']:
+        snapshot['totaux'][key]=str(sum(Decimal(r['montants_appliques'][key]) for r in snapshot['lignes']))
     data=proforma_pdf(snapshot);reader=PdfReader(BytesIO(data));assert len(reader.pages)>2
     for index,page in enumerate(reader.pages):
         content=page.extract_text();assert 'PHARMACIE DE RECETTE' in content and f'Page {index+1}' in content
         if 'MÉDICAMENT' in content:assert 'Conditionnement' in content
-    content='\n'.join(p.extract_text() for p in reader.pages);assert 'TVA 18 %' in content and '09/11/2026' in content
+    content='\n'.join(p.extract_text() for p in reader.pages);assert '09/11/2026' in content
+    for rate in rates:
+        rows=[r for r in snapshot['lignes'] if r['instantane_tarif']['taux_tva']==str(rate)]
+        base=sum(int(r['montants_appliques']['ht']) for r in rows);tax=sum(int(r['montants_appliques']['tva']) for r in rows)
+        money=lambda n:format(n,',').replace(',',' ')+' FCFA'
+        assert f'TVA {rate} % : base HT {money(base)} ; taxe {money(tax)}' in content
+    for index in range(50):assert f'LIGNE {index+1:03d}' in content
     # Scratch-only fixture for rendered PDF review, never customer financial data.
     (tmp_path/'proforma-longue.pdf').write_bytes(data)
 

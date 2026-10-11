@@ -126,12 +126,14 @@ class VenteService(RemisesService):
         self.evenement(v,'TRANSITION',avant=previous,apres=target,justification=data.get('justification'),caisse_id=v.caisse_id,instantane_financier=self.finance(v))
         return self.detail(v)
 
+    def verifier_ligne_remise(self,v,line_id):
+        line=self.stock.obtenir(LigneVenteModel,line_id)
+        if line.vente_id!=v.id or not line.actif:raise PermissionError('Ligne de remise incompatible.')
+
     def demander_remise(self,v,data):
         self.editable(v);self.revision(v,data['revision']);value=remise_valide(data['type'],data['valeur'])
         line_id=data.get('ligne_id')
-        if line_id:
-            line=self.stock.obtenir(LigneVenteModel,line_id)
-            if line.vente_id!=v.id or not line.actif:raise PermissionError('Ligne de remise incompatible.')
+        if line_id:self.verifier_ligne_remise(v,line_id)
         r=self.stock.ajouter(self.remise_model,vente_id=v.id,ligne_id=line_id,type=data['type'],valeur=value,revision_vente=v.revision,auteur_id=self.stock.user,justification=data['justification'])
         from neosys_pharma.domain.remises import montant_remise
         if any(x.id!=r.id and x.ligne_id==line_id and x.statut=='DEMANDEE' for x in self.stock.lignes(self.remise_model,vente_id=v.id)):raise ConflitStock('Une demande est déjà en attente pour cette portée.')

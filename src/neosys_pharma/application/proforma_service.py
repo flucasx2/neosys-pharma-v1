@@ -35,6 +35,10 @@ class ProformaService(VenteService):
 
     def lignes(self,v):return self.stock.lignes(LigneProformaModel,version_id=v.id)
 
+    def verifier_ligne_remise(self,v,line_id):
+        line=self.stock.obtenir(LigneProformaModel,line_id)
+        if line.version_id!=v.id or not line.actif:raise PermissionError('Ligne de remise incompatible.')
+
     def editable(self,v):
         if v.etat!='BROUILLON':raise ConflitStock('Version émise immuable : créer une nouvelle version.')
 
