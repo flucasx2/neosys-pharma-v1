@@ -215,6 +215,15 @@ def test_concurrence_postgresql_p45(raw_client,account,race):
     if race=='return':assert len(c.get(root(a)+'/retours').json()['items'])==1
     if race=='refund':assert current(c,a,session)['especes_attendues']=='1000'
 
+def test_pdf_p45_preuve_longue_sur_plusieurs_pages():
+    from neosys_pharma.infrastructure.regularisation_pdf import document_pdf
+    proof=('preuve vérifiée '*140)[:1980]+'PREUVE_FIN'
+    pdf=document_pdf({'titre':'REMBOURSEMENT QA','organisation':'PHARMACIE QA','site':'SITE QA','reference':'QA-P45-LONG','date':'2026-10-11T15:00:00+00:00','responsable':'RESPONSABLE QA','sections':[{'titre':'Règlements restitués','colonnes':['Moyen original','Moyen restitué','Montant FCFA','Référence','Preuve'],'lignes':[['CARTE','CARTE','125','QA-REF',proof]]}]})
+    pages=PdfReader(BytesIO(pdf)).pages
+    assert len(pages)>=2
+    assert 'PREUVE_FIN' in '\n'.join(p.extract_text() for p in pages)
+    assert 'Moyen original' in pages[1].extract_text()
+
 def test_migration_p45_cycle_permissions_et_integrite(tmp_path,monkeypatch):
     from alembic import command
     from alembic.config import Config
