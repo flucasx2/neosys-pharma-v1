@@ -8,7 +8,12 @@ with sync_playwright() as p:
     def fill(target,value):target.focus();page.keyboard.press('Control+A');page.keyboard.insert_text(str(value))
     def activate(target):target.focus();page.keyboard.press('Enter')
     def modal():return page.locator('dialog[open]')
-    def save():activate(modal().get_by_role('button',name='Enregistrer',exact=True));expect(modal()).to_have_count(0)
+    def save():
+        activate(modal().get_by_role('button',name='Enregistrer',exact=True))
+        try:expect(modal()).to_have_count(0)
+        except AssertionError:
+            page.screenshot(path='qa/p45-erreur-recette.png',full_page=True)
+            raise AssertionError(modal().inner_text())
     def select(target,value):
         target.focus();opts=target.locator('option').all();index=next(i for i,o in enumerate(opts) if o.get_attribute('value')==value);page.keyboard.press('Home')
         for _ in range(index):page.keyboard.press('ArrowDown')
@@ -29,7 +34,7 @@ with sync_playwright() as p:
     with page.expect_download() as download:activate(page.get_by_role('button',name='Justificatif PDF',exact=True))
     download.value.save_as('qa/p45-transfert.pdf')
     logout();login('caisse.qa');tab('ventes');expect(page.get_by_role('button',name='Créer un retour',exact=True)).not_to_have_count(0);activate(page.get_by_role('button',name='Créer un retour',exact=True).first);fill(modal().locator('[name=q_0]'),1);fill(modal().locator('[name=justification]'),'Produit remis pour contrôle');save();tab('quarantaine');expect(page.locator('#finance-rows')).to_contain_text('EN_CONTROLE');expect(page.locator('#finance-rows')).to_contain_text('vendable 0');page.screenshot(path='qa/p45-quarantaine.png',full_page=True)
-    tab('retours');activate(page.get_by_role('button',name='Demander remboursement',exact=True).first);fill(modal().locator('[name=justification]'),'Remboursement historique par moyens originaux');save();tab('remboursements');activate(page.get_by_role('button',name='Autoriser',exact=True).first);fill(modal().locator('[name=justification]'),'Responsable habilité valide');save();activate(page.get_by_role('button',name='Confirmer exécution',exact=True).first)
+    tab('retours');activate(page.get_by_role('button',name='Demander remboursement',exact=True).first);expect(modal().locator('[name=montant_ESPECES]')).not_to_have_value('');expect(modal().locator('[name=mode_CARTE]')).to_have_value('CARTE');fill(modal().locator('[name=justification]'),'Remboursement historique par moyens originaux');save();tab('remboursements');activate(page.get_by_role('button',name='Autoriser',exact=True).first);fill(modal().locator('[name=justification]'),'Responsable habilité valide');save();activate(page.get_by_role('button',name='Confirmer exécution',exact=True).first)
     for field in modal().locator('input[name^=ref_]').all():fill(field,'REMBOURSEMENT-P45-QA')
     for field in modal().locator('textarea[name^=preuve_]').all():fill(field,'Justificatif indépendant de restitution constatée')
     fill(modal().locator('[name=justification]'),'Restitution effective');modal().locator('[name=confirme]').focus();page.keyboard.press('Space');save();expect(page.locator('#finance-rows')).to_contain_text('EXECUTE');page.screenshot(path='qa/p45-remboursement.png',full_page=True)
