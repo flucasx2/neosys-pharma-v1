@@ -9,8 +9,7 @@ from pydantic import Field
 from sqlalchemy import select
 from neosys_pharma.presentation.vente_api import POLICY,contexte,service as vente_service,Input,Mutation,Revision
 from neosys_pharma.presentation.stock_api import execute
-from neosys_pharma.application.caisse_service import CaisseService
-from neosys_pharma.application.stock_service import serial
+from neosys_pharma.application.caisse_service import CaisseService,serial
 from neosys_pharma.infrastructure.caisse_models import *
 from neosys_pharma.infrastructure.vente_models import VenteModel
 from neosys_pharma.infrastructure.organisation_models import EmplacementModel,CaisseModel,OrganisationModel,SiteModel
@@ -24,7 +23,7 @@ POLICY.update({
  'fidelite_baremes':'fidelite.parametrer','fidelite_bareme':'fidelite.parametrer','fidelite_clore':'fidelite.parametrer'})
 router=APIRouter(prefix='/api/caisses/organisations/{organisation_id}',tags=['Encaissement et fidélité'],dependencies=[Depends(contexte)])
 def service(v=Depends(vente_service)):return CaisseService(v)
-def mutation(s,d,kind,fn):return execute(lambda:s.stock.operation(d.cle,'P4.4:'+kind,d.model_dump(exclude={'cle'}),fn))
+def mutation(s,d,kind,fn):return execute(lambda:s.stock.operation(d.cle,'P4.4:'+kind,d.model_dump(mode='json',exclude={'cle'}),fn))
 Mode=Literal['ESPECES','CARTE','MOBILE_MONEY','CHEQUE','VIREMENT']
 class Config(Mutation):
     revision:int=Field(strict=True,ge=0)

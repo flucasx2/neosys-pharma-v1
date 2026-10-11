@@ -5,7 +5,7 @@ from decimal import Decimal
 from uuid import UUID
 from sqlalchemy import select,func
 from fastapi.encoders import jsonable_encoder
-from neosys_pharma.application.stock_service import serial,ident
+from neosys_pharma.application.stock_service import ident
 from neosys_pharma.domain.caisse import MODES,francs,repartir_paiements,acquisition,RegleFiscaleFidelite
 from neosys_pharma.domain.catalogue import texte
 from neosys_pharma.domain.stock import ConflitStock
@@ -14,6 +14,9 @@ from neosys_pharma.infrastructure.organisation_models import CaisseModel,Organis
 from neosys_pharma.infrastructure.catalogue_models import ProduitModel,CategorieProduitModel
 from neosys_pharma.infrastructure.vente_models import ReservationVenteModel
 from neosys_pharma.infrastructure.stock_models import ReservationStockModel
+
+def serial(row):
+    return jsonable_encoder({c.name:getattr(row,c.name) for c in row.__table__.columns if c.name!='pdf'},custom_encoder={Decimal:str})
 
 class CaisseService:
     def __init__(self,vente):
@@ -241,7 +244,7 @@ class CaisseService:
             for reservation in active:self.stock.terminer_reservation(reservation.id,True,'VENTE','caisse.encaisser',True)
         p=self.periode();numero=p.prochain_encaissement;p.prochain_encaissement+=1
         org=self.s.get(OrganisationModel,self.org);site=self.s.get(SiteModel,self.site)
-        snapshot=self.vente.detail(v)|{'organisation':org.nom_commercial,'site':site.nom,'date':now().isoformat(),'numero_encaissement':str(numero).zfill(4),'periode_z':p.numero,'reglements':jsonable_encoder(payments),'caissier_id':str(self.stock.user),'fidelite':None,'etat':'ENCAISSEE'}
+        snapshot=self.vente.detail(v)|{'organisation':org.nom_commercial,'site':site.nom,'date':now().isoformat(),'numero_encaissement':str(numero).zfill(4),'periode_z':p.numero,'reglements':jsonable_encoder(payments,custom_encoder={Decimal:str}),'caissier_id':str(self.stock.user),'fidelite':None,'etat':'ENCAISSEE'}
         gain=self.gagner(v,compte,finance) if compte else None
         if compte:snapshot['fidelite']=gain|{'client':serial(self.stock.obtenir(ClientFideliteModel,compte.client_id))}
         from neosys_pharma.infrastructure.caisse_pdf import recu_pdf
@@ -257,4 +260,4 @@ class CaisseService:
         self.trace('VENTE_ENCAISSEE',vente_id=v.id,encaissement_id=enc.id,session_id=session.id)
         self.s.flush();return self.recu(enc)
 
-    def recu(self,enc):return jsonable_encoder({c.name:getattr(enc,c.name) for c in enc.__table__.columns if c.name!='pdf'})
+    def recu(self,enc):return serial(enc)

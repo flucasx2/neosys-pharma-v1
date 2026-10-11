@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import Uuid,String,JSON,Numeric,Date,DateTime,LargeBinary,UniqueConstraint,ForeignKeyConstraint,CheckConstraint,Index,text,event,DDL
 from sqlalchemy.orm import Mapped,mapped_column
 from neosys_pharma.infrastructure.database import Base
+from neosys_pharma.infrastructure.montant_xaf import MontantXAF
 from neosys_pharma.infrastructure.vente_models import EntiteVente
 
 def now():return datetime.now(timezone.utc)
@@ -37,10 +38,10 @@ class SessionCaisseModel(EntiteVente,Base):
     caissier_id:Mapped[UUID]=mapped_column(Uuid)
     etat:Mapped[str]=mapped_column(String(20),default='OUVERTE')
     revision:Mapped[int]=mapped_column(default=1)
-    fond_initial:Mapped[Decimal]=mapped_column(Numeric(18,0))
+    fond_initial:Mapped[Decimal]=mapped_column(MontantXAF())
     ouvert_le:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
     ferme_le:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
-    comptage_final:Mapped[Decimal|None]=mapped_column(Numeric(18,0))
+    comptage_final:Mapped[Decimal|None]=mapped_column(MontantXAF())
 
 class ParametrageCaisseModel(EntiteVente,Base):
     __tablename__='caisse_parametrages'
@@ -56,7 +57,7 @@ class ConfirmationReglementModel(EntiteVente,Base):
     session_id:Mapped[UUID]=mapped_column(Uuid)
     revision_vente:Mapped[int]=mapped_column()
     mode:Mapped[str]=mapped_column(String(30))
-    montant:Mapped[Decimal]=mapped_column(Numeric(18,0))
+    montant:Mapped[Decimal]=mapped_column(MontantXAF())
     reference:Mapped[str]=mapped_column(String(200))
     source:Mapped[str]=mapped_column(String(30))
     preuve:Mapped[str]=mapped_column(String(2000))
@@ -93,10 +94,10 @@ class BaremeFideliteModel(EntiteVente,Base):
     debut:Mapped[date]=mapped_column(Date)
     fin:Mapped[date|None]=mapped_column(Date)
     points:Mapped[int]=mapped_column()
-    montant_xaf:Mapped[Decimal]=mapped_column(Numeric(18,0))
+    montant_xaf:Mapped[Decimal]=mapped_column(MontantXAF())
     categories:Mapped[list]=mapped_column(JSON)
     sous_categories:Mapped[bool]=mapped_column()
-    plafond_xaf:Mapped[Decimal|None]=mapped_column(Numeric(18,0))
+    plafond_xaf:Mapped[Decimal|None]=mapped_column(MontantXAF())
     plafond_pourcentage:Mapped[Decimal|None]=mapped_column(Numeric(5,2))
     paiement_integral:Mapped[bool]=mapped_column(default=False)
 
@@ -107,7 +108,7 @@ class EncaissementModel(EntiteVente,Base):
     session_id:Mapped[UUID]=mapped_column(Uuid)
     periode_id:Mapped[UUID]=mapped_column(Uuid)
     numero:Mapped[int]=mapped_column()
-    total_xaf:Mapped[Decimal]=mapped_column(Numeric(18,0))
+    total_xaf:Mapped[Decimal]=mapped_column(MontantXAF())
     compte_id:Mapped[UUID|None]=mapped_column(Uuid)
     date:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
     instantane:Mapped[dict]=mapped_column(JSON)
@@ -120,8 +121,8 @@ class ReglementModel(EntiteVente,Base):
     encaissement_id:Mapped[UUID]=mapped_column(Uuid)
     confirmation_id:Mapped[UUID|None]=mapped_column(Uuid)
     mode:Mapped[str]=mapped_column(String(30))
-    montant:Mapped[Decimal]=mapped_column(Numeric(18,0))
-    rendu:Mapped[Decimal]=mapped_column(Numeric(18,0),default=0)
+    montant:Mapped[Decimal]=mapped_column(MontantXAF())
+    rendu:Mapped[Decimal]=mapped_column(MontantXAF(),default=0)
 
 class MouvementCaisseModel(EntiteVente,Base):
     __tablename__='caisse_mouvements'
@@ -130,7 +131,7 @@ class MouvementCaisseModel(EntiteVente,Base):
     reglement_id:Mapped[UUID]=mapped_column(Uuid)
     auteur_id:Mapped[UUID]=mapped_column(Uuid)
     mode:Mapped[str]=mapped_column(String(30))
-    montant_net:Mapped[Decimal]=mapped_column(Numeric(18,0))
+    montant_net:Mapped[Decimal]=mapped_column(MontantXAF())
     date:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
 
 class JournalFideliteModel(EntiteVente,Base):

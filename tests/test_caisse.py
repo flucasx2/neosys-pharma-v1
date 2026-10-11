@@ -212,7 +212,7 @@ def test_calculs_xaf_et_regularisation_preparee():
 def test_moyens_non_especes_confirmes_et_sans_rendu(raw_client,account,mode,source):
     c,a=raw_client,account;v,se,*_=ready(c,a)
     cf=post(c,a,f'/ventes/{v["id"]}/confirmations',{'session_id':se['id'],'revision':v['revision'],'mode':mode,'montant':301,'reference':'REF-'+mode,'source':source,'preuve':'Justificatif acquis contrôlé'})
-    assert final(c,a,v,se,reglements=[{'mode':mode,'montant':301,'confirmation_id':cf['id']}])['instantane']['reglements'][0]['rendu']==0
+    assert final(c,a,v,se,reglements=[{'mode':mode,'montant':301,'confirmation_id':cf['id']}])['instantane']['reglements'][0]['rendu']=='0'
     assert c.get(root(a)+'/sessions').json()['items'][0]['especes_attendues']=='1000'
 
 def test_rapprochement_immutable_apres_changement_session(raw_client,account):
@@ -283,7 +283,7 @@ def test_acquisition_apres_remises_et_immutabilite_vente_payee(raw_client,accoun
     v=c.get(vente_root(a)+f'/{v["id"]}').json();v=act(c,a,v,'valider');v=act(c,a,v,'transmettre',caisse_id=cid)
     ca=post(c,a,'/fidelite',{'nom':'Remise puis fidélité'});rule(c,a,category(c,a,product))
     result=final(c,a,v,se,compte_id=ca['id'],revision_compte=ca['revision'])
-    assert result['total_xaf']==200 and result['instantane']['fidelite']['points_acquis']==2
+    assert Decimal(result['total_xaf'])==200 and result['instantane']['fidelite']['points_acquis']==2
     before=c.get(root(a)+f'/recus/{result["id"]}/pdf').content
     vp(c,a,'/plafonds',{'role_id':rid,'revision':1,'max_pourcentage':10,'max_montant_xaf':30})
     assert c.get(root(a)+f'/recus/{result["id"]}/pdf').content==before
@@ -346,3 +346,12 @@ def test_recu_long_multi_pages_et_tva_historique(tmp_path):
     assert all('Produit / conditionnement' in p.extract_text() or 'Net réglé TTC' in p.extract_text() for p in reader.pages)
     assert '600 XAF' in ''.join(p.extract_text() for p in reader.pages)
     (tmp_path/'recu-long.pdf').write_bytes(pdf)
+
+
+def test_confirmation_precision_xaf_sans_float(raw_client,account):
+    c,a=raw_client,account;v,se,*_=ready(c,a)
+    key=uuid4();payload={'session_id':se['id'],'revision':v['revision'],'mode':'VIREMENT','montant':'999999999999999999','reference':'PRECISION-XAF','source':'MANUEL_JUSTIFICATIF','preuve':'Donnée synthétique de test de précision'}
+    cf=post(c,a,f'/ventes/{v["id"]}/confirmations',payload,key=key)
+    post(c,a,f'/ventes/{v["id"]}/confirmations',{**payload,'montant':'999999999999999998'},409,key)
+    assert cf['montant']=='999999999999999999'
+    assert c.get(root(a)+f'/ventes/{v["id"]}').json()['confirmations'][0]['montant']==cf['montant']
