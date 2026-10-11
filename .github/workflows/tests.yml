@@ -181,7 +181,6 @@ jobs:
     permissions:
       contents: read
       statuses: write
-      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
