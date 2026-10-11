@@ -355,3 +355,11 @@ def test_confirmation_precision_xaf_sans_float(raw_client,account):
     post(c,a,f'/ventes/{v["id"]}/confirmations',{**payload,'montant':'999999999999999998'},409,key)
     assert cf['montant']=='999999999999999999'
     assert c.get(root(a)+f'/ventes/{v["id"]}').json()['confirmations'][0]['montant']==cf['montant']
+
+
+def test_paiement_acquis_non_selectionne_ne_peut_devenir_orphelin(raw_client,account):
+    c,a=raw_client,account;v,se,*_=ready(c,a)
+    post(c,a,f'/ventes/{v["id"]}/confirmations',{'session_id':se['id'],'revision':v['revision'],'mode':'CARTE','montant':301,'reference':'ACQUIS-A-INTEGRER','source':'MANUEL_TERMINAL','preuve':'Terminal accepté'})
+    post(c,a,f'/ventes/{v["id"]}/finaliser',body(v,se),409)
+    assert stocks(c,a)[0]['physique']==10 and stocks(c,a)[0]['reserve']==3
+    assert c.get(root(a)+'/mouvements',params={'session_id':se['id']}).json()['total']==0

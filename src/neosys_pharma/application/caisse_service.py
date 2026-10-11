@@ -230,6 +230,8 @@ class CaisseService:
             elif row.get('confirmation_id'):raise ValueError('Référence de paiement non espèces incompatible avec espèces.')
             payments.append({'mode':row['mode'],'montant':montant,'confirmation_id':confirmation.id if confirmation else None,'confirmation':serial(confirmation) if confirmation else None})
         payments=repartir_paiements(total,payments)
+        pending={c.id for c in self.stock.lignes(ConfirmationReglementModel,vente_id=v.id) if not self.stock.lignes(ReglementModel,confirmation_id=c.id)}
+        if pending!=used:raise ConflitStock('Tous les paiements acquis confirmés doivent être rapprochés et intégrés ; ne pas laisser de règlement orphelin.')
         compte=None
         if data.get('compte_id'):
             self.stock.access('fidelite.consulter',self.site,v.emplacement_id)
