@@ -71,6 +71,8 @@ jobs:
           python tests/seed_browser_p4.py
           python tests/browser_p4.py
           python tests/browser_proforma.py
+          python tests/seed_browser_caisse.py
+          python tests/browser_caisse.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -78,6 +80,7 @@ jobs:
           path: |
             qa/*.png
             qa/proforma-*.pdf
+            qa/p44-*.pdf
             qa/etats-*.pdf
             qa/etats-*.xlsx
             qa/etats-*.csv

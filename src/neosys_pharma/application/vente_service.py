@@ -114,6 +114,8 @@ class VenteService(RemisesService):
             caisse=self.s.get(CaisseModel,data.get('caisse_id'))
             if not caisse or not caisse.actif or caisse.emplacement_id!=v.emplacement_id:raise PermissionError('Caisse autorisée du même emplacement requise.')
             v.caisse_id=caisse.id_caisse
+            from neosys_pharma.application.caisse_service import CaisseService
+            CaisseService(self).appel(v)
         if target=='ANNULEE':
             if not data.get('justification'):raise ValueError('Motif d’annulation obligatoire.')
             for r in self.lignes(v):self.liberer_ligne(r)

@@ -1,3 +1,4 @@
+from neosys_pharma.infrastructure import caisse_models
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config

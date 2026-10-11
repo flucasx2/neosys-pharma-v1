@@ -39,7 +39,18 @@ P4_PERMISSIONS = (
     ("vente.remise.demander", "Demander une remise de ligne ou globale"),
     ("vente.remise.autoriser", "Décider les demandes de remise dans le périmètre autorisé"),
 )
-PERMISSIONS = P1_PERMISSIONS + P3_PERMISSIONS + P4_PERMISSIONS + (
+CAISSE_PERMISSIONS = (
+    ("caisse.consulter", "Consulter sessions, règlements et reçus autorisés"),
+    ("caisse.session.gerer", "Ouvrir et fermer sa session de caisse"),
+    ("caisse.encaisser", "Finaliser les ventes et consommer leurs réservations"),
+    ("caisse.paiement.confirmer", "Confirmer manuellement un paiement non espèces"),
+    ("caisse.parametrer", "Activer les moyens de paiement et tickets d'appel"),
+    ("fidelite.consulter", "Identifier un titulaire et consulter son compte fidélité"),
+    ("fidelite.gerer", "Créer les comptes, remplacer ou opposer les cartes"),
+    ("fidelite.parametrer", "Configurer les barèmes historiques de fidélité"),
+    ("fidelite.utiliser", "Utiliser des points avec consentement et règle fiscale validée"),
+)
+PERMISSIONS = P1_PERMISSIONS + P3_PERMISSIONS + P4_PERMISSIONS + CAISSE_PERMISSIONS + (
     ("catalogue.consulter", "Consulter le catalogue"),
     ("catalogue.gerer", "Gérer le catalogue"),
 )
