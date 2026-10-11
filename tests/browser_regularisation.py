@@ -15,7 +15,7 @@ with sync_playwright() as p:
         page.keyboard.press('Tab')
     def tab(value):select(page.locator('#finance-genre'),value);expect(page.locator('#finance-rows')).to_be_visible()
     def login(user):
-        page.goto('http://127.0.0.1:8000/#administration/finance');fill(page.locator('#login-form [name=organisation_id]'),f['organisation_id']);fill(page.locator('#login-form [name=identifiant]'),user);fill(page.locator('#login-form [name=password]'),f['password']);activate(page.locator('#login-form button'));expect(page.locator('#finance-panel')).to_be_visible()
+        page.goto('http://127.0.0.1:8000/#administration/finance');fill(page.locator('#login-form [name=organisation_id]'),f['organisation_id']);fill(page.locator('#login-form [name=identifiant]'),user);fill(page.locator('#login-form [name=password]'),f['password']);activate(page.locator('#login-form button'));expect(page.locator('#app-shell')).to_be_visible();activate(page.locator('#nav-finance'));expect(page.locator('#finance-panel')).to_be_visible()
     login('caisse.qa');activate(page.locator('#nav-encaissement'));page.keyboard.press('Alt+Shift+Digit2');select(modal().locator('[name=caisse_id]'),f['p4_caisse']);fill(modal().locator('[name=fond_initial]'),1000);save()
     activate(page.locator('#nav-finance'));expect(page.locator('#finance-session option')).not_to_have_count(0);page.keyboard.press('Alt+Shift+Digit4');save();expect(page.locator('#finance-rows')).to_contain_text('X')
     with page.expect_download() as download:activate(page.get_by_role('button',name='PDF historique',exact=True).first)
