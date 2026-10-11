@@ -60,6 +60,9 @@ def main():
     event = os.environ["GITHUB_EVENT_NAME"]
     sha = payload["pull_request"]["head"]["sha"] if event == "pull_request" else os.environ["GITHUB_SHA"]
     paths = []
+    if event == "workflow_dispatch":
+        from target import resolve
+        sha = resolve(os.environ["GITHUB_REPOSITORY"], os.environ["TARGET_BRANCH"], os.environ["EXPECTED_SHA"])
     if event == "pull_request":
         before = payload.get("before") if payload.get("action") == "synchronize" else None
         before = before or payload["pull_request"]["base"]["sha"]
@@ -79,11 +82,12 @@ def main():
             except (subprocess.CalledProcessError, ValueError, UnicodeError):
                 paths = []
     result = plan(event, payload, sha, paths)
+    result["control_sha"] = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip()
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         for k, v in result.items():
             out.write(f"{k}={str(v).lower() if isinstance(v, bool) else v}\n")
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
-        out.write(f"Commit : `{sha}`\n\nModifications applicatives : {result['code']}. "
+        out.write(f"Commit ciblé : `{sha}`\n\nContrôleur CI : `{result['control_sha']}`\n\nModifications applicatives : {result['code']}. "
                   f"Suite complète : {result['full']}.\n\n")
         if not result["full"]:
             out.write("**Ce contrôle léger ne constitue pas une recette complète.**\n")

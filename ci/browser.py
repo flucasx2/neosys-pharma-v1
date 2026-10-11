@@ -24,6 +24,15 @@ def commands(root):
     unknown = present - {journey for _, journey in JOURNEYS}
     if unknown:
         raise ValueError(f"Parcours non enregistré : {sorted(unknown)}")
+    required_count = 5  # P1/P2/P3 already on main.
+    for marker, count in (("vente", 6), ("proforma", 7), ("caisse", 8), ("regularisation", 9)):
+        if (root / f"src/neosys_pharma/application/{marker}_service.py").is_file():
+            required_count = max(required_count, count)
+    if list((root / "migrations/versions").glob("f22f6abb13c5_*.py")):
+        required_count = 9
+    missing = {journey for _, journey in JOURNEYS[:required_count]} - present
+    if missing:
+        raise ValueError(f"Parcours obligatoires absents : {sorted(missing)}")
     result = []
     for seed, journey in JOURNEYS:
         if journey not in present:

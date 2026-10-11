@@ -146,7 +146,7 @@ class Receipt(unittest.TestCase):
             post.assert_called_once_with('owner/repo', A, 'pending', 'Validation complète de ce commit en attente')
 
     def test_manual_looks_up_branch_current_head(self):
-        with patch.dict(os.environ, {'GITHUB_REF': 'refs/heads/feat/p4-vente-caisse'}), \
+        with patch.dict(os.environ, {'GITHUB_REF': 'refs/heads/main', 'TARGET_BRANCH': 'feat/p4-vente-caisse'}), \
                 patch('receipt.api', return_value={'object': {'sha': B}}) as get:
             self.assertEqual(receipt.current_head('workflow_dispatch', {}, 'owner/repo'), B)
             get.assert_called_once_with('/repos/owner/repo/git/ref/heads/feat/p4-vente-caisse')
@@ -191,7 +191,7 @@ class Receipt(unittest.TestCase):
 
     def test_tag_recipe_rejected(self):
         with patch.dict(os.environ, {'GITHUB_REF': 'refs/tags/v1'}):
-            with self.assertRaises(ValueError): receipt.current_head('workflow_dispatch', {}, 'owner/repo')
+            with self.assertRaises(ValueError): receipt.current_head('push', {}, 'owner/repo')
 
 
 class Browser(unittest.TestCase):
@@ -204,9 +204,9 @@ class Browser(unittest.TestCase):
     def test_future_p45_journey_is_supported(self):
         with tempfile.TemporaryDirectory() as tmp:
             p = Path(tmp); (p / 'tests').mkdir()
-            for name in ['seed_browser_regularisation.py', 'browser_regularisation.py']:
+            for name in {n for pair in browser.JOURNEYS for n in pair if n}:
                 (p / 'tests' / name).touch()
-            self.assertEqual([c[-1] for c in browser.commands(p)],
+            self.assertEqual([c[-1] for c in browser.commands(p)][-2:],
                              ['tests/seed_browser_regularisation.py', 'tests/browser_regularisation.py'])
 
     def test_unknown_or_missing_seed_fails_closed(self):

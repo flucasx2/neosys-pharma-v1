@@ -21,7 +21,7 @@ def api(path, data=None):
 def current_head(event, payload, repo):
     if event == "pull_request":
         return api(f"/repos/{repo}/pulls/{payload['number']}")["head"]["sha"]
-    ref = os.environ["GITHUB_REF"]
+    ref = ("refs/heads/" + os.environ["TARGET_BRANCH"]) if event == "workflow_dispatch" else os.environ["GITHUB_REF"]
     if not ref.startswith("refs/heads/"):
         raise ValueError("La recette doit sélectionner une branche, pas un tag")
     return api(f"/repos/{repo}/git/ref/heads/{urllib.parse.quote(ref[11:], safe='/')}")["object"]["sha"]
