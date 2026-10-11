@@ -40,7 +40,7 @@ def ready(c,a,q=3):
     v=line(c,a,create(c,a,pid),product,pack,q);v=act(c,a,v,'valider');v=act(c,a,v,'transmettre',caisse_id=cid)
     return v,session,product,pack,pid,cid
 
-def body(v,session,**kw):return {'revision':v['revision'],'session_id':session['id'],'revision_session':session['revision'],'reglements':[{'mode':'ESPECES','montant':400}],**kw}
+def body(v,session,**kw):return {'revision':v['revision'],'session_id':session['id'],'revision_session':session['revision'],'reglements':[{'mode':'ESPECES','montant':400}],'points_utilises':0,'consentement':False,'compte_id':None,'revision_compte':None,**kw}
 def final(c,a,v,session,**kw):return post(c,a,f'/ventes/{v["id"]}/finaliser',body(v,session,**kw),200)
 def category(c,a,product):
     from neosys_pharma.infrastructure.catalogue_models import ProduitModel
