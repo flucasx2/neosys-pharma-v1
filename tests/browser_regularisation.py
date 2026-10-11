@@ -42,8 +42,8 @@ with sync_playwright() as p:
     download.value.save_as('qa/p45-remboursement.pdf')
     page.keyboard.press('Alt+Shift+Digit8');fill(modal().locator('[name=justification]'),'Z prématurée');modal().locator('[name=confirme]').focus();page.keyboard.press('Space');activate(modal().get_by_role('button',name='Enregistrer',exact=True));expect(modal().locator('.creation-dialog-error')).to_contain_text('Fermer toutes');page.keyboard.press('Escape')
     activate(page.locator('#nav-encaissement'));activate(page.get_by_role('button',name='Fermer ma session',exact=True));# Take the exact displayed server amount, no invented count.
-    expected=page.locator('#cash-sessions').inner_text();import re
-    n=re.search(r'Espèces attendues ([\d\s\u202f\xa0]+) FCFA',expected);assert n,expected
+    expected=modal().inner_text();import re
+    n=re.search(r'Espèces attendues : ([\d\s\u202f\xa0]+) FCFA',expected);assert n,expected
     fill(modal().locator('[name=comptage_final]'),re.sub(r'\D','',n.group(1)));fill(modal().locator('[name=justification]'),'Fin de service comptée');save()
     activate(page.locator('#nav-finance'));page.keyboard.press('Alt+Shift+Digit8');fill(modal().locator('[name=justification]'),'Clôture après contrôles');modal().locator('[name=confirme]').focus();page.keyboard.press('Space');save();tab('clotures');expect(page.locator('#finance-rows')).to_contain_text('Z');expect(page.locator('#finance-period')).to_contain_text('Période Z 2');page.screenshot(path='qa/p45-cloture-z.png',full_page=True)
     with page.expect_download() as download:activate(page.locator('#finance-rows tr').filter(has_text='Z').get_by_role('button',name='PDF historique',exact=True).first)
