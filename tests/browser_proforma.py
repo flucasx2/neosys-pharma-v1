@@ -1,5 +1,6 @@
 """P4.3 intégralement au clavier : versions, PDF figé, reprise aux tarifs courants et readonly."""
 import json
+import hashlib
 from pathlib import Path
 from datetime import date,timedelta
 from uuid import UUID,uuid4
@@ -56,9 +57,11 @@ with sync_playwright() as p:
     download.value.save_as('/tmp/proforma-v1-again.pdf');assert Path('/tmp/proforma-v1-again.pdf').read_bytes()==bytes1
     # Headless Chromium cannot render native PDF navigation (ERR_ABORTED).
     # Check the real keyboard action, tab opening and authenticated historical PDF bytes.
-    with page.expect_popup() as opened, page.expect_response(lambda r:'/versions/'+v1['id']+'/pdf' in r.url) as preview:
+    with page.expect_popup() as opened, page.expect_response(lambda r:r.request.method=='GET' and r.url.endswith('/versions/'+v1['id']+'/pdf')) as preview:
         activate(page.locator('#pf-pdf'))
-    assert preview.value.status==200 and preview.value.body()==bytes1
+    preview_body=preview.value.body()
+    assert preview.value.status==200, (preview.value.status,preview.value.url,preview_body[:200])
+    assert preview_body==bytes1, (len(preview_body),len(bytes1),hashlib.sha256(preview_body).hexdigest(),hashlib.sha256(bytes1).hexdigest(),preview.value.headers)
     opened.value.close()
     page.screenshot(path='qa/p4-proforma-historique.png',full_page=True)
     shortcut('Digit9');choice(modal().locator('[name=poste_id]'),f['p4_poste']);save();expect(page.locator('#vente-panel')).to_be_visible();expect(page.locator('#p4-totals')).to_contain_text('375 FCFA');expect(page.locator('#p4-discounts')).to_contain_text('DEMANDEE');page.screenshot(path='qa/p4-proforma-reprise.png',full_page=True)
