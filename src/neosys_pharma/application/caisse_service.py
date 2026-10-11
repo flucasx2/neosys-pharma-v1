@@ -72,12 +72,16 @@ class CaisseService:
 
     def session_detail(self,row):
         cash=self.s.scalar(select(func.coalesce(func.sum(MouvementCaisseModel.montant_net),0)).where(MouvementCaisseModel.session_id==row.id,MouvementCaisseModel.organisation_id==self.org,MouvementCaisseModel.mode=='ESPECES'))
-        expected=row.fond_initial+cash
+        from neosys_pharma.infrastructure.regularisation_models import MouvementFinancierModel
+        extras=self.s.scalar(select(func.coalesce(func.sum(MouvementFinancierModel.montant),0)).where(MouvementFinancierModel.session_id==row.id,MouvementFinancierModel.organisation_id==self.org,MouvementFinancierModel.mode=='ESPECES'))
+        expected=row.fond_initial+cash+extras
         return serial(row)|{'especes_attendues':str(expected),'ecart_especes':str(row.comptage_final-expected) if row.comptage_final is not None else None}
 
     def fermer(self,key,data):
         row=self.session(key,'caisse.session.gerer',True)
         if row.revision!=data['revision']:raise ConflitStock('Session modifiée : actualiser.')
+        from neosys_pharma.infrastructure.regularisation_models import TransfertFondsModel,RemboursementModel
+        if any(x.etat not in ('RECU','ANNULE') for x in self.stock.lignes(TransfertFondsModel,session_id=row.id)) or any(x.etat!='EXECUTE' for x in self.stock.lignes(RemboursementModel,session_id=row.id)):raise ConflitStock('Résoudre les transferts et remboursements avant fermeture.')
         row.comptage_final=francs(data['comptage_final'],True);row.ferme_le=now();row.etat='FERMEE';row.revision+=1
         self.trace('SESSION_FERMEE',session=self.session_detail(row),justification=data['justification']);return self.session_detail(row)
 
@@ -230,7 +234,10 @@ class CaisseService:
             elif row.get('confirmation_id'):raise ValueError('Référence de paiement non espèces incompatible avec espèces.')
             payments.append({'mode':row['mode'],'montant':montant,'confirmation_id':confirmation.id if confirmation else None,'confirmation':serial(confirmation) if confirmation else None})
         payments=repartir_paiements(total,payments)
-        pending={c.id for c in self.stock.lignes(ConfirmationReglementModel,vente_id=v.id) if not self.stock.lignes(ReglementModel,confirmation_id=c.id)}
+        from neosys_pharma.infrastructure.regularisation_models import RemboursementModel
+        if any(self.stock.lignes(RemboursementModel,confirmation_id=c,etat='EXECUTE') for c in used):raise ConflitStock('Paiement déjà restitué.')
+        if any(self.stock.lignes(RemboursementModel,confirmation_id=c) for c in used):raise ConflitStock('Restitution demandée : paiement indisponible pour encaissement.')
+        pending={c.id for c in self.stock.lignes(ConfirmationReglementModel,vente_id=v.id) if not self.stock.lignes(ReglementModel,confirmation_id=c.id) and not self.stock.lignes(RemboursementModel,confirmation_id=c.id,etat='EXECUTE')}
         if pending!=used:raise ConflitStock('Tous les paiements acquis confirmés doivent être rapprochés et intégrés ; ne pas laisser de règlement orphelin.')
         compte=None
         if data.get('compte_id'):

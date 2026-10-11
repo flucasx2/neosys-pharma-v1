@@ -6,7 +6,7 @@ from uuid import UUID
 from typing import Literal
 from fastapi import APIRouter,Depends,Request,Query,Response,HTTPException
 from pydantic import Field
-from sqlalchemy import select
+from sqlalchemy import select,func
 from neosys_pharma.presentation.vente_api import POLICY,contexte,service as vente_service,Input,Mutation,Revision
 from neosys_pharma.presentation.stock_api import execute
 from neosys_pharma.application.caisse_service import CaisseService,serial
@@ -169,7 +169,8 @@ def fidelite_detail(key:UUID,s=Depends(service)):return execute(lambda:s.compte(
 @router.get('/fidelite/{key}/journal')
 def fidelite_journal(key:UUID,page_:int=Query(1,alias='page',ge=1),page_size:int=Query(25,ge=1,le=100),s=Depends(service)):
     execute(lambda:s.compte(key))
-    return page(s,select(JournalFideliteModel).join(EncaissementModel,EncaissementModel.id==JournalFideliteModel.encaissement_id).join(VenteModel,VenteModel.id==EncaissementModel.vente_id).where(JournalFideliteModel.organisation_id==s.org,JournalFideliteModel.compte_id==key,VenteModel.site_id==s.site,VenteModel.emplacement_id.in_(locations(s,'fidelite.consulter'))).order_by(JournalFideliteModel.date,JournalFideliteModel.id),page_,page_size)
+    from neosys_pharma.infrastructure.regularisation_models import CompensationRetourModel,RetourVenteModel
+    return page(s,select(JournalFideliteModel).outerjoin(CompensationRetourModel,CompensationRetourModel.journal_id==JournalFideliteModel.id).outerjoin(RetourVenteModel,RetourVenteModel.id==CompensationRetourModel.retour_id).join(EncaissementModel,EncaissementModel.id==func.coalesce(JournalFideliteModel.encaissement_id,RetourVenteModel.encaissement_id)).join(VenteModel,VenteModel.id==EncaissementModel.vente_id).where(JournalFideliteModel.organisation_id==s.org,JournalFideliteModel.compte_id==key,VenteModel.site_id==s.site,VenteModel.emplacement_id.in_(locations(s,'fidelite.consulter'))).order_by(JournalFideliteModel.date,JournalFideliteModel.id),page_,page_size)
 @router.post('/fidelite/{key}/cartes',status_code=201)
 def fidelite_carte(key:UUID,d:Carte,s=Depends(service)):
     execute(lambda:s.compte(key,'fidelite.gerer'))

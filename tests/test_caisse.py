@@ -264,7 +264,8 @@ def test_migration_p44_cycle_et_permissions_non_attribuees(tmp_path,monkeypatch)
     try:
         command.upgrade(cfg,'head');command.check(cfg)
         with engine.connect() as c:
-            assert c.execute(text("SELECT count(*) FROM permissions WHERE code LIKE 'caisse.%' OR code LIKE 'fidelite.%'")).scalar()==9
+            from neosys_pharma.infrastructure.securite_models import PermissionModel
+            assert c.scalar(select(func.count()).select_from(PermissionModel).where(PermissionModel.code.in_([code for code,_ in CAISSE_PERMISSIONS])))==len(CAISSE_PERMISSIONS)
             assert c.execute(text("SELECT count(*) FROM roles_permissions JOIN permissions ON permission_id=id_permission WHERE code LIKE 'caisse.%' OR code LIKE 'fidelite.%'")).scalar()==0
         command.downgrade(cfg,'0001e4d5d008');assert 'caisse_encaissements' not in inspect(engine).get_table_names() and 'proformas' in inspect(engine).get_table_names()
         command.upgrade(cfg,'head');command.check(cfg)

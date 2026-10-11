@@ -66,3 +66,24 @@ def permission_id(code: str):
 
 def role_id(code: str):
     return uuid5(NAMESPACE, "role:" + code)
+
+REGULARISATION_PERMISSIONS = (
+    ('caisse.cloture.consulter','Consulter les clôtures et états financiers'),
+    ('caisse.cloture.x','Produire un état X de caisse'),
+    ('caisse.cloture.z','Valider la clôture Z du site'),
+    ('caisse.ecart.reconnaitre','Reconnaître et justifier les écarts de caisse'),
+    ('caisse.fonds.gerer','Enregistrer les entrées et sorties de fonds justifiées'),
+    ('caisse.transfert.demander','Demander un transfert entre caisse et coffre'),
+    ('caisse.transfert.autoriser','Autoriser un transfert de fonds'),
+    ('caisse.transfert.expedier','Expédier les fonds autorisés'),
+    ('caisse.transfert.recevoir','Confirmer la réception des fonds'),
+    ('caisse.transfert.deroger','Déroger explicitement à la séparation autorisateur et expéditeur'),
+    ('vente.retour.gerer','Enregistrer les retours de ventes encaissées'),
+    ('caisse.remboursement.demander','Demander un remboursement ou une restitution'),
+    ('caisse.remboursement.autoriser','Autoriser les remboursements justifiés'),
+    ('caisse.remboursement.executer','Confirmer les remboursements réellement exécutés'),
+    ('caisse.remboursement.substituer','Autoriser un autre moyen de remboursement'),
+    ('stock.quarantaine.consulter','Consulter les produits retournés en quarantaine'),
+    ('stock.quarantaine.decider','Décider la remise en vente ou le refus sanitaire'),
+)
+PERMISSIONS += REGULARISATION_PERMISSIONS

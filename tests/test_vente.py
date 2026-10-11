@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID, uuid4
 import pytest
-from sqlalchemy import select, delete, text
+from sqlalchemy import select, delete, text,func
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 from test_stock import raw_client, account, db, login, lot, entry, stocks, ALL, post as stock_post
@@ -171,7 +171,9 @@ def test_migration_p4_additive_cycle_et_aucun_droit_implicite(tmp_path,monkeypat
     try:
         command.upgrade(cfg,'head');command.check(cfg)
         with engine.connect() as conn:
-            assert conn.execute(text("SELECT count(*) FROM permissions WHERE code LIKE 'vente.%'")).scalar()==9
+            from neosys_pharma.infrastructure.securite_models import PermissionModel
+            codes=[code for code,_ in P4_PERMISSIONS if code.startswith('vente.')]
+            assert conn.scalar(select(func.count()).select_from(PermissionModel).where(PermissionModel.code.in_(codes)))==len(codes)
             assert conn.execute(text("SELECT count(*) FROM roles_permissions JOIN permissions ON permissions.id_permission=roles_permissions.permission_id WHERE permissions.code LIKE 'vente.%'")).scalar()==0
             assert conn.execute(text("SELECT count(*) FROM permissions WHERE code LIKE 'proforma.%'")).scalar()==5
             assert conn.execute(text("SELECT count(*) FROM roles_permissions JOIN permissions ON permissions.id_permission=roles_permissions.permission_id WHERE permissions.code LIKE 'proforma.%'")).scalar()==0
