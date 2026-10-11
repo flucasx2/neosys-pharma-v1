@@ -63,6 +63,24 @@ def test_x_z_annulation_sequences_et_pdf_historiques(raw_client,account,tmp_path
         text_=''.join(p.extract_text() for p in PdfReader(BytesIO(pdf.content)).pages);assert 'Page' in text_ and 'Responsable' in text_
         (tmp_path/f'{doc["type"]}.pdf').write_bytes(pdf.content)
 
+def test_z_habilitation_distincte_sans_droit_de_reservation(raw_client,account):
+    c,a=raw_client,account;v,s,*_=setup45(c,a);close(c,a,s)
+    period=c.get(root(a)+'/contexte').json()['periode']
+    gen=db(c);session=next(gen)
+    try:
+        role=session.scalar(select(RoleModel.id_role).where(RoleModel.organisation_id==a['org'],RoleModel.code=='CATALOGUE'))
+        kept=[permission_id(x) for x in ('organisation.consulter','stock.consulter','caisse.cloture.consulter','caisse.cloture.z')]
+        session.execute(RolePermissionModel.__table__.delete().where(RolePermissionModel.role_id==role,RolePermissionModel.permission_id.not_in(kept)));session.commit()
+        from neosys_pharma.infrastructure.vente_models import ReservationVenteModel
+        reservation=session.scalar(select(ReservationVenteModel.reservation_id))
+    finally:gen.close()
+    login(c,a)
+    path=f'/api/stock/organisations/{a["org"]}/reservations/{reservation}/liberer'
+    assert c.post(path,json={'cle':str(uuid4())}).status_code==403
+    z=post(c,a,'/clotures/z',{'periode_id':period['id'],'justification':'Clôture habilitée sans accès stock général'})
+    assert v['id'] in z['instantane']['preparations_annulees'] and stocks(c,a)[0]['reserve']==0
+    assert c.post(path,json={'cle':str(uuid4())}).status_code==403
+
 def test_ecart_conserve_et_reconnaissance_obligatoire(raw_client,account):
     c,a=raw_client,account;v,s,*_=setup45(c,a);close(c,a,s,999)
     period=c.get(root(a)+'/contexte').json()['periode'];p={'periode_id':period['id'],'justification':'Fin'}

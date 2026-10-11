@@ -137,7 +137,16 @@ class RegularisationService:
         for v in self.stock.lignes(VenteModel,site_id=self.site):
             if v.etat in ('ENCAISSEE','ANNULEE'):continue
             # Site-scoped Z permission authorizes the complete site operation, not an implicit work assignment.
-            for line in self.vente.lignes(v):self.vente.liberer_ligne(line)
+            for line in self.vente.lignes(v):
+                for link in self.stock.lignes(ReservationVenteModel,ligne_id=line.id):
+                    reservation=self.stock.obtenir(ReservationStockModel,link.reservation_id)
+                    if reservation.statut!='ACTIVE':continue
+                    for allocation in self.stock.lignes(AllocationReservationModel,reservation_id=reservation.id):
+                        balance=self.stock.obtenir(StockEmplacementModel,allocation.stock_id)
+                        if balance.site_id!=self.site:raise PermissionError('Réservation étrangère au site clôturé.')
+                    # The explicitly checked site-wide Z permission delegates this exact
+                    # cancellation only; no P3 permission is granted to the operator.
+                    self.stock.terminer_reservation(reservation.id,permission=None,interne=True)
             self.vente.invalider_remises(v);before=v.etat;v.etat='ANNULEE';v.revision+=1
             self.vente.evenement(v,'ANNULATION_Z',avant=before,periode_id=p.id,justification=data['justification']);cancelled.append(str(v.id))
         encs=self.stock.lignes(EncaissementModel,periode_id=p.id)
