@@ -20,6 +20,7 @@ from neosys_pharma.application.regularisation_service import RegularisationServi
 from neosys_pharma.application.caisse_service import CaisseService
 from neosys_pharma.application.vente_service import VenteService
 from neosys_pharma.application.stock_service import StockService
+from neosys_pharma.domain.stock import ConflitStock
 
 def root(a):return '/api/regularisations/organisations/'+str(a['org'])
 def post(c,a,path,data,status=201,key=None):
