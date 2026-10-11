@@ -55,13 +55,18 @@ with sync_playwright() as p:
     choice(page.locator('#pf-versions'),v1['id']);expect(page.locator('#pf-title')).to_contain_text('Version 1');expect(page.locator('#pf-totals')).to_contain_text('270 FCFA')
     with page.expect_download() as download:activate(page.locator('#pf-download'))
     download.value.save_as('/tmp/proforma-v1-again.pdf');assert Path('/tmp/proforma-v1-again.pdf').read_bytes()==bytes1
-    # Headless Chromium cannot render native PDF navigation (ERR_ABORTED).
-    # Check the real keyboard action, tab opening and authenticated historical PDF bytes.
+    # Chromium headless exposes an empty protocol response body for inline PDF.
+    # Inspect the real Blob passed by the application to the preview tab instead.
+    page.evaluate("""()=>{window.__pfOriginalObjectURL=URL.createObjectURL;
+        URL.createObjectURL=function(blob){window.__pfPreviewBytes=blob.arrayBuffer().then(b=>Array.from(new Uint8Array(b)));
+            return window.__pfOriginalObjectURL.call(URL,blob);};}""")
     with page.expect_popup() as opened, page.expect_response(lambda r:r.request.method=='GET' and r.url.endswith('/versions/'+v1['id']+'/pdf')) as preview:
         activate(page.locator('#pf-pdf'))
-    preview_body=preview.value.body()
-    assert preview.value.status==200, (preview.value.status,preview.value.url,preview_body[:200])
-    assert preview_body==bytes1, (len(preview_body),len(bytes1),hashlib.sha256(preview_body).hexdigest(),hashlib.sha256(bytes1).hexdigest(),preview.value.headers)
+    assert preview.value.status==200
+    assert preview.value.headers['x-document-sha256']==hashlib.sha256(bytes1).hexdigest()
+    page.wait_for_function('window.__pfPreviewBytes !== undefined')
+    assert bytes(page.evaluate('async()=>await window.__pfPreviewBytes'))==bytes1
+    page.evaluate('()=>{URL.createObjectURL=window.__pfOriginalObjectURL;}')
     opened.value.close()
     page.screenshot(path='qa/p4-proforma-historique.png',full_page=True)
     shortcut('Digit9');choice(modal().locator('[name=poste_id]'),f['p4_poste']);save();expect(page.locator('#vente-panel')).to_be_visible();expect(page.locator('#p4-totals')).to_contain_text('375 FCFA');expect(page.locator('#p4-discounts')).to_contain_text('DEMANDEE');page.screenshot(path='qa/p4-proforma-reprise.png',full_page=True)
