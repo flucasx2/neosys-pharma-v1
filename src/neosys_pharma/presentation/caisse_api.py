@@ -169,7 +169,7 @@ def fidelite_detail(key:UUID,s=Depends(service)):return execute(lambda:s.compte(
 @router.get('/fidelite/{key}/journal')
 def fidelite_journal(key:UUID,page_:int=Query(1,alias='page',ge=1),page_size:int=Query(25,ge=1,le=100),s=Depends(service)):
     execute(lambda:s.compte(key))
-    return page(s,select(JournalFideliteModel).where(JournalFideliteModel.organisation_id==s.org,JournalFideliteModel.compte_id==key).order_by(JournalFideliteModel.date,JournalFideliteModel.id),page_,page_size)
+    return page(s,select(JournalFideliteModel).join(EncaissementModel,EncaissementModel.id==JournalFideliteModel.encaissement_id).join(VenteModel,VenteModel.id==EncaissementModel.vente_id).where(JournalFideliteModel.organisation_id==s.org,JournalFideliteModel.compte_id==key,VenteModel.site_id==s.site,VenteModel.emplacement_id.in_(locations(s,'fidelite.consulter'))).order_by(JournalFideliteModel.date,JournalFideliteModel.id),page_,page_size)
 @router.post('/fidelite/{key}/cartes',status_code=201)
 def fidelite_carte(key:UUID,d:Carte,s=Depends(service)):
     execute(lambda:s.compte(key,'fidelite.gerer'))

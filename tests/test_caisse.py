@@ -241,6 +241,9 @@ def test_compte_partage_entre_sites_explicitement_affectes(raw_client,account):
         s.add(AffectationEmplacementModel(affectation_site_id=assignment,emplacement_id=a['other_location'],site_id=a['other']));s.commit()
     finally:gen.close()
     response=c.get(root(a)+f'/fidelite/{ca["id"]}');assert response.status_code==200,response.text;assert response.json()['points']==3
+    assert c.get(root(a)+f'/fidelite/{ca["id"]}/journal').json()['total']==0
+    c.headers['X-Site-ID']=str(a['site'])
+    assert c.get(root(a)+f'/fidelite/{ca["id"]}/journal').json()['total']==1
 
 
 def test_acquisition_sous_categories_et_aucun_taux_implicite(raw_client,account):
