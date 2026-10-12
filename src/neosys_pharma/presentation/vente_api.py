@@ -15,6 +15,7 @@ from neosys_pharma.application.vente_service import VenteService
 from neosys_pharma.infrastructure.vente_models import VenteModel,EvenementVenteModel
 from neosys_pharma.presentation.stock_api import execute
 from neosys_pharma.application.stock_service import serial
+from neosys_pharma.presentation.comptoir_recherche import filtres_comptoir, filtrer, appel
 
 POLICY={'ventes_liste':'vente.consulter','vente_detail':'vente.consulter','vente_creer':'vente.preparer','ligne_enregistrer':'vente.preparer','ligne_retirer':'vente.preparer','vente_attendre':'vente.preparer','vente_reprendre':'vente.preparer','vente_valider':'vente.valider','vente_transmettre':'vente.transmettre','vente_annuler':'vente.annuler','remise_demander':'vente.remise.demander','remise_decider':'vente.remise.autoriser','vente_historique':'vente.consulter'}
 
@@ -84,15 +85,16 @@ def vente_creer(data:Creation,s=Depends(service)):
     if data.mode=='CREDIT':execute(lambda:s.stock.access('vente.credit',s.site,data.emplacement_id))
     return mutation(s,data,'CREER',lambda:s.creer({**data.model_dump(),'destinataire':data.destinataire.model_dump() if data.destinataire else {}}))
 @router.get('')
-def ventes_liste(request:Request,page:int=Query(1,ge=1),page_size:int=Query(25,ge=1,le=100),s=Depends(service)):
+def ventes_liste(request:Request,page:int=Query(1,ge=1),page_size:int=Query(25,ge=1,le=100),filters=Depends(filtres_comptoir),s=Depends(service)):
     from neosys_pharma.infrastructure.organisation_models import EmplacementModel
     allowed=[]
     for loc in s.s.scalars(select(EmplacementModel).where(EmplacementModel.site_id==s.site)):
         try:s.stock.emplacement(loc.id_emplacement,'vente.consulter');allowed.append(loc.id_emplacement)
         except PermissionError:pass
     query=select(VenteModel).where(VenteModel.organisation_id==s.org,VenteModel.site_id==s.site,VenteModel.emplacement_id.in_(allowed)).order_by(VenteModel.cree_le.desc(),VenteModel.id)
+    query=execute(lambda:filtrer(s,query,filters,'vente.consulter',VenteModel.cree_le))
     total,rows=s.stock.repo.paginer(query,page,page_size)
-    return {'items':[serial(v) for v in rows],'total':total,'page':page,'page_size':page_size}
+    return {'items':[serial(v)|appel(s,v.id) for v in rows],'total':total,'page':page,'page_size':page_size}
 class Plafond(Mutation):
     role_id:UUID
     revision:int=Field(default=0,strict=True,ge=0)
