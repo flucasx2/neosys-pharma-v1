@@ -20,6 +20,8 @@ class DocumentPreparationService:
         v=self.vente.obtenir(key,'vente.consulter');self.vente.revision(v,revision)
         existing=self.s.scalar(select(DocumentPreparationModel).filter_by(organisation_id=self.org,vente_id=v.id,revision_vente=v.revision))
         if existing:return serial(existing)
+        if v.etat in ('ENCAISSEE','ANNULEE'):
+            raise ValueError('Vente terminale : consulter les éditions historiques, sans créer une préparation non acquittée.')
         data=self.vente.detail(v);doc_id=uuid4();now=datetime.now(timezone.utc)
         org=self.s.get(OrganisationModel,self.org);site=self.s.get(SiteModel,v.site_id);user=self.s.get(UtilisateurModel,self.stock.user)
         location=self.s.get(EmplacementModel,v.emplacement_id)

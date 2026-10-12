@@ -29,3 +29,15 @@ L’édition est une mutation documentaire autorisée avec `vente.consulter`, pr
 Tests ciblés HTTP : recherche littérale/accents, filtres, périodes inclusives, pagination/dédoublonnage, isolation et 401/403. Documents : octets/SHA identiques, désignations longues, allocations réelles, immuabilité SQL, révisions et concurrence PostgreSQL, rollback PDF. Cycles Alembic upgrade/check/downgrade/upgrade exclusivement jetables. Chromium : parcours comptoir au clavier et recherche conservée après mutation, lecture seule et documents. Ne pas multiplier les recettes complètes GitHub ; validation finale exacte soumise à autorisation.
 
 Le workflow post-fusion `38263311083` a réussi (42 tests politique, SQLite 374 réussis/21 ignorés). PostgreSQL/Chromium y sont ignorés ; ce contrôle ne remplace pas la recette complète source `38240291387` sur `2974563`.
+
+## Bilan de développement
+
+P4.6.1–P4.6.5 implémentés sur la PR #6 Draft. Les recherches utilisent les valeurs historiques des lignes ; EXISTS empêche leur duplication. Les numéros sont recherchés exactement, les UUID par préfixe hexadécimal d’au moins huit caractères. Les caractères `%` et `_` restent littéraux. Les dates concernent la création des préparations et l’encaissement des reçus, avec bornes UTC explicites.
+
+Les documents de préparation ne peuvent être nouvellement édités pour une vente ENCAISSEE/ANNULEE : seuls les documents déjà conservés restent consultables. L’éditeur et le préparateur sont identifiés séparément dans l’instantané. Aucune révision commerciale, quantité ou séquence n’est modifiée par l’édition. Les téléchargements portent un ETag SHA-256 et ne sont pas mis en cache publiquement.
+
+P4.6.4 : grille compacte des préparations, historique paginé et actualisation du dossier sélectionné à la caisse. Un retour réseau obsolète après changement de contexte est écarté. Les anciennes éditions restent immuables.
+
+Vérifications locales : tests ciblés Vente/Caisse/Documents/Recherche, Régularisations/Proformas/Remises ; cycles Alembic SQLite réussis ; 42 tests de politique CI réussis. Contrôle DOM réel avec jsdom : envoi de recherche, conservation après refresh, édition/fermeture de modale et dossier caisse resynchronisé. PDF QA à 40 longues désignations rendu et contrôlé sur quatre pages, en-têtes répétés et allocations lisibles.
+
+Limites de cette exécution : PostgreSQL absent de l’environnement ; les tests de concurrence PostgreSQL restent à exécuter sur une base jetable. Téléchargement Playwright Chromium invalide, puis navigateur Chrome officiel téléchargé mais démarrage terminé par SIGSEGV ; aucun parcours Chromium local n’est présenté comme réussi. Les parcours obligatoires existants P4.2/P4.4 sont enrichis avec les vérifications P4.6. Aucune recette complète GitHub manuelle lancée. La validation technique complète et la recette métier humaine finale restent nécessaires avant fusion.

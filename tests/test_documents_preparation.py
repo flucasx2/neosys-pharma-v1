@@ -9,7 +9,7 @@ from pypdf import PdfReader
 from sqlalchemy import select,text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
-from test_vente import raw_client,account,db,setup,create,line,root,stocks
+from test_vente import raw_client,account,db,setup,create,line,root,stocks,act
 from neosys_pharma.infrastructure.vente_models import DocumentPreparationModel
 from neosys_pharma.infrastructure.organisation_models import SiteModel
 from neosys_pharma.application.stock_service import StockService
@@ -43,6 +43,9 @@ def test_documents_revisions_octets_historique_immutabilite(raw_client,account,t
     listed=c.get(root(a)+f'/{v["id"]}/documents',params={'page_size':1}).json()
     assert listed['total']==2 and len(listed['items'])==1
     assert 'instantane' not in listed['items'][0] and 'pdf' not in listed['items'][0]
+    terminal=act(c,a,v,'annuler',justification='Fin de préparation fictive')
+    assert c.post(root(a)+f'/{v["id"]}/documents',json={'cle':str(uuid4()),'revision':terminal['revision']}).status_code==422
+    assert c.get(path).content==p.content
     c.headers.pop('X-CSRF-Token')
     assert c.post(root(a)+f'/{v["id"]}/documents',json={'cle':str(uuid4()),'revision':v['revision']}).status_code==403
     c.headers['X-Site-ID']=str(a['other']);assert c.get(path).status_code==403
