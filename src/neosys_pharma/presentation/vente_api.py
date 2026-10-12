@@ -2,7 +2,7 @@
 from decimal import Decimal
 from uuid import UUID
 from typing import Literal
-from fastapi import APIRouter,Depends,Request,HTTPException,Query
+from fastapi import APIRouter,Depends,Request,HTTPException,Query,Response
 from pydantic import BaseModel,ConfigDict,Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -181,7 +181,9 @@ def vente_detail(vente_id:UUID,request:Request,s=Depends(service)):return execut
 def vente_historique(vente_id:UUID,request:Request,page:int=Query(1,ge=1),page_size:int=Query(25,ge=1,le=100),s=Depends(service)):
     v=vente(s,request,vente_id)
     q=select(EvenementVenteModel).where(EvenementVenteModel.vente_id==v.id,EvenementVenteModel.organisation_id==s.org).order_by(EvenementVenteModel.date,EvenementVenteModel.id)
-    total,rows=s.stock.repo.paginer(q,page,page_size);return {'items':[serial(r) for r in rows],'total':total,'page':page,'page_size':page_size}
+    total,rows=s.stock.repo.paginer(q,page,page_size)
+    from neosys_pharma.infrastructure.securite_models import UtilisateurModel
+    return {'items':[serial(r)|{'auteur_nom':s.s.get(UtilisateurModel,r.auteur_id).nom} for r in rows],'total':total,'page':page,'page_size':page_size}
 @router.post('/{vente_id}/lignes',status_code=201)
 def ligne_enregistrer(vente_id:UUID,data:Ligne,request:Request,s=Depends(service)):
     v=vente(s,request,vente_id)
@@ -210,3 +212,22 @@ def remise_demander(vente_id:UUID,data:Remise,request:Request,s=Depends(service)
 @router.post('/{vente_id}/remises/{demande_id}/decision')
 def remise_decider(vente_id:UUID,demande_id:UUID,data:Decision,request:Request,s=Depends(service)):
     vente(s,request,vente_id);return mutation(s,data,'DECISION:'+str(demande_id),lambda:s.decider_remise(s.obtenir(vente_id,'vente.remise.autoriser'),demande_id,data.model_dump()))
+
+# P4.6 : editions documentaires, sans transaction financière ni réservation nouvelle.
+from neosys_pharma.application.document_preparation_service import DocumentPreparationService
+POLICY.update({'vente_documents':'vente.consulter','vente_document_editer':'vente.consulter','vente_document_pdf':'vente.consulter'})
+
+@router.get('/{vente_id}/documents')
+def vente_documents(vente_id:UUID,request:Request,page:int=Query(1,ge=1),page_size:int=Query(20,ge=1,le=100),s=Depends(service)):
+    v=vente(s,request,vente_id)
+    return DocumentPreparationService(s).liste(v,page,page_size)
+
+@router.post('/{vente_id}/documents',status_code=201)
+def vente_document_editer(vente_id:UUID,data:Revision,request:Request,s=Depends(service)):
+    vente(s,request,vente_id)
+    return mutation(s,data,'DOCUMENT:'+str(vente_id),lambda:DocumentPreparationService(s).editer(vente_id,data.revision))
+
+@router.get('/documents/{document_id}/pdf')
+def vente_document_pdf(document_id:UUID,s=Depends(service)):
+    row=execute(lambda:DocumentPreparationService(s).obtenir(document_id))
+    return Response(row.pdf,media_type='application/pdf',headers={'Content-Disposition':f'inline; filename="preparation-{row.vente_id}-r{row.revision_vente}.pdf"','ETag':f'"{row.pdf_sha256}"','Cache-Control':'private, no-store'})

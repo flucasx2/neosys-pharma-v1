@@ -2,7 +2,7 @@
 from datetime import datetime,timezone
 from decimal import Decimal
 from uuid import UUID,uuid4
-from sqlalchemy import String,Uuid,JSON,ForeignKey,ForeignKeyConstraint,UniqueConstraint,CheckConstraint,DateTime,Numeric
+from sqlalchemy import String,Uuid,JSON,ForeignKey,ForeignKeyConstraint,UniqueConstraint,CheckConstraint,DateTime,Numeric,LargeBinary
 from sqlalchemy.orm import Mapped,mapped_column
 from neosys_pharma.infrastructure.database import Base
 
@@ -83,3 +83,20 @@ class PlafondRemiseModel(EntiteVente,Base):
     max_montant_xaf:Mapped[Decimal|None]=mapped_column(Numeric(18,2))
     actif:Mapped[bool]=mapped_column(default=True)
     revision:Mapped[int]=mapped_column(default=1)
+
+class DocumentPreparationModel(EntiteVente,Base):
+    __tablename__='vente_documents_preparation'
+    __table_args__=(ForeignKeyConstraint(['vente_id','organisation_id'],['ventes.id','ventes.organisation_id'],name='fk_document_preparation_vente_org'),ForeignKeyConstraint(['auteur_id','organisation_id'],['utilisateurs.id_utilisateur','utilisateurs.organisation_id'],name='fk_document_preparation_auteur_org'),UniqueConstraint('vente_id','revision_vente',name='uq_document_preparation_revision'),CheckConstraint('revision_vente >= 1',name='ck_document_preparation_revision'))
+    vente_id:Mapped[UUID]=mapped_column(Uuid,index=True)
+    revision_vente:Mapped[int]=mapped_column()
+    auteur_id:Mapped[UUID]=mapped_column(Uuid)
+    date:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=lambda:datetime.now(timezone.utc))
+    instantane:Mapped[dict]=mapped_column(JSON)
+    pdf:Mapped[bytes]=mapped_column(LargeBinary)
+    pdf_sha256:Mapped[str]=mapped_column(String(64))
+
+table=DocumentPreparationModel.__table__
+for action in ('UPDATE','DELETE'):
+    event.listen(table,'after_create',DDL(f"CREATE TRIGGER vente_documents_preparation_{action.lower()}_immutable BEFORE {action} ON vente_documents_preparation BEGIN SELECT RAISE(ABORT, 'Document de preparation immuable'); END").execute_if(dialect='sqlite'))
+event.listen(table,'after_create',DDL("CREATE OR REPLACE FUNCTION vente_documents_preparation_immutable() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Document de preparation immuable'; END $$").execute_if(dialect='postgresql'))
+event.listen(table,'after_create',DDL("CREATE TRIGGER vente_documents_preparation_immutable BEFORE UPDATE OR DELETE ON vente_documents_preparation FOR EACH ROW EXECUTE FUNCTION vente_documents_preparation_immutable()").execute_if(dialect='postgresql'))
