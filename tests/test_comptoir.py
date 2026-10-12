@@ -6,6 +6,25 @@ from test_caisse import raw_client, account, ready, final, root as cash_root
 from test_vente import create, line, act, root, db, stocks
 from neosys_pharma.infrastructure.securite_models import RolePermissionModel
 from neosys_pharma.domain.organisation.permissions_systeme import permission_id
+from io import BytesIO
+from pypdf import PdfReader
+
+def test_ticket_preparateur_sans_effet_et_deux_exemplaires(raw_client,account):
+    c,a=raw_client,account;v,se,*_=ready(c,a)
+    path=cash_root(a)+f'/ventes/{v["id"]}/appel/pdf'
+    before=c.get(root(a)+f'/{v["id"]}').json()
+    assert before['numero_appel']=='0001' and before['ticket_appel_active']
+    p=c.get(path);assert p.status_code==200
+    text=''.join(x.extract_text() for x in PdfReader(BytesIO(p.content)).pages)
+    assert 'CLIENT' in text and 'PANIER DE PRÉPARATION' in text
+    for _ in range(2):assert c.get(path).status_code==200
+    assert c.get(root(a)+f'/{v["id"]}').json()==before
+    gen=db(c);s=next(gen)
+    try:
+        s.execute(delete(RolePermissionModel).where(RolePermissionModel.permission_id!=permission_id('vente.consulter')));s.commit()
+    finally:gen.close()
+    assert c.get(path).status_code==200
+    assert c.get(cash_root(a)+'/contexte').status_code==403
 
 def test_recherche_pagination_et_filtrage_litteral(raw_client, account):
     c,a=raw_client,account;v,se,prod,pack,pid,cid=ready(c,a)
