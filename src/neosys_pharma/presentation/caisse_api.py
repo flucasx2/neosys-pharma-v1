@@ -93,7 +93,7 @@ def page(s,q,page,size,convert=serial):
 @router.get('/contexte')
 def caisse_contexte(request:Request,s=Depends(service)):
     ids=locations(s,request.state.vente_permission)
-    return {'caisses':[{'id':str(c.id_caisse),'nom':c.nom,'emplacement_id':str(c.emplacement_id)} for c in s.s.scalars(select(CaisseModel).where(CaisseModel.emplacement_id.in_(ids),CaisseModel.actif.is_(True)))],'configuration':s.config(),'fiscalite_fidelite':{'validee':False,'utilisation_disponible':False},'categories':[{'id':str(c.id_categorie),'nom':c.nom} for c in s.s.scalars(select(CategorieProduitModel).where(CategorieProduitModel.organisation_id==s.org))]}
+    return {'emplacements':[{'id':str(l.id_emplacement),'nom':l.nom} for l in s.s.scalars(select(EmplacementModel).where(EmplacementModel.id_emplacement.in_(ids)))],'caisses':[{'id':str(c.id_caisse),'nom':c.nom,'emplacement_id':str(c.emplacement_id)} for c in s.s.scalars(select(CaisseModel).where(CaisseModel.emplacement_id.in_(ids),CaisseModel.actif.is_(True)))],'configuration':s.config(),'fiscalite_fidelite':{'validee':False,'utilisation_disponible':False},'categories':[{'id':str(c.id_categorie),'nom':c.nom} for c in s.s.scalars(select(CategorieProduitModel).where(CategorieProduitModel.organisation_id==s.org))]}
 @router.post('/configuration')
 def caisse_config(d:Config,s=Depends(service)):return mutation(s,d,'CONFIG',lambda:s.configurer(d.model_dump(exclude={'cle'})))
 @router.get('/sessions')

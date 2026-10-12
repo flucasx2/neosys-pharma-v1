@@ -23,6 +23,7 @@ class DocumentPreparationService:
         data=self.vente.detail(v);doc_id=uuid4();now=datetime.now(timezone.utc)
         org=self.s.get(OrganisationModel,self.org);site=self.s.get(SiteModel,v.site_id);user=self.s.get(UtilisateurModel,self.stock.user)
         location=self.s.get(EmplacementModel,v.emplacement_id)
+        preparateur=self.s.get(UtilisateurModel,v.vendeur_id)
         lines=[];allocations=[]
         for l in data['lignes']:
             lines.append([l['designation'],l['conditionnement'],l['reference'] or '—',l['quantite']])
@@ -31,7 +32,7 @@ class DocumentPreparationService:
                     b=self.stock.obtenir(StockEmplacementModel,a['stock_id']);lot=self.stock.obtenir(LotModel,b.lot_id)
                     allocations.append([l['designation']+' / '+l['conditionnement'],lot.numero or 'SANS LOT',lot.peremption.strftime('%d/%m/%Y') if lot.peremption else 'NON APPLICABLE',a['quantite'],r['statut']])
         snapshot={'titre':'PRÉPARATION — NON ACQUITTÉE','organisation':org.nom_commercial,'site':site.nom,'reference':str(doc_id),'date':now.isoformat(),'responsable':user.nom if user else None,'vente':data,'sections':[
-            {'titre':'Identification','colonnes':['Vente / révision','Emplacement / état','Auteur / appel'],'lignes':[[str(v.id)+' / '+str(v.revision),location.nom+' / '+v.etat,(user.nom if user else 'IDENTITÉ NON DISPONIBLE')+' / '+(data['numero_appel'] or 'NON ATTRIBUÉ')]]},
+            {'titre':'Identification','colonnes':['Vente / révision','Emplacement / état','Préparateur / éditeur / appel'],'lignes':[[str(v.id)+' / '+str(v.revision),location.nom+' / '+v.etat,(preparateur.nom if preparateur else 'IDENTITÉ NON DISPONIBLE')+' / '+(user.nom if user else 'IDENTITÉ NON DISPONIBLE')+' / '+(data['numero_appel'] or 'NON ATTRIBUÉ')]]},
             {'titre':'Produits à préparer — ne vaut pas reçu de paiement','colonnes':['Désignation','Conditionnement','Référence','Quantité'],'lignes':lines},
             {'titre':'Allocations enregistrées à cette révision — disponibilité non garantie ultérieurement','colonnes':['Produit / conditionnement','Lot','Péremption','Quantité','Réservation'],'lignes':allocations}]}
         pdf=document_pdf(snapshot)

@@ -1,5 +1,6 @@
 """Filtres de lecture P4.6 ; aucun élargissement du contexte P1."""
 from datetime import date, datetime, time, timedelta, timezone
+import re
 from uuid import UUID
 from typing import Literal
 from fastapi import Query, HTTPException
@@ -44,12 +45,13 @@ def filtrer(s, query, filters, permission, date_column, receipt=False):
             LigneVenteModel.actif.is_(True),
             or_(stock.repo.upper(LigneVenteModel.designation).contains(upper, autoescape=True),
                 stock.repo.upper(LigneVenteModel.reference).contains(upper, autoescape=True)))
-        ids = cast(VenteModel.id, String).contains(term.replace('-', '').lower(), autoescape=True)
         # PostgreSQL displays UUIDs with hyphens; SQLite stores the hex representation.
         from sqlalchemy import func
         ids = func.replace(cast(VenteModel.id, String), '-', '').contains(term.replace('-', '').lower(), autoescape=True)
-        clauses = [ids, lines.exists()]
-        if receipt:
+        identifier = re.fullmatch(r"[0-9a-fA-F-]{8,36}",term) is not None
+        clauses = [lines.exists()]
+        if identifier:clauses.append(ids)
+        if receipt and identifier:
             clauses.append(func.replace(cast(EncaissementModel.id, String), '-', '').contains(term.replace('-', '').lower(), autoescape=True))
         if term.isascii() and term.isdigit() and len(term) <= 10:
             number = int(term)

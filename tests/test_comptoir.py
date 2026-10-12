@@ -28,7 +28,11 @@ def test_ticket_preparateur_sans_effet_et_deux_exemplaires(raw_client,account):
 
 def test_recherche_pagination_et_filtrage_litteral(raw_client, account):
     c,a=raw_client,account;v,se,prod,pack,pid,cid=ready(c,a)
+    from test_catalogue import post as catalogue_post
+    catalogue_post(c,a,f'/conditionnements/{pack}/references',{'type_reference':'CIP7','valeur':'0012345'})
     b=line(c,a,create(c,a,pid),prod,pack,1)
+    b=line(c,a,b,prod,pack,1)
+    assert c.get(root(a),params={'q':'0012345'}).json()['total']==1
     for term in (v['id'],v['id'][:8],v['lignes'][0]['designation'].lower()):
         r=c.get(root(a),params={'q':term,'page_size':1});assert r.status_code==200,r.text
         assert r.json()['total']==(2 if term==v['lignes'][0]['designation'].lower() else 1)
@@ -56,6 +60,8 @@ def test_recherches_refus_contextes_et_consultation_seule(raw_client, account):
     for path in (root(a),cash_root(a)+'/attente',cash_root(a)+'/recus'):
         for key in ('emplacement_id','caisse_id'):
             assert c.get(path,params={key:str(uuid4())}).status_code==403
+        for location in (a['denied'],a['other_location']):
+            assert c.get(path,params={'emplacement_id':str(location)}).status_code==403
         assert c.get(path.replace(str(a['org']),str(uuid4())),params={'q':v['id']}).status_code==403
     gen=db(c);s=next(gen)
     try:
