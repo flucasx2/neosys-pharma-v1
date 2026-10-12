@@ -14,6 +14,7 @@ from neosys_pharma.infrastructure.caisse_models import *
 from neosys_pharma.infrastructure.vente_models import VenteModel
 from neosys_pharma.infrastructure.organisation_models import EmplacementModel,CaisseModel,OrganisationModel,SiteModel
 from neosys_pharma.infrastructure.catalogue_models import CategorieProduitModel
+from neosys_pharma.presentation.comptoir_recherche import filtres_comptoir, filtrer, appel
 POLICY.update({
  'caisse_contexte':('caisse.consulter','caisse.encaisser','caisse.session.gerer','caisse.parametrer','fidelite.parametrer','fidelite.gerer'),
  'caisse_config':'caisse.parametrer','caisse_sessions':'caisse.consulter','caisse_ouvrir':'caisse.session.gerer','caisse_fermer':'caisse.session.gerer',
@@ -92,7 +93,7 @@ def page(s,q,page,size,convert=serial):
 @router.get('/contexte')
 def caisse_contexte(request:Request,s=Depends(service)):
     ids=locations(s,request.state.vente_permission)
-    return {'caisses':[{'id':str(c.id_caisse),'nom':c.nom,'emplacement_id':str(c.emplacement_id)} for c in s.s.scalars(select(CaisseModel).where(CaisseModel.emplacement_id.in_(ids),CaisseModel.actif.is_(True)))],'configuration':s.config(),'fiscalite_fidelite':{'validee':False,'utilisation_disponible':False},'categories':[{'id':str(c.id_categorie),'nom':c.nom} for c in s.s.scalars(select(CategorieProduitModel).where(CategorieProduitModel.organisation_id==s.org))]}
+    return {'emplacements':[{'id':str(l.id_emplacement),'nom':l.nom} for l in s.s.scalars(select(EmplacementModel).where(EmplacementModel.id_emplacement.in_(ids)))],'caisses':[{'id':str(c.id_caisse),'nom':c.nom,'emplacement_id':str(c.emplacement_id)} for c in s.s.scalars(select(CaisseModel).where(CaisseModel.emplacement_id.in_(ids),CaisseModel.actif.is_(True)))],'configuration':s.config(),'fiscalite_fidelite':{'validee':False,'utilisation_disponible':False},'categories':[{'id':str(c.id_categorie),'nom':c.nom} for c in s.s.scalars(select(CategorieProduitModel).where(CategorieProduitModel.organisation_id==s.org))]}
 @router.post('/configuration')
 def caisse_config(d:Config,s=Depends(service)):return mutation(s,d,'CONFIG',lambda:s.configurer(d.model_dump(exclude={'cle'})))
 @router.get('/sessions')
@@ -108,11 +109,10 @@ def caisse_fermer(key:UUID,d:Fermeture,s=Depends(service)):
     execute(lambda:s.session(key,'caisse.session.gerer'))
     return mutation(s,d,'FERMER:'+str(key),lambda:s.fermer(key,d.model_dump()))
 @router.get('/attente')
-def caisse_attente(page_:int=Query(1,alias='page',ge=1),page_size:int=Query(25,ge=1,le=100),s=Depends(service)):
+def caisse_attente(page_:int=Query(1,alias='page',ge=1),page_size:int=Query(25,ge=1,le=100),filters=Depends(filtres_comptoir),s=Depends(service)):
     q=select(VenteModel).where(VenteModel.organisation_id==s.org,VenteModel.site_id==s.site,VenteModel.emplacement_id.in_(locations(s,'caisse.consulter')),VenteModel.etat=='TRANSMISE').order_by(VenteModel.cree_le,VenteModel.id)
-    def item(v):
-        a=s.s.scalar(select(AppelVenteModel).filter_by(organisation_id=s.org,vente_id=v.id))
-        return serial(v)|{'numero_appel':str(a.numero).zfill(4) if a else None,'net_ttc':s.vente.finance(v)['totaux']['ttc']}
+    q=execute(lambda:filtrer(s,q,filters,'caisse.consulter',VenteModel.cree_le))
+    def item(v):return serial(v)|appel(s,v.id)|{'net_ttc':s.vente.finance(v)['totaux']['ttc']}
     return page(s,q,page_,page_size,item)
 @router.get('/ventes/{key}')
 def caisse_vente(key:UUID,s=Depends(service)):
@@ -136,8 +136,9 @@ def caisse_finaliser(key:UUID,d:Finalisation,s=Depends(service)):
 def recu(s,key):
     e=s.stock.obtenir(EncaissementModel,key);s.vente.obtenir(e.vente_id,'caisse.consulter');return e
 @router.get('/recus')
-def caisse_recus(page_:int=Query(1,alias='page',ge=1),page_size:int=Query(25,ge=1,le=100),s=Depends(service)):
+def caisse_recus(page_:int=Query(1,alias='page',ge=1),page_size:int=Query(25,ge=1,le=100),filters=Depends(filtres_comptoir),s=Depends(service)):
     q=select(EncaissementModel).join(VenteModel,VenteModel.id==EncaissementModel.vente_id).where(EncaissementModel.organisation_id==s.org,VenteModel.site_id==s.site,VenteModel.emplacement_id.in_(locations(s,'caisse.consulter'))).order_by(EncaissementModel.date.desc(),EncaissementModel.id)
+    q=execute(lambda:filtrer(s,q,filters,'caisse.consulter',EncaissementModel.date,receipt=True))
     return page(s,q,page_,page_size,s.recu)
 @router.get('/recus/{key}')
 def caisse_recu(key:UUID,s=Depends(service)):return execute(lambda:s.recu(recu(s,key)))

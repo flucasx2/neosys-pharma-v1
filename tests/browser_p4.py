@@ -46,6 +46,16 @@ with sync_playwright() as p:
     key_activate(page.get_by_role('button',name='F12 · Actualiser',exact=True));expect(page.locator('#p4-totals')).to_contain_text('243 FCFA');shot('p4-preparation-remises-cumulees.png')
     shortcut(8);expect(page.locator('#p4-title')).to_contain_text('EN_ATTENTE');shortcut(9);expect(page.locator('#p4-title')).to_contain_text('PREPARATION');shortcut(0);expect(page.locator('#p4-title')).to_contain_text('VALIDEE_PREPARATION')
     page.keyboard.press('Alt+Shift+Minus');choice(modal().locator('[name=caisse_id]'),f['p4_caisse']);save();expect(page.locator('#p4-title')).to_contain_text('TRANSMISE');shot('p4-transmission-sans-encaissement.png')
+    # P4.6 : filtre serveur conservé, appel, historique et édition sans effet métier.
+    expect(page.locator('#p4-context')).to_contain_text('Appel')
+    search=page.locator('#p4-filters [name=q]');type_field(search,'préparation vente')
+    key_activate(page.locator('#p4-filters').get_by_role('button',name='Rechercher',exact=True))
+    expect(page.locator('#p4-list')).to_have_attribute('aria-busy','false')
+    key_activate(page.get_by_role('button',name='F12 · Actualiser',exact=True));expect(search).to_have_value('préparation vente')
+    key_activate(page.get_by_role('button',name='Historique des opérations',exact=True));expect(modal()).to_contain_text('TRANSMISE');page.keyboard.press('Escape')
+    key_activate(page.get_by_role('button',name='Éditer la préparation PDF',exact=True));save()
+    key_activate(page.get_by_role('button',name='Éditions historiques',exact=True));expect(modal()).to_contain_text('1 édition(s)');shot('p46-editions-historiques.png');page.keyboard.press('Escape')
+    expect(search).to_have_value('préparation vente');shot('p46-recherche-preparation.png')
     # Limits UI and keyboard cancellation, then readonly direct backend refusal.
     key_activate(page.get_by_role('button',name='Plafonds de remise',exact=True));expect(modal()).to_contain_text('Au moins un plafond');expect(modal().locator('[name=actif]')).to_be_checked();shot('p4-plafonds.png');page.keyboard.press('Escape')
     readonly=browser.new_context();rp=readonly.new_page();rp.on('pageerror',lambda e:errors.append(str(e)));login(rp,'vente.lecture.qa');rp.keyboard.press('Alt+Shift+KeyP');expect(rp.locator('dialog[open]')).to_have_count(0);expect(rp.get_by_role('button',name='F2 · Nouvelle préparation',exact=True)).to_have_count(0);rp.locator('#p4-list button').first.focus();rp.keyboard.press('Enter');expect(rp.locator('#p4-current')).to_be_visible();expect(rp.get_by_role('button',name='F3 · Ajouter',exact=True)).to_have_count(0)
