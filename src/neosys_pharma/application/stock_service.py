@@ -126,6 +126,12 @@ class StockService:
     def terminer_reservation(self,key,consume=False,kind='CONSOMMATION',permission='stock.reserver',interne=False):
         row=self.reservation_scope(key,permission)
         if not interne and self.s.scalar(select(TransfertStockModel.id).where(TransfertStockModel.reservation_id==row.id)):raise ConflitStock('Réservation pilotée par un transfert ; utiliser son workflow.')
+        if not interne:
+            from sqlalchemy import inspect
+            if inspect(self.s.connection()).has_table('vente_reservations'):
+                from neosys_pharma.infrastructure.vente_models import ReservationVenteModel
+                if self.s.scalar(select(ReservationVenteModel.id).where(ReservationVenteModel.reservation_id==row.id,ReservationVenteModel.organisation_id==self.org)):
+                    raise ConflitStock('Réservation pilotée par une vente ; utiliser son workflow.')
         if row.statut!='ACTIVE':raise ConflitStock('Réservation déjà terminée.')
         for line in self.lignes(AllocationReservationModel,reservation_id=row.id):
             b=self.obtenir(StockEmplacementModel,line.stock_id);lot=self.obtenir(LotModel,b.lot_id);pack,rules=self.conditionnement(lot.conditionnement_id)

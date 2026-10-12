@@ -1,3 +1,4 @@
+from neosys_pharma.infrastructure import caisse_models, regularisation_models
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
@@ -27,7 +28,7 @@ from neosys_pharma.infrastructure import catalogue_models
 
 from neosys_pharma.infrastructure import tarification_models, import_catalogue_models
 
-from neosys_pharma.infrastructure import stock_models
+from neosys_pharma.infrastructure import stock_models, vente_models, proforma_models
 
 target_metadata = Base.metadata
 
