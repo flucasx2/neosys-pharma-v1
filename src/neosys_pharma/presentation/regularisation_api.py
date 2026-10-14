@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Literal
 from fastapi import APIRouter,Depends,Request,Query,Response,HTTPException
 from pydantic import Field
-from sqlalchemy import select
+from sqlalchemy import select,or_
 from neosys_pharma.presentation.vente_api import POLICY,contexte,Mutation,Revision,Input
 from neosys_pharma.presentation.caisse_api import service as cash_service,Mode,locations,page
 from neosys_pharma.presentation.stock_api import execute
@@ -13,6 +13,7 @@ from neosys_pharma.application.regularisation_service import RegularisationServi
 from neosys_pharma.application.caisse_service import serial
 from neosys_pharma.infrastructure.regularisation_models import *
 from neosys_pharma.infrastructure.caisse_models import SessionCaisseModel,PeriodeCaisseSiteModel,ConfirmationReglementModel,EncaissementModel,ReglementModel,EvenementCaisseModel
+from neosys_pharma.infrastructure.encaissement_groupe_models import VentilationEncaissementModel, AllocationReglementModel, DossierEncaissementGroupeModel
 from neosys_pharma.infrastructure.organisation_models import CoffreModel,EmplacementModel
 from neosys_pharma.infrastructure.stock_models import StockEmplacementModel,LotModel
 from neosys_pharma.infrastructure.vente_models import VenteModel,ReservationVenteModel,LigneVenteModel
@@ -44,6 +45,7 @@ class LigneRetour(Input):
     quantite:int=Field(strict=True,gt=0,le=1_000_000_000)
 class Retour(Mutation):
     encaissement_id:UUID
+    ventilation_id:UUID|None=None
     lignes:list[LigneRetour]=Field(min_length=1,max_length=1000)
     justification:str=Field(min_length=1,max_length=2000)
 class Controle(Mutation):
@@ -77,7 +79,8 @@ def finance_liste(genre:Literal['clotures','transferts','retours','remboursement
     cls={'clotures':ClotureModel,'transferts':TransfertFondsModel,'retours':RetourVenteModel,'remboursements':RemboursementModel,'mouvements':MouvementFinancierModel}[genre]
     q=select(cls).where(cls.organisation_id==s.org,cls.site_id==s.site)
     ids=locations(s.cash,'caisse.cloture.consulter');sessions=select(SessionCaisseModel.id).where(SessionCaisseModel.organisation_id==s.org,SessionCaisseModel.emplacement_id.in_(ids))
-    if genre=='retours':q=q.join(EncaissementModel,EncaissementModel.id==RetourVenteModel.encaissement_id).join(VenteModel,VenteModel.id==EncaissementModel.vente_id).where(VenteModel.emplacement_id.in_(ids))
+    if genre=='retours':
+        q=q.join(EncaissementModel,EncaissementModel.id==RetourVenteModel.encaissement_id).where(or_(EncaissementModel.vente_id.in_(select(VenteModel.id).where(VenteModel.emplacement_id.in_(ids))),RetourVenteModel.ventilation_id.in_(select(VentilationEncaissementModel.id).join(VenteModel,VenteModel.id==VentilationEncaissementModel.vente_id).where(VenteModel.emplacement_id.in_(ids)))))
     elif genre=='clotures':q=q.where((cls.type=='Z')|(cls.session_id.in_(sessions)))
     elif genre=='mouvements':q=q.where(cls.session_id.is_(None)|cls.session_id.in_(sessions))
     else:q=q.where(cls.session_id.in_(sessions))
@@ -102,9 +105,18 @@ def finance_z(d:Z,s=Depends(service)):
 def finance_ecart(key:UUID,d:Motif,s=Depends(service)):
     execute(lambda:s.cash.session(key,'caisse.ecart.reconnaitre'));return mutation(s,d,'ECART:'+str(key),lambda:s.ecart(key,d.model_dump()))
 @router.get('/recus/{key}/retournable')
-def finance_retournable(key:UUID,s=Depends(service)):
+def finance_retournable(key:UUID,ventilation_id:UUID|None=None,s=Depends(service)):
     def get():
-        enc=s.stock.obtenir(EncaissementModel,key);v=s.vente.obtenir(enc.vente_id,'vente.retour.gerer');result=[]
+        enc=s.stock.obtenir(EncaissementModel,key)
+        if enc.type_encaissement=='GROUPE':
+            if not ventilation_id:raise ValueError('Sélectionner la vente du reçu groupé à retourner (ventilation_id).')
+            vent=s.stock.obtenir(VentilationEncaissementModel,ventilation_id)
+            if vent.encaissement_id!=enc.id:raise PermissionError('Ventilation étrangère au reçu.')
+            v=s.vente.obtenir(vent.vente_id,'vente.retour.gerer')
+        else:
+            if ventilation_id:raise ValueError('ventilation_id est réservé aux reçus groupés.')
+            vent=None;v=s.vente.obtenir(enc.vente_id,'vente.retour.gerer')
+        result=[]
         for line in s.vente.lignes(v):
             if not line.actif:continue
             for link in s.stock.lignes(ReservationVenteModel,ligne_id=line.id):
@@ -113,11 +125,18 @@ def finance_retournable(key:UUID,s=Depends(service)):
                     b=s.stock.obtenir(StockEmplacementModel,alloc.stock_id);lot=s.stock.obtenir(LotModel,b.lot_id)
                     used=sum(x.quantite for x in s.stock.lignes(LigneRetourVenteModel,ligne_id=line.id,stock_id=b.id))
                     result.append({'ligne_id':str(line.id),'stock_id':str(b.id),'designation':line.designation,'conditionnement':line.conditionnement,'lot':lot.numero,'peremption':str(lot.peremption) if lot.peremption else None,'quantite_restante':alloc.quantite-used})
-        return {'encaissement':serial(enc),'lignes':result}
+        return {'encaissement':serial(enc),'ventilation':serial(vent) if vent else None,'vente_id':str(v.id),'lignes':result}
     return execute(get)
 @router.post('/retours',status_code=201)
 def finance_retour(d:Retour,s=Depends(service)):
-    enc=execute(lambda:s.stock.obtenir(EncaissementModel,d.encaissement_id));execute(lambda:s.vente.obtenir(enc.vente_id,'vente.retour.gerer'));return mutation(s,d,'RETOUR',lambda:s.retour(d.model_dump()))
+    enc=execute(lambda:s.stock.obtenir(EncaissementModel,d.encaissement_id))
+    if enc.type_encaissement=='GROUPE':
+        if not d.ventilation_id:raise HTTPException(422,'ventilation_id requis pour un reçu groupé.')
+        vent=execute(lambda:s.stock.obtenir(VentilationEncaissementModel,d.ventilation_id))
+        if vent.encaissement_id!=enc.id:raise HTTPException(403,'Ventilation étrangère au reçu.')
+        execute(lambda:s.vente.obtenir(vent.vente_id,'vente.retour.gerer'))
+    else:execute(lambda:s.vente.obtenir(enc.vente_id,'vente.retour.gerer'))
+    return mutation(s,d,'RETOUR',lambda:s.retour(d.model_dump()))
 @router.get('/stock/quarantaine')
 def finance_quarantaine(page_:int=Query(1,alias='page',ge=1),page_size:int=Query(20,ge=1,le=100),s=Depends(service)):
     ids=locations(s.cash,'stock.quarantaine.consulter');q=select(QuarantaineModel).join(StockEmplacementModel,StockEmplacementModel.id==QuarantaineModel.stock_id).where(QuarantaineModel.organisation_id==s.org,StockEmplacementModel.site_id==s.site,StockEmplacementModel.emplacement_id.in_(ids)).order_by(QuarantaineModel.id)
@@ -133,7 +152,7 @@ def finance_remboursement(d:Remboursement,s=Depends(service)):
     execute(lambda:s.cash.session(d.session_id,'caisse.remboursement.demander'))
     if d.retour_id:execute(lambda:s.retour_scope(d.retour_id,'caisse.remboursement.demander'))
     if d.confirmation_id:
-        c=execute(lambda:s.stock.obtenir(ConfirmationReglementModel,d.confirmation_id));execute(lambda:s.vente.obtenir(c.vente_id,'caisse.remboursement.demander'))
+        execute(lambda:s.confirmation_scope(d.confirmation_id,'caisse.remboursement.demander'))
     return mutation(s,d,'REMBOURSEMENT',lambda:s.remboursement(d.model_dump()))
 @router.post('/remboursements/{key}/{action}')
 def finance_refund_action(key:UUID,action:Literal['autoriser','executer'],d:Execution,s=Depends(service)):
@@ -161,21 +180,31 @@ def finance_pdf(genre:Literal['clotures','remboursements','transferts'],key:UUID
 @router.get('/paiements/non-finalises')
 def finance_pending(s=Depends(service)):
     def get():
-        ids=locations(s.cash,'caisse.cloture.consulter');return [serial(c) for c in s.unresolved() if s.stock.obtenir(VenteModel,c.vente_id).emplacement_id in ids]
+        ids=locations(s.cash,'caisse.cloture.consulter');result=[]
+        for c in s.unresolved():
+            if c.vente_id:
+                if s.stock.obtenir(VenteModel,c.vente_id).emplacement_id in ids:result.append(serial(c))
+            elif c.dossier_groupe_id:
+                group=s.stock.obtenir(DossierEncaissementGroupeModel,c.dossier_groupe_id)
+                if group.emplacement_id in ids:result.append(serial(c))
+        return result
     return execute(get)
 
 @router.get('/ventes/encaisses')
 def finance_ventes(request:Request,q:str=Query('',max_length=200),page_:int=Query(1,alias='page',ge=1),page_size:int=Query(20,ge=1,le=100),s=Depends(service)):
     ids=locations(s.cash,request.state.vente_permission)
-    query=select(EncaissementModel).join(VenteModel,VenteModel.id==EncaissementModel.vente_id).where(EncaissementModel.organisation_id==s.org,VenteModel.site_id==s.site,VenteModel.emplacement_id.in_(ids))
+    query=select(EncaissementModel).where(EncaissementModel.organisation_id==s.org,EncaissementModel.id.in_(select(EncaissementModel.id).join(VenteModel,VenteModel.id==EncaissementModel.vente_id).where(VenteModel.site_id==s.site,VenteModel.emplacement_id.in_(ids)).union(select(VentilationEncaissementModel.encaissement_id).join(VenteModel,VenteModel.id==VentilationEncaissementModel.vente_id).where(VenteModel.site_id==s.site,VenteModel.emplacement_id.in_(ids)))))
     if q:
-        query=query.where(VenteModel.id.in_(select(LigneVenteModel.vente_id).where(LigneVenteModel.organisation_id==s.org,s.stock.repo.upper(LigneVenteModel.designation).contains(s.stock.repo.terme(q),autoescape=True))))
+            sales_query=select(LigneVenteModel.vente_id).where(LigneVenteModel.organisation_id==s.org,s.stock.repo.upper(LigneVenteModel.designation).contains(s.stock.repo.terme(q),autoescape=True))
+            query=query.where(or_(EncaissementModel.vente_id.in_(sales_query),EncaissementModel.id.in_(select(VentilationEncaissementModel.encaissement_id).where(VentilationEncaissementModel.vente_id.in_(sales_query)))))
     return page(s.cash,query.order_by(EncaissementModel.date.desc(),EncaissementModel.id),page_,page_size)
 @router.get('/retours/{key}/solde')
 def finance_solde(key:UUID,s=Depends(service)):
     ret,enc=execute(lambda:s.retour_scope(key,'caisse.remboursement.demander'))
-    paid={m:sum((r.montant-r.rendu for r in s.stock.lignes(ReglementModel,encaissement_id=enc.id) if r.mode==m),Decimal(0)) for m in ('ESPECES','CARTE','MOBILE_MONEY','CHEQUE','VIREMENT')}
-    ids={r.id for r in s.stock.lignes(RetourVenteModel,encaissement_id=enc.id)}
+    if enc.type_encaissement=='GROUPE':
+        paid={m:sum((a.montant_net for a in s.stock.lignes(AllocationReglementModel,ventilation_id=ret.ventilation_id) if s.stock.obtenir(ReglementModel,a.reglement_id).mode==m),Decimal(0)) for m in ('ESPECES','CARTE','MOBILE_MONEY','CHEQUE','VIREMENT')}
+    else:paid={m:sum((r.montant-r.rendu for r in s.stock.lignes(ReglementModel,encaissement_id=enc.id) if r.mode==m),Decimal(0)) for m in ('ESPECES','CARTE','MOBILE_MONEY','CHEQUE','VIREMENT')}
+    ids={r.id for r in s.stock.lignes(RetourVenteModel,encaissement_id=enc.id) if (r.ventilation_id==ret.ventilation_id if enc.type_encaissement=='GROUPE' else True)}
     for old in s.stock.lignes(RemboursementModel):
         if old.retour_id in ids:
             for p in old.reglements:paid[p.get('mode_origine',p['mode'])]-=Decimal(p['montant'])

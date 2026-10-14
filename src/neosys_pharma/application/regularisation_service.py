@@ -9,6 +9,9 @@ from neosys_pharma.application.stock_service import ident
 from neosys_pharma.domain.caisse import francs,MODES
 from neosys_pharma.domain.stock import ConflitStock,perime
 from neosys_pharma.infrastructure.caisse_models import *
+from neosys_pharma.infrastructure.encaissement_groupe_models import DossierEncaissementGroupeModel, VentilationEncaissementModel
+from neosys_pharma.infrastructure.encaissement_groupe_models import AllocationReglementModel, SelectionGroupeModel
+from neosys_pharma.domain.encaissement_groupe import EtatDossierGroupe
 from neosys_pharma.infrastructure.regularisation_models import *
 from neosys_pharma.infrastructure.vente_models import VenteModel,LigneVenteModel,ReservationVenteModel
 from neosys_pharma.infrastructure.stock_models import StockEmplacementModel,LotModel,AllocationReservationModel,ReservationStockModel
@@ -110,9 +113,16 @@ class RegularisationService:
         row=self.stock.ajouter(ClotureModel,id=key,site_id=self.site,session_id=session.id,periode_id=p.id,type='X',auteur_id=self.stock.user,instantane=snap,pdf=pdf,pdf_sha256=digest)
         self.trace('ETAT_X',document_id=row.id);return serial(row)
     def unresolved(self):
-        query=select(ConfirmationReglementModel).join(VenteModel,VenteModel.id==ConfirmationReglementModel.vente_id).where(ConfirmationReglementModel.organisation_id==self.org,VenteModel.site_id==self.site)
+        query=select(ConfirmationReglementModel).where(ConfirmationReglementModel.organisation_id==self.org)
         result=[]
         for c in self.s.scalars(query):
+            if c.vente_id:
+                sale=self.s.get(VenteModel,c.vente_id)
+                if not sale or sale.site_id!=self.site:continue
+            elif c.dossier_groupe_id:
+                group=self.s.get(DossierEncaissementGroupeModel,c.dossier_groupe_id)
+                if not group or group.site_id!=self.site:continue
+            else:continue
             if self.stock.lignes(ReglementModel,confirmation_id=c.id):continue
             refunded=self.stock.lignes(RemboursementModel,confirmation_id=c.id,etat='EXECUTE')
             if not refunded:result.append(c)
@@ -122,6 +132,8 @@ class RegularisationService:
         if p.id!=ident(data['periode_id']):raise ConflitStock('Période déjà clôturée ou modifiée.')
         sessions=self.stock.lignes(SessionCaisseModel,site_id=self.site)
         if any(s.etat=='OUVERTE' for s in sessions):raise ConflitStock('Fermer toutes les sessions du site avant Z.')
+        if any(g.etat in (EtatDossierGroupe.BROUILLON.value,EtatDossierGroupe.EN_REGLEMENT.value) for g in self.stock.lignes(DossierEncaissementGroupeModel,site_id=self.site)):
+            raise ConflitStock('Résoudre les dossiers d’encaissement groupé ouverts avant Z.')
         if self.unresolved():raise ConflitStock('Paiements acquis non finalisés : rapprochement ou restitution confirmée obligatoire.')
         if any(t.etat not in ('RECU','ANNULE') for t in self.stock.lignes(TransfertFondsModel,site_id=self.site)):raise ConflitStock('Transferts de fonds non résolus.')
         if any(r.etat!='EXECUTE' for r in self.stock.lignes(RemboursementModel,site_id=self.site)):raise ConflitStock('Remboursements non exécutés.')
@@ -149,12 +161,13 @@ class RegularisationService:
                     self.stock.terminer_reservation(reservation.id,permission=None,interne=True)
             self.vente.invalider_remises(v);before=v.etat;v.etat='ANNULEE';v.revision+=1
             self.vente.evenement(v,'ANNULATION_Z',avant=before,periode_id=p.id,justification=data['justification']);cancelled.append(str(v.id))
-        encs=self.stock.lignes(EncaissementModel,periode_id=p.id)
+        from neosys_pharma.infrastructure.encaissement_groupe_models import VenteEncaisseeModel
+        count_sales=self.s.scalar(select(func.count()).select_from(VenteEncaisseeModel).join(EncaissementModel,EncaissementModel.id==VenteEncaisseeModel.encaissement_id).where(EncaissementModel.periode_id==p.id)) or 0
         totals={m:Decimal(0) for m in MODES}
         for session in sessions:
             summary=self.session_summary(session)
             for mode,val in summary['nets_par_mode'].items():totals[mode]+=Decimal(val)
-        key=uuid4();snap,pdf,digest=self.document('CLÔTURE Z — SITE',key,[{'titre':'Période Z '+str(p.numero),'colonnes':['Ventes encaissées','Préparations annulées','Sessions fermées'],'lignes':[[len(encs),len(cancelled),len(sessions)]]},{'titre':'Mouvements nets par moyen','colonnes':['Moyen','Montant FCFA'],'lignes':[[m,str(v)] for m,v in totals.items()]},{'titre':'Comptages et écarts conservés','colonnes':['Session','Attendu','Compté','Écart'],'lignes':[[str(s.id),self.cash.session_detail(s)['especes_attendues'],str(s.comptage_final),self.cash.session_detail(s)['ecart_especes']] for s in sessions]}])
+        key=uuid4();snap,pdf,digest=self.document('CLÔTURE Z — SITE',key,[{'titre':'Période Z '+str(p.numero),'colonnes':['Ventes encaissées','Préparations annulées','Sessions fermées'],'lignes':[[count_sales,len(cancelled),len(sessions)]]},{'titre':'Mouvements nets par moyen','colonnes':['Moyen','Montant FCFA'],'lignes':[[m,str(v)] for m,v in totals.items()]},{'titre':'Comptages et écarts conservés','colonnes':['Session','Attendu','Compté','Écart'],'lignes':[[str(s.id),self.cash.session_detail(s)['especes_attendues'],str(s.comptage_final),self.cash.session_detail(s)['ecart_especes']] for s in sessions]}])
         snap.update(periode_z=p.numero,preparations_annulees=cancelled,sessions=[self.session_summary(s) for s in sessions],justification=data['justification'],etat='EFFECTIVE')
         row=self.stock.ajouter(ClotureModel,id=key,site_id=self.site,session_id=None,periode_id=p.id,type='Z',auteur_id=self.stock.user,instantane=snap,pdf=pdf,pdf_sha256=digest)
         for session in sessions:self.stock.ajouter(SessionClotureeZModel,session_id=session.id,cloture_id=row.id)
@@ -162,8 +175,18 @@ class RegularisationService:
         next_=self.stock.ajouter(PeriodeCaisseSiteModel,site_id=self.site,numero=p.numero+1)
         self.trace('CLOTURE_Z',cloture_id=row.id,ancienne_periode=p.id,nouvelle_periode=next_.id);return serial(row)
     def retour(self,data):
-        enc=self.stock.obtenir(EncaissementModel,data['encaissement_id']);v=self.vente.obtenir(enc.vente_id,'vente.retour.gerer')
-        rows=[];seen=set();amount=Decimal(0);snapshots={x['id']:x for x in enc.instantane['lignes'] if x['actif']}
+        enc=self.stock.obtenir(EncaissementModel,data['encaissement_id'])
+        ventilation=None
+        if enc.type_encaissement=='GROUPE':
+            if not data.get('ventilation_id'):raise ValueError('La vente du reçu groupé doit être sélectionnée pour le retour.')
+            ventilation=self.stock.obtenir(VentilationEncaissementModel,data['ventilation_id'])
+            if ventilation.encaissement_id!=enc.id:raise PermissionError('Ventilation étrangère au reçu.')
+            sale_id=ventilation.vente_id;snapshot=ventilation.instantane
+        else:
+            if data.get('ventilation_id'):raise ValueError('Ventilation réservée aux reçus groupés.')
+            sale_id=enc.vente_id;snapshot=enc.instantane
+        v=self.vente.obtenir(sale_id,'vente.retour.gerer')
+        rows=[];seen=set();amount=Decimal(0);snapshots={x['id']:x for x in snapshot['lignes'] if x['actif']}
         for entry in data['lignes']:
             line=self.stock.obtenir(LigneVenteModel,entry['ligne_id']);balance=self.stock.obtenir(StockEmplacementModel,entry['stock_id'])
             if line.vente_id!=v.id or not line.actif or line.id not in [ident(x) for x in snapshots]:raise PermissionError('Ligne étrangère à la vente encaissée.')
@@ -181,13 +204,18 @@ class RegularisationService:
             hist=snapshots[str(line.id)];ttc=int(Decimal(str(hist['montants_appliques']['ttc'])));tva=int(Decimal(str(hist['montants_appliques']['tva'])))
             net=(ttc*(n+q)//line.quantite)-(ttc*n//line.quantite);tax=(tva*(n+q)//line.quantite)-(tva*n//line.quantite)
             rows.append({'line':line,'balance':balance,'quantite':q,'montant':Decimal(net),'instantane':{'designation':hist['designation'],'conditionnement':hist['conditionnement'],'quantite':q,'ttc':str(net),'tva':str(tax),'ht':str(net-tax),'quantite_cumulee':n+q,'historique':hist}});amount+=net;seen.add((line.id,balance.id))
-        ret=self.stock.ajouter(RetourVenteModel,encaissement_id=enc.id,site_id=self.site,auteur_id=self.stock.user,montant=amount,justification=data['justification'],instantane={'vente_id':str(v.id),'numero_encaissement':enc.instantane['numero_encaissement'],'lignes':[r['instantane'] for r in rows]})
+        ret=self.stock.ajouter(RetourVenteModel,encaissement_id=enc.id,ventilation_id=ventilation.id if ventilation else None,site_id=self.site,auteur_id=self.stock.user,montant=amount,justification=data['justification'],instantane={'vente_id':str(v.id),'numero_encaissement':enc.instantane['numero_encaissement'],'lignes':[r['instantane'] for r in rows]})
         for r in rows:
             line=self.stock.ajouter(LigneRetourVenteModel,retour_id=ret.id,ligne_id=r['line'].id,stock_id=r['balance'].id,quantite=r['quantite'],montant=r['montant'],instantane=r['instantane'])
             self.stock.ajouter(QuarantaineModel,ligne_retour_id=line.id,stock_id=r['balance'].id,quantite=r['quantite'])
         self.trace('RETOUR_QUARANTAINE',retour=serial(ret));return serial(ret)
     def retour_scope(self,key,p):
-        ret=self.stock.obtenir(RetourVenteModel,key);enc=self.stock.obtenir(EncaissementModel,ret.encaissement_id);self.vente.obtenir(enc.vente_id,p);return ret,enc
+        ret=self.stock.obtenir(RetourVenteModel,key);enc=self.stock.obtenir(EncaissementModel,ret.encaissement_id)
+        sale_id=enc.vente_id
+        if enc.type_encaissement=='GROUPE':
+            if not ret.ventilation_id:raise ConflitStock('Retour groupé sans ventilation de vente.')
+            sale_id=self.stock.obtenir(VentilationEncaissementModel,ret.ventilation_id).vente_id
+        self.vente.obtenir(sale_id,p);return ret,enc
     def controle(self,key,data):
         q=self.stock.obtenir(QuarantaineModel,key);b=self.stock.obtenir(StockEmplacementModel,q.stock_id);self.stock.emplacement(b.emplacement_id,'stock.quarantaine.decider')
         if b.site_id!=self.site:raise PermissionError('Quarantaine hors site.')
@@ -208,14 +236,16 @@ class RegularisationService:
         if data.get('retour_id'):
             ret,enc=self.retour_scope(data['retour_id'],'caisse.remboursement.demander');amount=ret.montant
             # Reserve original-mode budgets across all requested dossiers, including concurrent requests.
-            paid={m:sum((r.montant-r.rendu for r in self.stock.lignes(ReglementModel,encaissement_id=enc.id) if r.mode==m),Decimal(0)) for m in MODES}
-            returnids={r.id for r in self.stock.lignes(RetourVenteModel,encaissement_id=enc.id)}
+            if enc.type_encaissement=='GROUPE':
+                paid={m:sum((a.montant_net for a in self.stock.lignes(AllocationReglementModel,ventilation_id=ret.ventilation_id) if self.stock.obtenir(ReglementModel,a.reglement_id).mode==m),Decimal(0)) for m in MODES}
+            else:paid={m:sum((r.montant-r.rendu for r in self.stock.lignes(ReglementModel,encaissement_id=enc.id) if r.mode==m),Decimal(0)) for m in MODES}
+            returnids={r.id for r in self.stock.lignes(RetourVenteModel,encaissement_id=enc.id) if (r.ventilation_id==ret.ventilation_id if enc.type_encaissement=='GROUPE' else True)}
             for old in self.stock.lignes(RemboursementModel):
                 if old.retour_id in returnids:
                     for p in old.reglements:
                         original=p.get('mode_origine',p['mode']);paid[original]-=Decimal(p['montant'])
         else:
-            confirmation=self.stock.obtenir(ConfirmationReglementModel,data['confirmation_id']);self.vente.obtenir(confirmation.vente_id,'caisse.remboursement.demander')
+            confirmation=self.confirmation_scope(data['confirmation_id'],'caisse.remboursement.demander')
             if self.stock.lignes(ReglementModel,confirmation_id=confirmation.id):raise ConflitStock('Paiement déjà encaissé : utiliser un retour de vente.')
             amount=confirmation.montant;paid={m:amount if m==confirmation.mode else Decimal(0) for m in MODES}
         planned=[]
@@ -231,8 +261,18 @@ class RegularisationService:
     def refund_scope(self,key,p):
         r=self.dossier(RemboursementModel,key,p)
         if r.retour_id:self.retour_scope(r.retour_id,p)
-        else:self.vente.obtenir(self.stock.obtenir(ConfirmationReglementModel,r.confirmation_id).vente_id,p)
+        else:self.confirmation_scope(r.confirmation_id,p)
         return r
+    def confirmation_scope(self,key,p):
+        confirmation=self.stock.obtenir(ConfirmationReglementModel,key)
+        if confirmation.vente_id:self.vente.obtenir(confirmation.vente_id,p)
+        elif confirmation.dossier_groupe_id:
+            group=self.stock.obtenir(DossierEncaissementGroupeModel,confirmation.dossier_groupe_id)
+            self.cash.session(group.session_id,p)
+            for pick in self.stock.lignes(SelectionGroupeModel,dossier_id=group.id):
+                self.vente.obtenir(pick.vente_id,p)
+        else:raise PermissionError('Confirmation sans vente ni dossier accessible.')
+        return confirmation
     def refund_action(self,key,data,action):
         permission='caisse.remboursement.autoriser' if action=='autoriser' else 'caisse.remboursement.executer'
         row=self.refund_scope(key,permission);self.revision(row,data)
@@ -265,8 +305,12 @@ class RegularisationService:
             source=[]
             if row.retour_id:
                 ret=self.stock.obtenir(RetourVenteModel,row.retour_id);enc=self.stock.obtenir(EncaissementModel,ret.encaissement_id)
-                source=[{'titre':'Vente et retour historiques','colonnes':['Vente originale','Encaissement / période Z','Retour'],'lignes':[[str(enc.vente_id),enc.instantane['numero_encaissement']+' / '+str(enc.instantane['periode_z']),str(ret.id)]]},{'titre':'Produits retournés — montants après remises','colonnes':['Produit / conditionnement','Quantité','HT FCFA','TVA FCFA','TTC FCFA'],'lignes':[[l['designation']+' / '+l['conditionnement'],l['quantite'],l['ht'],l['tva'],l['ttc']] for l in ret.instantane['lignes']]}]
-            else:source=[{'titre':'Paiement acquis restitué','colonnes':['Vente','Confirmation originale','Référence'],'lignes':[[str(cf.vente_id),str(cf.id),cf.reference]]}]
+                sale_id=ret.instantane.get('vente_id') or str(enc.vente_id)
+                source=[{'titre':'Vente et retour historiques','colonnes':['Vente originale','Encaissement / période Z','Retour'],'lignes':[[sale_id,enc.instantane['numero_encaissement']+' / '+str(enc.instantane['periode_z']),str(ret.id)]]},{'titre':'Produits retournés — montants après remises','colonnes':['Produit / conditionnement','Quantité','HT FCFA','TVA FCFA','TTC FCFA'],'lignes':[[l['designation']+' / '+l['conditionnement'],l['quantite'],l['ht'],l['tva'],l['ttc']] for l in ret.instantane['lignes']]}]
+            else:
+                confirmation=self.stock.obtenir(ConfirmationReglementModel,row.confirmation_id)
+                sale_id=str(confirmation.vente_id) if confirmation.vente_id else 'Dossier groupé '+str(confirmation.dossier_groupe_id)
+                source=[{'titre':'Paiement acquis restitué','colonnes':['Vente ou groupe','Confirmation originale','Référence'],'lignes':[[sale_id,str(cf.id),cf.reference]]}]
             snap,pdf,digest=self.document('REMBOURSEMENT CONFIRMÉ',row.id,source+[{'titre':'Règlements restitués','colonnes':['Moyen original','Moyen restitué','Montant FCFA','Référence','Preuve'],'lignes':[[p['mode_origine'],p['mode'],p['montant'],proof.get('reference') or 'REMIS EN ESPÈCES',proof.get('preuve') or data['justification']] for p,proof in zip(row.reglements,proofs,strict=True)]}])
             snap.update(dossier=serial(row),preuves=proofs,justification=data['justification'])
             self.stock.ajouter(PieceFinanciereModel,remboursement_id=row.id,auteur_id=self.stock.user,instantane=snap,pdf=pdf,pdf_sha256=digest)
@@ -274,10 +318,14 @@ class RegularisationService:
     def compenser(self,key):
         ret=self.stock.obtenir(RetourVenteModel,key);enc=self.stock.obtenir(EncaissementModel,ret.encaissement_id)
         if not enc.compte_id:return
-        gain=enc.instantane.get('fidelite') or {};total=int(Decimal(gain.get('eligible_paye','0')))
+        gain=enc.instantane.get('fidelite') or {};ventilation=None
+        if enc.type_encaissement=='GROUPE':
+            ventilation=self.stock.obtenir(VentilationEncaissementModel,ret.ventilation_id)
+            gain=next((item.get('fidelite') for item in enc.instantane.get('ventes',[]) if item.get('vente_id')==str(ventilation.vente_id)),None) or {'eligible_paye':'0','lignes':[],'points_acquis':0}
+        total=int(Decimal(gain.get('eligible_paye','0')))
         if not total:return
         current=self.stock.obtenir(CompteFideliteModel,enc.compte_id)
-        ids={r.id for r in self.stock.lignes(RetourVenteModel,encaissement_id=enc.id) if r.id==ret.id or self.stock.lignes(RemboursementModel,retour_id=r.id,etat='EXECUTE')}
+        ids={r.id for r in self.stock.lignes(RetourVenteModel,encaissement_id=enc.id) if (r.ventilation_id==ret.ventilation_id if enc.type_encaissement=='GROUPE' else True) and (r.id==ret.id or self.stock.lignes(RemboursementModel,retour_id=r.id,etat='EXECUTE'))}
         eligible={ident(x['ligne_id']) for x in gain['lignes']}
         base=sum(int(l.montant) for r in ids for l in self.stock.lignes(LigneRetourVenteModel,retour_id=r) if l.ligne_id in eligible)
         cumulative=int(gain['points_acquis'])*base//total

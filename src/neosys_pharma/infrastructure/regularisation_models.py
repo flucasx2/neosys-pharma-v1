@@ -2,7 +2,7 @@
 from uuid import UUID
 from datetime import datetime
 from decimal import Decimal
-from sqlalchemy import Uuid,String,JSON,DateTime,LargeBinary,ForeignKey,UniqueConstraint,CheckConstraint,Index,text,event,DDL
+from sqlalchemy import Uuid,String,JSON,DateTime,LargeBinary,ForeignKey,ForeignKeyConstraint,UniqueConstraint,CheckConstraint,Index,text,event,DDL
 from sqlalchemy.orm import Mapped,mapped_column
 from neosys_pharma.infrastructure.database import Base
 from neosys_pharma.infrastructure.vente_models import EntiteVente
@@ -70,7 +70,8 @@ class SessionClotureeZModel(EntiteVente,Base):
 
 class RetourVenteModel(EntiteVente,Base):
     __tablename__='vente_retours'
-    __table_args__=scoped('retour',org_fk('encaissement_id','caisse_encaissements'),org_fk('site_id','sites','id_site'),org_fk('auteur_id','utilisateurs','id_utilisateur'),CheckConstraint('montant >= 0'))
+    __table_args__=scoped('retour',ForeignKeyConstraint(['ventilation_id','encaissement_id','organisation_id'],['caisse_ventilations.id','caisse_ventilations.encaissement_id','caisse_ventilations.organisation_id']),org_fk('encaissement_id','caisse_encaissements'),org_fk('site_id','sites','id_site'),org_fk('auteur_id','utilisateurs','id_utilisateur'),CheckConstraint('montant >= 0'))
+    ventilation_id:Mapped[UUID|None]=mapped_column(Uuid)
     encaissement_id:Mapped[UUID]=mapped_column(Uuid,index=True)
     site_id:Mapped[UUID]=mapped_column(Uuid)
     auteur_id:Mapped[UUID]=mapped_column(Uuid)

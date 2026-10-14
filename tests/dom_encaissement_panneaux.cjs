@@ -1,0 +1,46 @@
+/* UI seule : serveur simulé, aucune base de données ni CI. */
+const fs=require('fs'),path=require('path'),assert=require('node:assert/strict'),{JSDOM}=require('jsdom');
+const root=path.join(__dirname,'../src/neosys_pharma/presentation/web/');
+const dom=new JSDOM(fs.readFileSync(root+'index.html','utf8'),{url:'http://localhost',runScripts:'outside-only'}),w=dom.window;
+w.HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};w.HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');};
+w.HTMLElement.prototype.scrollIntoView=function(){};
+Object.defineProperty(w,'crypto',{value:require('node:crypto').webcrypto});
+const helpers=fs.readFileSync(root+'stock.js','utf8').split('\n').filter(x=>/^function stock(Text|Field|Button)\(/.test(x)).join('\n');
+const setup=`const $=id=>document.getElementById(id);const authState={site:'site',me:{organisation:{id_organisation:'org'},utilisateur:{id_utilisateur:'user'}}};const shellState={view:'encaissement'};let authReset=()=>{},shellSync=()=>{},rights=['caisse.consulter','caisse.encaisser','caisse.paiement.confirmer','caisse.session.gerer','fidelite.consulter'];function authHas(p){return rights.includes(p);}function stockDate(x){return x||'—';}function venteMoney(x){return Number(x).toLocaleString('fr-FR')+' FCFA';}`;
+const source=setup+helpers+'\n'+fs.readFileSync(root+'creation_dialogs.js','utf8')+'\n'+fs.readFileSync(root+'comptoir.js','utf8')+'\n'+fs.readFileSync(root+'caisse.js','utf8');
+const test=`(async()=>{
+ const checks=[];function check(ok,name){if(!ok)throw new Error(name);checks.push(name);}const tick=()=>new Promise(r=>setTimeout(r,15));
+ const session={id:'session-001',revision:1,caisse_id:'cashdesk',etat:'OUVERTE',caissier_id:'user',especes_attendues:0};
+ let sale={id:'sale-001',revision:2,etat:'TRANSMISE',numero_appel:'0003',emplacement_id:'loc',lignes:[{designation:'PARAPHARMACIE FICTIVE',conditionnement:'FLACON 100 ML',quantite:1,montants_appliques:{ttc:'800'}}],totaux:{ttc:'800'},confirmations:[{id:'card-001',mode:'CARTE',montant:'300',reference:'TERMINAL-FICTIF'}]};
+ const calls=[];let fail=false;window.authFetch=async(url,opt={})=>{calls.push({url,method:opt.method||'GET',body:opt.body?JSON.parse(opt.body):null});let data;
+ if(url.endsWith('/contexte'))data={caisses:[{id:'cashdesk',nom:'CAISSE FICTIVE'}],emplacements:[{id:'loc',nom:'COMPTOIR FICTIF'}],categories:[],configuration:{modes:['ESPECES','CARTE'],ticket_appel:false}};
+ else if(url.includes('/finaliser')){if(fail)return{ok:false,status:409,json:async()=>({detail:'Révision périmée — actualiser'})};sale={...sale,etat:'ENCAISSEE',revision:3};data={id:'receipt-001',vente_id:sale.id,total_xaf:'800',instantane:{numero_encaissement:'0001'}};}
+ else if(url.includes('/sessions?'))data={items:[session],total:1};else if(url.includes('/attente?'))data={items:sale.etat==='TRANSMISE'?[{...sale,net_ttc:'800'}]:[],total:sale.etat==='TRANSMISE'?31:0};else if(url.includes('/recus?'))data={items:[],total:0};else if(url.includes('/ventes/'))data=sale;else data={items:[],total:0};return{ok:true,json:async()=>data};};
+ await cashLoad();check(!$('cash-empty').hidden&&$('cash-sale').hidden,'État vide visible');
+ check(document.querySelector('.cash-queue-column #cash-waiting')&&document.querySelector('.cash-settlement-column #cash-sale'),'Deux panneaux structurés');
+ await cashSelect(sale.id);check($('cash-title').textContent.includes('0003')&&document.querySelector('#cash-waiting .cash-selected-row'),'Appel et sélection visibles');
+ check(document.querySelector('.cash-pay-primary').disabled,'Encaissement désactivé sans session');
+ cashState.session=session;cashRender();check($('cash-active-session').textContent.includes('CAISSE FICTIVE'),'Caisse active identifiée');
+ const input=()=>document.querySelector('[name=settlement_cash]');input().value='500';input().dispatchEvent(new Event('input'));
+ const mode=document.querySelector('[name=settlement_mode]');mode.value='multiple';mode.dispatchEvent(new Event('change'));
+ const card=document.querySelector('[name=settlement_card-001]');card.checked=true;card.dispatchEvent(new Event('change'));check($('cash-payment-summary').textContent.startsWith('Montant réparti : 800'),'Règlement mixte réparti');
+ const form=document.querySelector('#cash-queue-filters form');form.elements.q.value='PARAPHARMACIE';form.dispatchEvent(new Event('submit',{cancelable:true}));await tick();cashState.page=2;await cashLoad();
+ check(form.elements.q.value==='PARAPHARMACIE'&&cashState.page===2&&calls.some(c=>c.url.includes('page=2')&&c.url.includes('q=PARAPHARMACIE')),'Recherche et pagination serveur conservées');
+ check(input().value==='500'&&document.querySelector('[name=settlement_card-001]').checked,'Répartition conservée lors du rafraîchissement');
+ cashPay();let entry=[...creationDialogs.entries.values()].at(-1);check(entry.dialog.open&&entry.form.elements.especes.value==='500'&&entry.form.elements['confirmation_card-001'].checked,'Confirmation finale préremplie');
+ check(!calls.some(c=>c.method==='POST'),'Aucun paiement lors de la sélection ou saisie');
+ fail=true;entry.form.elements.confirme.checked=true;entry.form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();
+ check(entry.dialog.open&&entry.form.elements.especes.value==='500'&&entry.error.textContent.includes('Révision périmée'),'Erreur conserve la saisie et la modale');
+ const first=calls.find(c=>c.method==='POST');check(first.body.reglements.length===2&&first.body.points_utilises===0&&first.body.consentement===false&&first.body.revision===2&&first.body.revision_session===1,'Payload financier et révisions inchangés');
+ fail=false;entry.form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();await tick();
+ check(!entry.dialog.open&&!$('cash-receipt').hidden&&$('cash-payment').hidden&&!document.querySelector('.cash-pay-primary'),'Reçu visible sans double paiement');
+ check($('cash-total').textContent==='Montant encaissé à l’origine : 800 FCFA','Montant historique encaissé');
+ const before=calls.length;try{cashPay();}catch(e){}check(calls.length===before&&!document.querySelector('dialog[open]'),'F10 refuse une vente encaissée');
+ cashState.sale={...sale,etat:'TRANSMISE',revision:4};cashState.receipt=null;rights=['caisse.consulter'];cashRender();check($('cash-payment').hidden&&!document.querySelector('.cash-pay-primary')&&$('cash-loyalty').hidden,'Lecture seule sans action financière ni fidélité');
+ cashState.payment={key:cashPaymentKey(),cash:'999',ids:[],mode:'simple'};cashState.sale={...cashState.sale,revision:5};rights=['caisse.consulter','caisse.encaisser'];cashRender();check(input().value==='0','Révision modifiée invalide la saisie ergonomique');
+ cashState.receipt={vente_id:'another-sale',total_xaf:'999',instantane:{numero_encaissement:'0002'}};cashRender();check($('cash-receipt').hidden,'Reçu d’une autre vente masqué');
+ cashReset();check(!$('cash-empty').hidden&&cashState.payment===null,'Réinitialisation du contexte nettoie la sélection');
+ window.result={ok:true,checks};
+})().catch(e=>{window.result={ok:false,error:e.stack};});`;
+w.eval(source+test);
+setTimeout(()=>{assert.equal(w.result?.ok,true,JSON.stringify(w.result));console.log(w.result.checks.length+' contrôles DOM encaissement : OK');w.close();},600);

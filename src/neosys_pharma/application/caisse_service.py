@@ -81,7 +81,10 @@ class CaisseService:
         row=self.session(key,'caisse.session.gerer',True)
         if row.revision!=data['revision']:raise ConflitStock('Session modifiée : actualiser.')
         from neosys_pharma.infrastructure.regularisation_models import TransfertFondsModel,RemboursementModel
+        from neosys_pharma.infrastructure.encaissement_groupe_models import DossierEncaissementGroupeModel
+        from neosys_pharma.domain.encaissement_groupe import EtatDossierGroupe
         if any(x.etat not in ('RECU','ANNULE') for x in self.stock.lignes(TransfertFondsModel,session_id=row.id)) or any(x.etat!='EXECUTE' for x in self.stock.lignes(RemboursementModel,session_id=row.id)):raise ConflitStock('Résoudre les transferts et remboursements avant fermeture.')
+        if any(x.etat in (EtatDossierGroupe.BROUILLON.value,EtatDossierGroupe.EN_REGLEMENT.value) for x in self.stock.lignes(DossierEncaissementGroupeModel,session_id=row.id)):raise ConflitStock('Annuler ou finaliser les dossiers groupés avant fermeture de session.')
         row.comptage_final=francs(data['comptage_final'],True);row.ferme_le=now();row.etat='FERMEE';row.revision+=1
         self.trace('SESSION_FERMEE',session=self.session_detail(row),justification=data['justification']);return self.session_detail(row)
 
@@ -201,6 +204,26 @@ class CaisseService:
         details={'bareme':serial(rule),'eligible_paye':str(base),'lignes':eligible,'points_acquis':points,'dette_compensee':compensation,'fractions_reportees':False}
         return details|{'solde':compte.points,'dette':compte.dette}
 
+    def verifier_remises(self,v):
+        """Réutilise les contrôles P4.6 avant chaque finalisation, individuelle ou groupée."""
+        requests=self.stock.lignes(self.vente.remise_model,vente_id=v.id)
+        if any(r.statut=='DEMANDEE' for r in requests):raise ConflitStock('Remise en attente : encaissement interdit.')
+        from neosys_pharma.domain.remises import montant_remise
+        for r in requests:
+            if r.statut=='AUTORISEE':
+                eligible=self.vente.eligible(v,r);cap=self.vente.plafond_applicable(v,ident(r.autorisation['auteur_id']),r,montant_remise(r.type,r.valeur,eligible),eligible)
+                if str(cap.id)!=r.autorisation['plafond']['id'] or cap.revision!=r.autorisation['plafond']['revision']:raise ConflitStock('Autorisation de remise à revalider.')
+        return requests
+
+    def consommer_reservations(self,v):
+        """Valide et consomme les réservations de cette vente dans la transaction courante."""
+        for row in self.vente.lignes(v):
+            if not row.actif:continue
+            links=self.stock.lignes(ReservationVenteModel,ligne_id=row.id)
+            active=[self.stock.obtenir(ReservationStockModel,x.reservation_id) for x in links if self.stock.obtenir(ReservationStockModel,x.reservation_id).statut=='ACTIVE']
+            if sum(sum(a['quantite'] for a in self.stock.reservation_detail(r)['allocations']) for r in active)!=row.quantite:raise ConflitStock('Réservation incomplète.')
+            for reservation in active:self.stock.terminer_reservation(reservation.id,True,'VENTE','caisse.encaisser',True)
+
     def finaliser(self,key,data):
         session=self.session(data['session_id'],'caisse.encaisser',True)
         v=self.verifier_vente(key,session,data['revision'])
@@ -212,13 +235,7 @@ class CaisseService:
             account=self.stock.obtenir(CompteFideliteModel,data['compte_id'])
             if account.dette:raise ConflitStock('Dette de points : nouvelle utilisation interdite.')
             RegleFiscaleFidelite().verifier_utilisation()
-        requests=self.stock.lignes(self.vente.remise_model,vente_id=v.id)
-        if any(r.statut=='DEMANDEE' for r in requests):raise ConflitStock('Remise en attente : encaissement interdit.')
-        from neosys_pharma.domain.remises import montant_remise
-        for r in requests:
-            if r.statut=='AUTORISEE':
-                eligible=self.vente.eligible(v,r);cap=self.vente.plafond_applicable(v,ident(r.autorisation['auteur_id']),r,montant_remise(r.type,r.valeur,eligible),eligible)
-                if str(cap.id)!=r.autorisation['plafond']['id'] or cap.revision!=r.autorisation['plafond']['revision']:raise ConflitStock('Autorisation de remise à revalider.')
+        self.verifier_remises(v)
         finance=self.vente.finance(v);total=francs(finance['totaux']['ttc'],True)
         payments=[];used=set()
         for row in data['reglements']:
@@ -245,12 +262,7 @@ class CaisseService:
             compte=self.stock.obtenir(CompteFideliteModel,data['compte_id'])
             if data['revision_compte']!=compte.revision:raise ConflitStock('Compte fidélité modifié : actualiser et reconfirmer le titulaire.')
         # Revalidation des réservations et des péremptions dans la même transaction.
-        for row in self.vente.lignes(v):
-            if not row.actif:continue
-            links=self.stock.lignes(ReservationVenteModel,ligne_id=row.id)
-            active=[self.stock.obtenir(ReservationStockModel,x.reservation_id) for x in links if self.stock.obtenir(ReservationStockModel,x.reservation_id).statut=='ACTIVE']
-            if sum(sum(a['quantite'] for a in self.stock.reservation_detail(r)['allocations']) for r in active)!=row.quantite:raise ConflitStock('Réservation incomplète.')
-            for reservation in active:self.stock.terminer_reservation(reservation.id,True,'VENTE','caisse.encaisser',True)
+        self.consommer_reservations(v)
         p=self.periode();numero=p.prochain_encaissement;p.prochain_encaissement+=1
         org=self.s.get(OrganisationModel,self.org);site=self.s.get(SiteModel,self.site)
         snapshot=self.vente.detail(v)|{'organisation':org.nom_commercial,'site':site.nom,'date':now().isoformat(),'numero_encaissement':str(numero).zfill(4),'periode_z':p.numero,'reglements':jsonable_encoder(payments,custom_encoder={Decimal:str}),'caissier_id':str(self.stock.user),'fidelite':None,'etat':'ENCAISSEE'}

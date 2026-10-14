@@ -61,4 +61,6 @@ npm install --prefix /tmp/neosys_p46_jsdom jsdom@30.1.2 --no-audit --no-fund
 NODE_PATH=/tmp/neosys_p46_jsdom/node_modules node tests/dom_comptoir.cjs
 ```
 
-Les résultats locaux ne remplacent pas PostgreSQL/Chromium. Dans l’environnement de développement de cette livraison, Chromium n’a pas démarré et PostgreSQL n’était pas installé : les parcours enrichis et le test concurrent de création de document sont prêts mais non validés ici. Aucune capture navigateur P4.6 n’est donc annoncée comme recette réussie. Les confirmations/fonds/retours/quarantaine existants doivent faire partie de la recette humaine globale, pas être redéveloppés.
+Les premiers résultats locaux ne remplaçaient pas PostgreSQL/Chromium. La recette complète 38271053293 a depuis réussi sur `1ddc8c3ea1d37c3b307d57ad48a7e3ee8db44c28` : SQLite 385 réussis/22 ignorés, PostgreSQL 17 406 réussis/1 ignoré et neuf parcours Chromium, avec quatre captures P4.6. Le PDF de préparation n’était pas conservé dans cette archive ; une pièce historique fictive a été produite localement par le mécanisme existant, sans le modifier.
+
+Voir [le guide Windows et la stabilisation locale](P4_6_WINDOWS.md). La correction visuelle caisse et les compléments documentaires restent non committés et non poussés : la CI déjà réussie reste une validation du seul SHA précité. Le quota étant épuisé, aucun workflow ni relance n’est autorisé. Les confirmations/fonds/retours/quarantaine existants font partie de la recette humaine globale, sans redéveloppement.
