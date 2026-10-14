@@ -116,7 +116,7 @@ jobs:
           TEST_DATABASE_URL: postgresql+psycopg://neosys_test:isolated_ci_only@localhost:5432/neosys_test
           TEST_MIGRATION_DATABASE_URL: postgresql+psycopg://neosys_test:isolated_ci_only@localhost:5432/neosys_migration
         run: pytest -q
-  
+
   postgres_34:
     name: CI / concurrence PostgreSQL 18 - P4.6
     needs: changes
