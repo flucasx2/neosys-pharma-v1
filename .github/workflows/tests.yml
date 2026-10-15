@@ -111,13 +111,16 @@ jobs:
           with psycopg.connect('postgresql://neosys_test:isolated_ci_only@localhost:5432/neosys_test', autocommit=True) as c:
               c.execute('CREATE DATABASE neosys_migration')
               c.execute('CREATE DATABASE neosys_p4b_migration')
+              c.execute('CREATE DATABASE neosys_p4c_migration')
           PY
       - name: PostgreSQL suite, concurrency, security and migration cycles
         env:
           TEST_DATABASE_URL: postgresql+psycopg://neosys_test:isolated_ci_only@localhost:5432/neosys_test
           TEST_MIGRATION_DATABASE_URL: postgresql+psycopg://neosys_test:isolated_ci_only@localhost:5432/neosys_migration
           TEST_P4B_MIGRATION_DATABASE_URL: postgresql+psycopg://neosys_test:isolated_ci_only@localhost:5432/neosys_p4b_migration
+          TEST_P4C_MIGRATION_DATABASE_URL: postgresql+psycopg://neosys_test:isolated_ci_only@localhost:5432/neosys_p4c_migration
           P4B_CI_DISPOSABLE_DATABASE: '1'
+          P4C_CI_DISPOSABLE_DATABASE: '1'
         run: pytest -q
 
   browser:
