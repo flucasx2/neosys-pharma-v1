@@ -115,20 +115,29 @@ with sync_playwright() as playwright:
     organism_select = page.locator('#clients-organism-form [name=organisme_id]')
     principal_option = organism_select.locator('option').filter(has_text='Organisme principal QA')
     expect(principal_option).to_have_count(1)
-    choose(organism_select, principal_option.get_attribute('value'))
+    principal_id = principal_option.get_attribute('value')
+    choose(organism_select, principal_id)
+    assert organism_select.input_value() == principal_id
     choose(page.locator('#clients-organism-form [name=role]'), 'PRINCIPAL')
     type_field(page.locator('#clients-organism-form [name=reference]'), 'REF-P4B-1')
-    page.locator('#clients-organism-form button').click()
+    with page.expect_response(lambda response: response.request.method == 'POST' and '/organismes' in response.url) as association_response:
+        page.locator('#clients-organism-form button').click()
+    assert association_response.value.status == 201, association_response.value.text()
     expect(page.locator('#clients-organisms')).to_contain_text('Organisme principal QA')
 
     create_organism = page.locator('#clients-organism-create')
     type_field(create_organism.locator('[name=code]'), 'P4B-COMPLEMENT')
     type_field(create_organism.locator('[name=nom]'), 'Organisme complémentaire QA')
-    create_organism.get_by_role('button', name='Créer un organisme', exact=True).click()
+    assert create_organism.locator('[name=code]').input_value() == 'P4B-COMPLEMENT'
+    assert create_organism.locator('[name=nom]').input_value() == 'Organisme complémentaire QA'
+    with page.expect_response(lambda response: response.request.method == 'POST' and response.url.endswith('/organismes'), timeout=5000) as complementary_response:
+        create_organism.get_by_role('button', name='Créer un organisme', exact=True).click()
+    assert complementary_response.value.status == 201, complementary_response.value.text()
     expect(page.locator('#clients-message')).to_contain_text('Organisme créé')
     select = page.locator('#clients-organism-form [name=organisme_id]')
-    options = select.locator('option').evaluate_all('(xs) => xs.map(x => ({value:x.value,text:x.textContent}))')
-    complementary = next(option['value'] for option in options if 'Organisme complémentaire QA' in option['text'])
+    complementary_option = select.locator('option').filter(has_text='Organisme complémentaire QA')
+    expect(complementary_option).to_have_count(1)
+    complementary = complementary_option.get_attribute('value')
     choose(select, complementary)
     choose(page.locator('#clients-organism-form [name=role]'), 'COMPLEMENTAIRE')
     type_field(page.locator('#clients-organism-form [name=reference]'), 'REF-P4B-2')
