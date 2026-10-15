@@ -132,6 +132,7 @@ def test_migration_p4b_postgresql_natif_sur_base_jetable_dediee(monkeypatch):
     import sqlalchemy as sa
     from alembic import command
     from alembic.config import Config
+    from alembic.script import ScriptDirectory
     from neosys_pharma.infrastructure.config import get_settings
 
     url = os.getenv('TEST_P4B_MIGRATION_DATABASE_URL')
@@ -182,7 +183,8 @@ def test_migration_p4b_postgresql_natif_sur_base_jetable_dediee(monkeypatch):
             ), {'id': loyalty_id}).one()
             assert (result.nom, result.telephone) == ('Titulaire PostgreSQL', '070123456')
             assert result.profil_client_id is not None
-            assert connection.scalar(sa.text('SELECT version_num FROM alembic_version')) == '20261015_01'
+            assert connection.scalar(sa.text('SELECT version_num FROM alembic_version')) == \
+                ScriptDirectory.from_config(cfg).get_current_head()
     finally:
         engine.dispose()
         get_settings.cache_clear()

@@ -243,6 +243,10 @@ def downgrade() -> None:
         op.execute("DROP TRIGGER IF EXISTS caisse_mouvements_groupes_update_immutable")
         op.execute("DROP TRIGGER IF EXISTS caisse_mouvements_groupes_delete_immutable")
     elif bind.dialect.name == "postgresql":
+        op.execute(
+            "DROP TRIGGER IF EXISTS caisse_mouvements_groupes_immutable "
+            "ON caisse_mouvements_groupes"
+        )
         op.execute("DROP FUNCTION IF EXISTS caisse_mouvements_groupes_immutable()")
     for table in (
         "caisse_mouvements_groupes",
