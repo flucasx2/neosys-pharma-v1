@@ -66,7 +66,7 @@ with sync_playwright() as playwright:
         activate(modal().get_by_role('button', name='Enregistrer', exact=True))
         expect(page.locator('dialog[open]')).to_have_count(0)
 
-    login(page, 'vente.qa')
+    login(page, 'clients.qa')
     activate(page.locator('#nav-clients'))
     expect(page.locator('#clients-panel')).to_be_visible()
     wait_clients()
@@ -163,7 +163,7 @@ with sync_playwright() as playwright:
     # Reader role cannot open the client module or bypass its API permission.
     readonly = browser.new_context(viewport={'width': 1600, 'height': 1050})
     readonly_page = readonly.new_page()
-    login(readonly_page, 'vente.lecture.qa')
+    login(readonly_page, 'clients.lecture.qa')
     expect(readonly_page.locator('#nav-clients')).to_be_hidden()
     status = readonly_page.evaluate('''async (org) => (await fetch(`/api/clients/organisations/${org}`)).status''', fixture['organisation_id'])
     assert status == 403, status
