@@ -111,7 +111,7 @@ class LocalAPI(unittest.TestCase):
 
 class RequiredP45(unittest.TestCase):
     def make(self, root):
-        for pair in browser.JOURNEYS:
+        for pair in browser.JOURNEYS[:9]:
             for name in pair:
                 if name:
                     p=root/'tests'/name; p.parent.mkdir(exist_ok=True); p.touch()
@@ -122,10 +122,10 @@ class RequiredP45(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); self.make(root)
             names=[c[-1] for c in browser.commands(root)]
-            for _,journey in browser.JOURNEYS: self.assertIn('tests/'+journey,names)
+            for _,journey in browser.JOURNEYS[:9]: self.assertIn('tests/'+journey,names)
 
     def test_each_missing_known_p45_journey_is_rejected(self):
-        for _,journey in browser.JOURNEYS:
+        for _,journey in browser.JOURNEYS[:9]:
             with self.subTest(journey=journey), tempfile.TemporaryDirectory() as tmp:
                 root=Path(tmp); self.make(root); (root/'tests'/journey).unlink()
                 with self.assertRaisesRegex(ValueError,'obligatoires absents'): browser.commands(root)
@@ -140,11 +140,41 @@ class RequiredP45(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'obligatoires absents'): browser.commands(root)
 
     def test_each_seed_required_by_the_p45_chain_is_rejected_if_missing(self):
-        for seed,_ in browser.JOURNEYS:
+        for seed,_ in browser.JOURNEYS[:9]:
             if not seed: continue
             with self.subTest(seed=seed), tempfile.TemporaryDirectory() as tmp:
                 root=Path(tmp); self.make(root); (root/'tests'/seed).unlink()
                 with self.assertRaisesRegex(ValueError,'données absent'): browser.commands(root)
+
+
+class RequiredP4B(unittest.TestCase):
+    def make(self, root):
+        for pair in browser.JOURNEYS:
+            for name in pair:
+                if name:
+                    path = root / 'tests' / name
+                    path.parent.mkdir(exist_ok=True)
+                    path.touch()
+        (root / 'src/neosys_pharma/application/regularisation_service.py').parent.mkdir(parents=True, exist_ok=True)
+        (root / 'src/neosys_pharma/application/regularisation_service.py').touch()
+        (root / 'migrations/versions').mkdir(parents=True, exist_ok=True)
+        (root / 'migrations/versions/20261015_01_p4b.py').touch()
+
+    def test_p4b_chromium_journey_and_seed_are_scheduled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make(root)
+            commands = [command[-1] for command in browser.commands(root)]
+            self.assertEqual(commands[-2:], ['tests/seed_browser_clients.py', 'tests/browser_clients.py'])
+
+    def test_p4b_journey_and_seed_are_required(self):
+        for name in ('browser_clients.py', 'seed_browser_clients.py'):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self.make(root)
+                (root / 'tests' / name).unlink()
+                with self.assertRaisesRegex(ValueError, 'obligatoires absents|données absent'):
+                    browser.commands(root)
 
 
 if __name__=='__main__': unittest.main()

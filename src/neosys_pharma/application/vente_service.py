@@ -6,6 +6,7 @@ from sqlalchemy import select
 from neosys_pharma.domain.vente import EtatVente,ModeVente,LigneVente,transition,remise_valide
 from neosys_pharma.domain.stock import ConflitStock
 from neosys_pharma.infrastructure.vente_models import VenteModel,LigneVenteModel,ReservationVenteModel,DemandeRemiseModel,EvenementVenteModel
+from neosys_pharma.infrastructure.client_models import ClientModel
 from neosys_pharma.infrastructure.organisation_models import PosteVenteModel,CaisseModel
 from neosys_pharma.infrastructure.catalogue_models import ProduitModel,ReferenceProduitModel
 from neosys_pharma.infrastructure.stock_models import ReservationStockModel
@@ -44,8 +45,25 @@ class VenteService(RemisesService):
         poste=self.s.get(PosteVenteModel,data['poste_id'])
         if not poste or not poste.actif or poste.emplacement_id!=loc.id_emplacement:raise PermissionError('Poste de vente incompatible ou inactif.')
         if data['mode']=='CREDIT':self.stock.access('vente.credit',self.site,loc.id_emplacement)
+        client_id=data.get('client_id')
+        if client_id:
+            client=self.s.get(ClientModel,client_id)
+            if not client or client.organisation_id!=self.org or not client.actif:raise PermissionError('Fiche client absente, inactive ou hors organisation.')
         v=self.stock.ajouter(VenteModel,site_id=self.site,emplacement_id=loc.id_emplacement,poste_id=poste.id_poste_vente,vendeur_id=self.stock.user,mode=data['mode'],destinataire=data.get('destinataire',{}))
+        v.client_id=client_id
         self.evenement(v,'CREATION',mode=v.mode,poste_id=v.poste_id)
+        return self.detail(v)
+
+    def affecter_client(self,v,client_id,expected):
+        self.editable(v);self.revision(v,expected)
+        if client_id is not None:
+            client=self.s.get(ClientModel,client_id)
+            if not client or client.organisation_id!=self.org or not client.actif:
+                raise PermissionError('Fiche client absente, inactive ou hors organisation.')
+        previous=v.client_id
+        v.client_id=client_id;v.revision+=1
+        self.evenement(v,'CLIENT_AFFECTE',client_id=client_id,precedent=previous,revision=v.revision)
+        self.s.flush()
         return self.detail(v)
 
     def liberer_ligne(self,line):
@@ -145,4 +163,5 @@ class VenteService(RemisesService):
     def detail(self,v):
         rows=[r for r in self.lignes(v) if r.actif]
         finance=self.finance(v);totals=finance['totaux']
-        return {**serial(v),'lignes':[{**serial(r),'montants_appliques':finance['lignes'][str(r.id)],'reservations':[self.stock.reservation_detail(self.stock.obtenir(ReservationStockModel,x.reservation_id)) for x in self.stock.lignes(ReservationVenteModel,ligne_id=r.id)]} for r in rows],'totaux':totals,'part_client':totals['ttc'] if v.mode=='SANS_TIERS' else None,'prise_en_charge_disponible':v.mode=='SANS_TIERS','remises':[serial(r) for r in self.stock.lignes(self.remise_model,vente_id=v.id)]}
+        client=self.s.get(ClientModel,v.client_id) if v.client_id else None
+        return {**serial(v),'client':({'id':str(client.id),'nom':client.nom,'telephone':client.telephone} if client else None),'lignes':[{**serial(r),'montants_appliques':finance['lignes'][str(r.id)],'reservations':[self.stock.reservation_detail(self.stock.obtenir(ReservationStockModel,x.reservation_id)) for x in self.stock.lignes(ReservationVenteModel,ligne_id=r.id)]} for r in rows],'totaux':totals,'part_client':totals['ttc'] if v.mode=='SANS_TIERS' else None,'prise_en_charge_disponible':v.mode=='SANS_TIERS','remises':[serial(r) for r in self.stock.lignes(self.remise_model,vente_id=v.id)]}

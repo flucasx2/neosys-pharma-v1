@@ -16,6 +16,7 @@ JOURNEYS = (
     (None, "browser_proforma.py"),
     ("seed_browser_caisse.py", "browser_caisse.py"),
     ("seed_browser_regularisation.py", "browser_regularisation.py"),
+    ("seed_browser_clients.py", "browser_clients.py"),
 )
 
 
@@ -30,6 +31,8 @@ def commands(root):
             required_count = max(required_count, count)
     if list((root / "migrations/versions").glob("f22f6abb13c5_*.py")):
         required_count = 9
+    if list((root / "migrations/versions").glob("20261015_01_*.py")):
+        required_count = 10
     missing = {journey for _, journey in JOURNEYS[:required_count]} - present
     if missing:
         raise ValueError(f"Parcours obligatoires absents : {sorted(missing)}")

@@ -49,6 +49,8 @@ CAISSE_PERMISSIONS = (
     ("fidelite.gerer", "Créer les comptes, remplacer ou opposer les cartes"),
     ("fidelite.parametrer", "Configurer les barèmes historiques de fidélité"),
     ("fidelite.utiliser", "Utiliser des points avec consentement et règle fiscale validée"),
+    ("client.consulter", "Consulter les fiches client et leurs organismes associés"),
+    ("client.gerer", "Créer et modifier les fiches client et leurs associations"),
 )
 PERMISSIONS = P1_PERMISSIONS + P3_PERMISSIONS + P4_PERMISSIONS + CAISSE_PERMISSIONS + (
     ("catalogue.consulter", "Consulter le catalogue"),

@@ -206,8 +206,9 @@ class Browser(unittest.TestCase):
             p = Path(tmp); (p / 'tests').mkdir()
             for name in {n for pair in browser.JOURNEYS for n in pair if n}:
                 (p / 'tests' / name).touch()
-            self.assertEqual([c[-1] for c in browser.commands(p)][-2:],
-                             ['tests/seed_browser_regularisation.py', 'tests/browser_regularisation.py'])
+            names = [c[-1] for c in browser.commands(p)]
+            self.assertLess(names.index('tests/seed_browser_regularisation.py'), names.index('tests/browser_regularisation.py'))
+            self.assertEqual(names[-2:], ['tests/seed_browser_clients.py', 'tests/browser_clients.py'])
 
     def test_unknown_or_missing_seed_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:

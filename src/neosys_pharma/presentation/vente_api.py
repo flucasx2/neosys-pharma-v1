@@ -16,7 +16,7 @@ from neosys_pharma.infrastructure.vente_models import VenteModel,EvenementVenteM
 from neosys_pharma.presentation.stock_api import execute
 from neosys_pharma.application.stock_service import serial
 
-POLICY={'ventes_liste':'vente.consulter','vente_detail':'vente.consulter','vente_creer':'vente.preparer','ligne_enregistrer':'vente.preparer','ligne_retirer':'vente.preparer','vente_attendre':'vente.preparer','vente_reprendre':'vente.preparer','vente_valider':'vente.valider','vente_transmettre':'vente.transmettre','vente_annuler':'vente.annuler','remise_demander':'vente.remise.demander','remise_decider':'vente.remise.autoriser','vente_historique':'vente.consulter'}
+POLICY={'ventes_liste':'vente.consulter','vente_detail':'vente.consulter','vente_creer':'vente.preparer','ligne_enregistrer':'vente.preparer','ligne_retirer':'vente.preparer','vente_attendre':'vente.preparer','vente_reprendre':'vente.preparer','vente_valider':'vente.valider','vente_transmettre':'vente.transmettre','vente_annuler':'vente.annuler','remise_demander':'vente.remise.demander','remise_decider':'vente.remise.autoriser','vente_historique':'vente.consulter','vente_client_affecter':'vente.preparer'}
 
 def contexte(request:Request,organisation_id:UUID,user=Depends(utilisateur_courant),session:Session=Depends(get_db_session)):
     try:
@@ -55,6 +55,7 @@ class Creation(Mutation):
     emplacement_id:UUID
     poste_id:UUID
     mode:Literal['SANS_TIERS','CNAMGS','MUTUELLE','CNAMGS_MUTUELLE','CREDIT']='SANS_TIERS'
+    client_id:UUID|None=None
     destinataire:Destinataire|None=None
 class Ligne(Revision):
     ligne_id:UUID|None=None
@@ -66,6 +67,8 @@ class Ligne(Revision):
 class Action(Revision):
     caisse_id:UUID|None=None
     justification:str|None=Field(default=None,min_length=1,max_length=2000)
+class ClientAffectation(Revision):
+    client_id:UUID|None=None
 class Remise(Revision):
     ligne_id:UUID|None=None
     type:Literal['POURCENTAGE','MONTANT_XAF']
@@ -175,6 +178,13 @@ def remise_locale(vente_id:UUID,demande_id:UUID,data:Locale,request:Request,s=De
 
 @router.get('/{vente_id}')
 def vente_detail(vente_id:UUID,request:Request,s=Depends(service)):return execute(lambda:s.detail(vente(s,request,vente_id)))
+@router.put('/{vente_id}/client')
+def vente_client_affecter(vente_id:UUID,data:ClientAffectation,request:Request,s=Depends(service)):
+    # Selecting a profile requires both the preparation permission and client consultation.
+    try:request.state.vente_controle.organisation('client.consulter',s.org,s.site)
+    except PermissionError as e:raise HTTPException(403,'Permission client.consulter requise.') from e
+    v=vente(s,request,vente_id)
+    return mutation(s,data,'CLIENT:'+str(vente_id),lambda:s.affecter_client(v,data.client_id,data.revision))
 @router.get('/{vente_id}/historique')
 def vente_historique(vente_id:UUID,request:Request,page:int=Query(1,ge=1),page_size:int=Query(25,ge=1,le=100),s=Depends(service)):
     v=vente(s,request,vente_id)
