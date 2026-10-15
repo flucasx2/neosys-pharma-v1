@@ -87,3 +87,7 @@ REGULARISATION_PERMISSIONS = (
     ('stock.quarantaine.decider','Décider la remise en vente ou le refus sanitaire'),
 )
 PERMISSIONS += REGULARISATION_PERMISSIONS
+
+# P4.6/3.2 : catalogue uniquement ; aucun octroi à un rôle existant.
+ENCAISSEMENT_GROUPE_PERMISSIONS = (("caisse.encaisser.groupe", "Encaisser atomiquement plusieurs préparations autorisées"),)
+PERMISSIONS += ENCAISSEMENT_GROUPE_PERMISSIONS

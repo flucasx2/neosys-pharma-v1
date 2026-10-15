@@ -143,6 +143,9 @@ class VenteService(RemisesService):
         self.evenement(v,'REMISE_DEMANDEE',demande=serial(r));return serial(r)
 
     def detail(self,v):
+        from neosys_pharma.infrastructure.caisse_models import AppelVenteModel,ParametrageCaisseModel
+        call=self.s.scalar(select(AppelVenteModel).filter_by(organisation_id=self.org,vente_id=v.id))
+        config=self.s.scalar(select(ParametrageCaisseModel).filter_by(organisation_id=self.org))
         rows=[r for r in self.lignes(v) if r.actif]
         finance=self.finance(v);totals=finance['totaux']
-        return {**serial(v),'lignes':[{**serial(r),'montants_appliques':finance['lignes'][str(r.id)],'reservations':[self.stock.reservation_detail(self.stock.obtenir(ReservationStockModel,x.reservation_id)) for x in self.stock.lignes(ReservationVenteModel,ligne_id=r.id)]} for r in rows],'totaux':totals,'part_client':totals['ttc'] if v.mode=='SANS_TIERS' else None,'prise_en_charge_disponible':v.mode=='SANS_TIERS','remises':[serial(r) for r in self.stock.lignes(self.remise_model,vente_id=v.id)]}
+        return {**serial(v),'numero_appel':str(call.numero).zfill(4) if call else None,'periode_appel_id':str(call.periode_id) if call else None,'ticket_appel_active':config.ticket_appel if config else False,'lignes':[{**serial(r),'montants_appliques':finance['lignes'][str(r.id)],'reservations':[self.stock.reservation_detail(self.stock.obtenir(ReservationStockModel,x.reservation_id)) for x in self.stock.lignes(ReservationVenteModel,ligne_id=r.id)]} for r in rows],'totaux':totals,'part_client':totals['ttc'] if v.mode=='SANS_TIERS' else None,'prise_en_charge_disponible':v.mode=='SANS_TIERS','remises':[serial(r) for r in self.stock.lignes(self.remise_model,vente_id=v.id)]}

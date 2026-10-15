@@ -52,10 +52,12 @@ class ParametrageCaisseModel(EntiteVente,Base):
 
 class ConfirmationReglementModel(EntiteVente,Base):
     __tablename__='caisse_confirmations'
-    __table_args__=scoped('confirmation',org_fk('vente_id','ventes'),org_fk('session_id','caisse_sessions'),org_fk('auteur_id','utilisateurs','id_utilisateur'),UniqueConstraint('organisation_id','mode','reference'),CheckConstraint('montant > 0'),CheckConstraint("mode IN ('CARTE','MOBILE_MONEY','CHEQUE','VIREMENT')"),CheckConstraint("source IN ('MANUEL_TERMINAL','MANUEL_JUSTIFICATIF','TECHNIQUE_PRESTATAIRE')"))
-    vente_id:Mapped[UUID]=mapped_column(Uuid)
+    __table_args__=scoped('confirmation',org_fk('vente_id','ventes'),org_fk('dossier_groupe_id','caisse_dossiers_groupes'),CheckConstraint("(vente_id IS NOT NULL AND dossier_groupe_id IS NULL AND revision_vente IS NOT NULL AND revision_vente > 0 AND revision_groupe IS NULL) OR (vente_id IS NULL AND dossier_groupe_id IS NOT NULL AND revision_vente IS NULL AND revision_groupe IS NOT NULL AND revision_groupe > 0)",name='ck_confirmation_portee'),org_fk('session_id','caisse_sessions'),org_fk('auteur_id','utilisateurs','id_utilisateur'),UniqueConstraint('organisation_id','mode','reference'),CheckConstraint('montant > 0'),CheckConstraint("mode IN ('CARTE','MOBILE_MONEY','CHEQUE','VIREMENT')"),CheckConstraint("source IN ('MANUEL_TERMINAL','MANUEL_JUSTIFICATIF','TECHNIQUE_PRESTATAIRE')"))
+    vente_id:Mapped[UUID|None]=mapped_column(Uuid)
+    dossier_groupe_id:Mapped[UUID|None]=mapped_column(Uuid)
+    revision_groupe:Mapped[int|None]=mapped_column()
     session_id:Mapped[UUID]=mapped_column(Uuid)
-    revision_vente:Mapped[int]=mapped_column()
+    revision_vente:Mapped[int|None]=mapped_column()
     mode:Mapped[str]=mapped_column(String(30))
     montant:Mapped[Decimal]=mapped_column(MontantXAF())
     reference:Mapped[str]=mapped_column(String(200))
@@ -103,8 +105,10 @@ class BaremeFideliteModel(EntiteVente,Base):
 
 class EncaissementModel(EntiteVente,Base):
     __tablename__='caisse_encaissements'
-    __table_args__=scoped('encaissement',org_fk('vente_id','ventes'),org_fk('session_id','caisse_sessions'),org_fk('periode_id','caisse_periodes_site'),org_fk('compte_id','fidelite_comptes'),UniqueConstraint('vente_id'),UniqueConstraint('periode_id','numero'),CheckConstraint('numero > 0 AND total_xaf >= 0'))
-    vente_id:Mapped[UUID]=mapped_column(Uuid)
+    __table_args__=scoped('encaissement',org_fk('vente_id','ventes'),org_fk('dossier_groupe_id','caisse_dossiers_groupes'),UniqueConstraint('dossier_groupe_id',name='uq_encaissement_dossier'),CheckConstraint("(type_encaissement='INDIVIDUEL' AND vente_id IS NOT NULL AND dossier_groupe_id IS NULL) OR (type_encaissement='GROUPE' AND vente_id IS NULL AND dossier_groupe_id IS NOT NULL)",name='ck_encaissement_forme'),org_fk('session_id','caisse_sessions'),org_fk('periode_id','caisse_periodes_site'),org_fk('compte_id','fidelite_comptes'),UniqueConstraint('vente_id'),UniqueConstraint('periode_id','numero'),CheckConstraint('numero > 0 AND total_xaf >= 0'))
+    vente_id:Mapped[UUID|None]=mapped_column(Uuid)
+    type_encaissement:Mapped[str]=mapped_column(String(20),default='INDIVIDUEL',server_default='INDIVIDUEL')
+    dossier_groupe_id:Mapped[UUID|None]=mapped_column(Uuid)
     session_id:Mapped[UUID]=mapped_column(Uuid)
     periode_id:Mapped[UUID]=mapped_column(Uuid)
     numero:Mapped[int]=mapped_column()
@@ -117,7 +121,7 @@ class EncaissementModel(EntiteVente,Base):
 
 class ReglementModel(EntiteVente,Base):
     __tablename__='caisse_reglements'
-    __table_args__=scoped('reglement',org_fk('encaissement_id','caisse_encaissements'),org_fk('confirmation_id','caisse_confirmations'),UniqueConstraint('confirmation_id'),CheckConstraint('montant > 0 AND rendu >= 0 AND rendu <= montant'),CheckConstraint("mode IN ('ESPECES','CARTE','MOBILE_MONEY','CHEQUE','VIREMENT')"),CheckConstraint("(mode='ESPECES' AND confirmation_id IS NULL) OR (mode<>'ESPECES' AND confirmation_id IS NOT NULL AND rendu=0)"))
+    __table_args__=scoped('reglement',UniqueConstraint('id','encaissement_id','organisation_id',name='uq_reglement_enc_org'),org_fk('encaissement_id','caisse_encaissements'),org_fk('confirmation_id','caisse_confirmations'),UniqueConstraint('confirmation_id'),CheckConstraint('montant > 0 AND rendu >= 0 AND rendu <= montant'),CheckConstraint("mode IN ('ESPECES','CARTE','MOBILE_MONEY','CHEQUE','VIREMENT')"),CheckConstraint("(mode='ESPECES' AND confirmation_id IS NULL) OR (mode<>'ESPECES' AND confirmation_id IS NOT NULL AND rendu=0)"))
     encaissement_id:Mapped[UUID]=mapped_column(Uuid)
     confirmation_id:Mapped[UUID|None]=mapped_column(Uuid)
     mode:Mapped[str]=mapped_column(String(30))
@@ -191,3 +195,6 @@ for dialect in ('sqlite','postgresql'):
     for sql in paid_guard_sql(dialect):
         table=sql.split(' ON ')[1].split(' ')[0] if dialect=='sqlite' else next(t for t in ('vente_demandes_remise','vente_lignes','ventes') if t+'_paye_' in sql)
         event.listen(Base.metadata.tables[table],'after_create',DDL(sql).execute_if(dialect=dialect))
+
+# Enregistre les extensions de persistance, sans activer de route groupée.
+from neosys_pharma.infrastructure import encaissement_groupe_models

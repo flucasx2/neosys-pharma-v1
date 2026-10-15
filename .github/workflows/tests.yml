@@ -75,7 +75,7 @@ jobs:
           python-version: '3.14'
       - run: python -m pip install -e '.[dev]'
       - name: SQLite complete suite including HTTP authorization and CSRF
-        run: pytest -q
+        run: pytest -q --ignore=tests/test_encaissement_groupe_3_4_postgresql.py
 
   postgres:
     needs: [changes, sqlite]
@@ -116,6 +116,85 @@ jobs:
           TEST_DATABASE_URL: postgresql+psycopg://neosys_test:isolated_ci_only@localhost:5432/neosys_test
           TEST_MIGRATION_DATABASE_URL: postgresql+psycopg://neosys_test:isolated_ci_only@localhost:5432/neosys_migration
         run: pytest -q
+
+  postgres_34:
+    name: CI / concurrence PostgreSQL 18 - P4.6
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: neosys_test
+          POSTGRES_PASSWORD: isolated_ci_only
+          POSTGRES_DB: neosys_p46_validation_34_concurrence_temp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U neosys_test -d neosys_p46_validation_34_concurrence_temp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://neosys_test:isolated_ci_only@127.0.0.1:5432/neosys_p46_validation_34_concurrence_temp
+      EG34_CONFIRM_DATABASE: neosys_p46_validation_34_concurrence_temp
+      PGOPTIONS: "-c lock_timeout=5000 -c statement_timeout=30000"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Install dependencies
+        run: python -m pip install -e '.[dev]'
+
+      - name: Verify disposable database identity
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+
+          expected = "neosys_p46_validation_34_concurrence_temp"
+          assert os.environ["EG34_CONFIRM_DATABASE"] == expected
+
+          with psycopg.connect(
+              "postgresql://neosys_test:isolated_ci_only@127.0.0.1:5432/" + expected
+          ) as conn:
+              db, lock, statement = conn.execute(
+                  "SELECT current_database(), "
+                  "current_setting('lock_timeout'), "
+                  "current_setting('statement_timeout')"
+              ).fetchone()
+              assert db == expected
+              assert lock != "0" and statement != "0"
+          PY
+
+      - name: Apply migrations to disposable database
+        run: python -m alembic upgrade head
+
+      - name: Verify migration revision
+        run: |
+          python - <<'PY'
+          import os
+          from sqlalchemy import create_engine, text
+
+          engine = create_engine(os.environ["DATABASE_URL"])
+          with engine.connect() as conn:
+              versions = conn.execute(
+                  text("SELECT version_num FROM alembic_version")
+              ).scalars().all()
+              assert versions == ["eg32a2026"], versions
+          engine.dispose()
+          PY
+
+      - name: PostgreSQL native concurrency - stage 3.4
+        run: python -m pytest -q tests/test_encaissement_groupe_3_4_postgresql.py
 
   browser:
     needs: [changes, sqlite]
