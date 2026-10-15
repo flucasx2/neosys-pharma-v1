@@ -13,6 +13,7 @@ from neosys_pharma.infrastructure.caisse_models import *
 from neosys_pharma.infrastructure.organisation_models import CaisseModel,OrganisationModel,SiteModel
 from neosys_pharma.infrastructure.catalogue_models import ProduitModel,CategorieProduitModel
 from neosys_pharma.infrastructure.vente_models import ReservationVenteModel
+from neosys_pharma.infrastructure.client_models import ClientModel
 from neosys_pharma.infrastructure.stock_models import ReservationStockModel
 
 def serial(row):
@@ -128,9 +129,20 @@ class CaisseService:
 
     def creer_compte(self,data):
         phone=re.sub(r'[\s().-]','',data['telephone']) if data.get('telephone') else None
-        client=self.stock.ajouter(ClientFideliteModel,nom=texte(data['nom'],200),telephone=phone)
+        profile=self.stock.ajouter(ClientModel,nom=texte(data['nom'],200),telephone=phone)
+        client=self.stock.ajouter(ClientFideliteModel,nom=profile.nom,telephone=phone,profil_client_id=profile.id)
         row=self.stock.ajouter(CompteFideliteModel,client_id=client.id)
         self.trace('COMPTE_CREE',client=serial(client),compte_id=row.id)
+        return self.compte(row.id,'fidelite.gerer')
+
+    def creer_compte_pour_client(self,client_id):
+        profile=self.stock.obtenir(ClientModel,client_id)
+        if not profile.actif:raise ValueError('Une fiche client inactive ne peut pas adhérer à la fidélité.')
+        old=self.s.scalar(select(ClientFideliteModel).filter_by(organisation_id=self.org,profil_client_id=profile.id))
+        if old:raise ValueError('Cette fiche client possède déjà un compte fidélité.')
+        client=self.stock.ajouter(ClientFideliteModel,nom=profile.nom,telephone=profile.telephone,profil_client_id=profile.id)
+        row=self.stock.ajouter(CompteFideliteModel,client_id=client.id)
+        self.trace('COMPTE_CREE',client=serial(client),profil_client_id=profile.id,compte_id=row.id)
         return self.compte(row.id,'fidelite.gerer')
 
     def carte(self,key,data):

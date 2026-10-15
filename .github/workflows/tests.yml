@@ -110,11 +110,14 @@ jobs:
           import psycopg
           with psycopg.connect('postgresql://neosys_test:isolated_ci_only@localhost:5432/neosys_test', autocommit=True) as c:
               c.execute('CREATE DATABASE neosys_migration')
+              c.execute('CREATE DATABASE neosys_p4b_migration')
           PY
       - name: PostgreSQL suite, concurrency, security and migration cycles
         env:
           TEST_DATABASE_URL: postgresql+psycopg://neosys_test:isolated_ci_only@localhost:5432/neosys_test
           TEST_MIGRATION_DATABASE_URL: postgresql+psycopg://neosys_test:isolated_ci_only@localhost:5432/neosys_migration
+          TEST_P4B_MIGRATION_DATABASE_URL: postgresql+psycopg://neosys_test:isolated_ci_only@localhost:5432/neosys_p4b_migration
+          P4B_CI_DISPOSABLE_DATABASE: '1'
         run: pytest -q
 
   browser:
@@ -154,7 +157,7 @@ jobs:
           ref: ${{ needs.changes.outputs.control_sha }}
           path: .ci-control
           persist-credentials: false
-      - name: Existing browser journeys in seed order
+      - name: Browser journeys, including P4-B clients, in seed order
         env:
           DATABASE_URL: postgresql+psycopg://neosys_test:isolated_ci_only@localhost:5432/neosys_browser
           AUTH_COOKIE_SECURE: 'false'

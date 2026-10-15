@@ -161,6 +161,30 @@ def test_fidelite_cartes_telephone_et_baremes_historiques(raw_client,account):
     # Historical PDF does not change with the next barème.
     assert c.get(root(a)+f'/recus/{result["id"]}/pdf').status_code==200
 
+
+def test_historique_client_affiche_les_ventes_liees_avec_pagination(raw_client,account):
+    c,a=raw_client,account;v,se,product,pack,pid,cid=ready(c,a)
+    ca=post(c,a,'/fidelite',{'nom':'Client historique','telephone':'070 123 456'})
+    first=final(c,a,v,se,compte_id=ca['id'],revision_compte=ca['revision'])
+
+    second=line(c,a,create(c,a,pid),product,pack,3)
+    second=act(c,a,second,'valider')
+    second=act(c,a,second,'transmettre',caisse_id=cid)
+    current=c.get(root(a)+f'/fidelite/{ca["id"]}').json()
+    current_session=next(x for x in c.get(root(a)+'/sessions').json()['items'] if x['id']==se['id'])
+    second_receipt=final(c,a,second,current_session,compte_id=ca['id'],revision_compte=current['revision'])
+
+    history_url=root(a)+f'/fidelite/{ca["id"]}/ventes'
+    page1=c.get(history_url,params={'page':1,'page_size':1})
+    page2=c.get(history_url,params={'page':2,'page_size':1})
+    assert page1.status_code==page2.status_code==200
+    assert page1.json()['total']==2 and page2.json()['total']==2
+    first_item=page1.json()['items'][0];second_item=page2.json()['items'][0]
+    assert {first_item['encaissement_id'],second_item['encaissement_id']}=={first['id'],second_receipt['id']}
+    assert {first_item['vente_id'],second_item['vente_id']}=={v['id'],second['id']}
+    assert all(item['numero_recu'] and item['total_xaf'] and item['date'] for item in (first_item,second_item))
+    assert first_item['encaissement_id']!=second_item['encaissement_id']
+
 @pytest.mark.parametrize('state',['inactive','expired','future','no_assignment','no_role','no_permission','no_location','split_assignments'])
 def test_caisse_refus_affectations_http(raw_client,account,state):
     c,a=raw_client,account;v,se,*_=ready(c,a);set_state(c,a,state)
@@ -232,6 +256,7 @@ def test_compte_partage_entre_sites_explicitement_affectes(raw_client,account):
     ca=post(c,a,'/fidelite',{'nom':'Titulaire multisites'})
     rule(c,a,category(c,a,product));final(c,a,v,se,compte_id=ca['id'],revision_compte=ca['revision'])
     c.headers['X-Site-ID']=str(a['other']);assert c.get(root(a)+f'/fidelite/{ca["id"]}').status_code==403
+    assert c.get(root(a)+f'/fidelite/{ca["id"]}/ventes').status_code==403
     from neosys_pharma.infrastructure.securite_models import RoleModel,AffectationSiteModel,AffectationRoleModel,AffectationEmplacementModel
     gen=db(c);s=next(gen)
     try:
@@ -242,8 +267,10 @@ def test_compte_partage_entre_sites_explicitement_affectes(raw_client,account):
     finally:gen.close()
     response=c.get(root(a)+f'/fidelite/{ca["id"]}');assert response.status_code==200,response.text;assert response.json()['points']==3
     assert c.get(root(a)+f'/fidelite/{ca["id"]}/journal').json()['total']==0
+    assert c.get(root(a)+f'/fidelite/{ca["id"]}/ventes').json()['total']==0
     c.headers['X-Site-ID']=str(a['site'])
     assert c.get(root(a)+f'/fidelite/{ca["id"]}/journal').json()['total']==1
+    assert c.get(root(a)+f'/fidelite/{ca["id"]}/ventes').json()['total']==1
 
 
 def test_acquisition_sous_categories_et_aucun_taux_implicite(raw_client,account):
@@ -267,6 +294,7 @@ def test_migration_p44_cycle_et_permissions_non_attribuees(tmp_path,monkeypatch)
             from neosys_pharma.infrastructure.securite_models import PermissionModel
             assert c.scalar(select(func.count()).select_from(PermissionModel).where(PermissionModel.code.in_([code for code,_ in CAISSE_PERMISSIONS])))==len(CAISSE_PERMISSIONS)
             assert c.execute(text("SELECT count(*) FROM roles_permissions JOIN permissions ON permission_id=id_permission WHERE code LIKE 'caisse.%' OR code LIKE 'fidelite.%'")).scalar()==0
+            assert c.execute(text("SELECT count(*) FROM roles_permissions JOIN permissions ON permission_id=id_permission WHERE code LIKE 'client.%'")).scalar()==0
         command.downgrade(cfg,'0001e4d5d008');assert 'caisse_encaissements' not in inspect(engine).get_table_names() and 'proformas' in inspect(engine).get_table_names()
         command.upgrade(cfg,'head');command.check(cfg)
     finally:engine.dispose();get_settings.cache_clear()

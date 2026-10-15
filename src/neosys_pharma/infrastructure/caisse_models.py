@@ -2,11 +2,12 @@
 from datetime import date,datetime,timezone
 from decimal import Decimal
 from uuid import UUID
-from sqlalchemy import Uuid,String,JSON,Numeric,Date,DateTime,LargeBinary,UniqueConstraint,ForeignKeyConstraint,CheckConstraint,Index,text,event,DDL
+from sqlalchemy import Uuid,String,JSON,Numeric,Date,DateTime,LargeBinary,UniqueConstraint,ForeignKey,ForeignKeyConstraint,CheckConstraint,Index,text,event,DDL
 from sqlalchemy.orm import Mapped,mapped_column
 from neosys_pharma.infrastructure.database import Base
 from neosys_pharma.infrastructure.montant_xaf import MontantXAF
 from neosys_pharma.infrastructure.vente_models import EntiteVente
+from neosys_pharma.infrastructure.client_models import ClientModel
 
 def now():return datetime.now(timezone.utc)
 def org_fk(local,table,remote='id'):
@@ -66,9 +67,10 @@ class ConfirmationReglementModel(EntiteVente,Base):
 
 class ClientFideliteModel(EntiteVente,Base):
     __tablename__='fidelite_clients'
-    __table_args__=scoped('client_fidelite')
+    __table_args__=scoped('client_fidelite',Index('uq_fidelite_client_profil','profil_client_id',unique=True),org_fk('profil_client_id','clients'))
     nom:Mapped[str]=mapped_column(String(200))
     telephone:Mapped[str|None]=mapped_column(String(80),index=True)
+    profil_client_id:Mapped[UUID|None]=mapped_column(Uuid)
 
 class CompteFideliteModel(EntiteVente,Base):
     __tablename__='fidelite_comptes'

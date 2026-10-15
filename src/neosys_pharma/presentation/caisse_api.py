@@ -19,7 +19,7 @@ POLICY.update({
  'caisse_config':'caisse.parametrer','caisse_sessions':'caisse.consulter','caisse_ouvrir':'caisse.session.gerer','caisse_fermer':'caisse.session.gerer',
  'caisse_attente':'caisse.consulter','caisse_vente':'caisse.consulter','caisse_confirmer':'caisse.paiement.confirmer','caisse_rapprocher':'caisse.paiement.confirmer','caisse_finaliser':'caisse.encaisser',
  'caisse_recus':'caisse.consulter','caisse_recu':'caisse.consulter','caisse_recu_pdf':'caisse.consulter','caisse_appel_pdf':'vente.consulter','caisse_mouvements':'caisse.consulter',
- 'fidelite_recherche':'fidelite.consulter','fidelite_detail':'fidelite.consulter','fidelite_journal':'fidelite.consulter','fidelite_creer':'fidelite.gerer','fidelite_carte':'fidelite.gerer','fidelite_opposer':'fidelite.gerer',
+ 'fidelite_recherche':'fidelite.consulter','fidelite_detail':'fidelite.consulter','fidelite_journal':'fidelite.consulter','fidelite_ventes':'fidelite.consulter','fidelite_creer':'fidelite.gerer','fidelite_carte':'fidelite.gerer','fidelite_opposer':'fidelite.gerer',
  'fidelite_baremes':'fidelite.parametrer','fidelite_bareme':'fidelite.parametrer','fidelite_clore':'fidelite.parametrer'})
 router=APIRouter(prefix='/api/caisses/organisations/{organisation_id}',tags=['Encaissement et fidélité'],dependencies=[Depends(contexte)])
 def service(v=Depends(vente_service)):return CaisseService(v)
@@ -171,6 +171,24 @@ def fidelite_journal(key:UUID,page_:int=Query(1,alias='page',ge=1),page_size:int
     execute(lambda:s.compte(key))
     from neosys_pharma.infrastructure.regularisation_models import CompensationRetourModel,RetourVenteModel
     return page(s,select(JournalFideliteModel).outerjoin(CompensationRetourModel,CompensationRetourModel.journal_id==JournalFideliteModel.id).outerjoin(RetourVenteModel,RetourVenteModel.id==CompensationRetourModel.retour_id).join(EncaissementModel,EncaissementModel.id==func.coalesce(JournalFideliteModel.encaissement_id,RetourVenteModel.encaissement_id)).join(VenteModel,VenteModel.id==EncaissementModel.vente_id).where(JournalFideliteModel.organisation_id==s.org,JournalFideliteModel.compte_id==key,VenteModel.site_id==s.site,VenteModel.emplacement_id.in_(locations(s,'fidelite.consulter'))).order_by(JournalFideliteModel.date,JournalFideliteModel.id),page_,page_size)
+@router.get('/fidelite/{key}/ventes')
+def fidelite_ventes(key:UUID,page_:int=Query(1,alias='page',ge=1),page_size:int=Query(25,ge=1,le=100),s=Depends(service)):
+    """Historique des ventes encaissées et explicitement liées au compte fidélité."""
+    execute(lambda:s.compte(key))
+    q=(select(EncaissementModel)
+       .join(VenteModel,VenteModel.id==EncaissementModel.vente_id)
+       .where(EncaissementModel.organisation_id==s.org,
+              EncaissementModel.compte_id==key,
+              VenteModel.site_id==s.site,
+              VenteModel.emplacement_id.in_(locations(s,'fidelite.consulter')))
+       .order_by(EncaissementModel.date.desc(),EncaissementModel.id.desc()))
+    def item(encaissement):
+        vente=s.s.get(VenteModel,encaissement.vente_id)
+        return {'vente_id':str(vente.id),'encaissement_id':str(encaissement.id),
+                'numero_recu':str(encaissement.numero).zfill(4),
+                'date':encaissement.date.isoformat(),'total_xaf':str(encaissement.total_xaf),
+                'mode_vente':vente.mode}
+    return page(s,q,page_,page_size,item)
 @router.post('/fidelite/{key}/cartes',status_code=201)
 def fidelite_carte(key:UUID,d:Carte,s=Depends(service)):
     execute(lambda:s.compte(key,'fidelite.gerer'))
