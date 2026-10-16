@@ -332,7 +332,10 @@ function cgRenderDraft() {
   const d = cashGroupState.draft;
   cg("draft").hidden = !d;
   if (!d) return;
-  if (!cashGroupState.payments.length && d.reglements.length) cashGroupState.payments = d.reglements.map(row => ({ mode: row.mode, montant: String(row.montant), rendu: String(row.rendu), confirmation_id: row.confirmation_id }));
+  // Un brouillon abandonné ne doit pas réhydrater les règlements du serveur
+  // dans le formulaire éditable. Conserver les données historiques côté dossier.
+  if (d.dossier.etat === "ABANDONNE") cashGroupState.payments = [];
+  else if (!cashGroupState.payments.length && d.reglements.length) cashGroupState.payments = d.reglements.map(row => ({ mode: row.mode, montant: String(row.montant), rendu: String(row.rendu), confirmation_id: row.confirmation_id }));
   cashGroupState.allocations = d.allocations;
   cg("resume-id").value = d.dossier.id;
   cgRememberDraft(d.dossier.id);
