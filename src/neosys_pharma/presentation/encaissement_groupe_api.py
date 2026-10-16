@@ -1,9 +1,11 @@
 """API P4-C.3 des brouillons et de la finalisation groupée protégée par défaut."""
 from decimal import Decimal
+import os
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import Field
+from sqlalchemy.engine import make_url
 
 from neosys_pharma.application.caisse_service import CaisseService
 from neosys_pharma.application.encaissement_groupe_service import EncaissementGroupeService
@@ -11,8 +13,24 @@ from neosys_pharma.presentation.vente_api import POLICY, contexte, service as ve
 from neosys_pharma.presentation.stock_api import execute
 
 
-# L'interface de finalisation reste volontairement indisponible dans P4-C.3a.
-GROUPED_ENCASHMENT_ENABLED = False
+# Activation réservée au job Chromium sur sa base PostgreSQL locale et jetable
+# nommée neosys_browser. Hors CI, sans marqueur de recette ou sur un hôte distant,
+# la finalisation est fermée.
+def _grouped_encashment_enabled():
+    if os.getenv("GROUPED_ENCASHMENT_ENABLED", "").lower() != "true":
+        return False
+    if os.getenv("CI", "").lower() != "true":
+        return False
+    if os.getenv("P4C4_CI_DISPOSABLE_DATABASE", "") != "1":
+        return False
+    try:
+        url = make_url(os.getenv("DATABASE_URL", ""))
+    except Exception:
+        return False
+    return url.database == "neosys_browser" and url.host in {"localhost", "127.0.0.1", "::1"}
+
+
+GROUPED_ENCASHMENT_ENABLED = _grouped_encashment_enabled()
 
 POLICY.update({
     "groupe_creer": "caisse.encaisser",
@@ -24,6 +42,7 @@ POLICY.update({
     "groupe_abandonner": "caisse.encaisser",
     "groupe_finaliser": "caisse.encaisser",
     "groupe_recu_pdf": "caisse.consulter",
+    "groupe_activation": "caisse.consulter",
 })
 
 router = APIRouter(
@@ -31,6 +50,12 @@ router = APIRouter(
     tags=["Encaissement groupé — brouillons"],
     dependencies=[Depends(contexte)],
 )
+
+
+@router.get("/activation", name="groupe_activation")
+def groupe_activation():
+    """État du verrou UI; l'autorisation réelle reste vérifiée à la finalisation."""
+    return {"finalisation_active": GROUPED_ENCASHMENT_ENABLED}
 
 
 def service(request: Request, base=Depends(vente_service)):
