@@ -833,6 +833,7 @@ def test_finalisation_groupe_rollback_apres_creation_des_reçus(raw_client, acco
 
 def test_concurrence_postgresql_finalisation_groupe_meme_cle(raw_client, account):
     from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
     from sqlalchemy.orm import Session
     from neosys_pharma.infrastructure.caisse_models import EncaissementGroupeModel
     from neosys_pharma.application.encaissement_groupe_service import EncaissementGroupeService
@@ -865,10 +866,12 @@ def test_concurrence_postgresql_finalisation_groupe_meme_cle(raw_client, account
     gen.close()
     if engine.dialect.name != "postgresql":
         pytest.skip("Deux connexions PostgreSQL natives requises pour ce contrôle.")
+    start = Barrier(2)
 
     def finalize(_):
         with Session(engine) as independent:
             independent.execute(text("SET statement_timeout = '8s'"))
+            start.wait(timeout=5)
             stock = StockService(independent, a["org"], a["user"], lambda *args: None)
             cash = CaisseService(VenteService(stock, a["site"]))
             grouped = EncaissementGroupeService(cash)
@@ -895,6 +898,7 @@ def test_concurrence_postgresql_finalisation_groupe_meme_cle(raw_client, account
 
 def test_concurrence_postgresql_encaissement_individuel_contre_groupe(raw_client, account):
     from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
     from sqlalchemy.orm import Session
     from neosys_pharma.application.encaissement_groupe_service import EncaissementGroupeService
 
@@ -931,10 +935,12 @@ def test_concurrence_postgresql_encaissement_individuel_contre_groupe(raw_client
     gen.close()
     if engine.dialect.name != "postgresql":
         pytest.skip("Deux connexions PostgreSQL natives requises pour ce contrôle.")
+    start = Barrier(2)
 
     def run_group():
         with Session(engine) as independent:
             independent.execute(text("SET statement_timeout = '8s'"))
+            start.wait(timeout=5)
             stock = StockService(independent, a["org"], a["user"], lambda *args: None)
             grouped = EncaissementGroupeService(CaisseService(VenteService(stock, a["site"])))
             try:
@@ -947,6 +953,7 @@ def test_concurrence_postgresql_encaissement_individuel_contre_groupe(raw_client
     def run_individual():
         with Session(engine) as independent:
             independent.execute(text("SET statement_timeout = '8s'"))
+            start.wait(timeout=5)
             stock = StockService(independent, a["org"], a["user"], lambda *args: None)
             cash = CaisseService(VenteService(stock, a["site"]))
             try:
@@ -966,6 +973,7 @@ def test_concurrence_postgresql_encaissement_individuel_contre_groupe(raw_client
 
 def test_concurrence_postgresql_deux_dossiers_meme_vente(raw_client, account):
     from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
     from sqlalchemy.orm import Session
     from neosys_pharma.application.encaissement_groupe_service import EncaissementGroupeService
 
@@ -986,12 +994,14 @@ def test_concurrence_postgresql_deux_dossiers_meme_vente(raw_client, account):
     gen.close()
     if engine.dialect.name != "postgresql":
         pytest.skip("Deux connexions PostgreSQL natives requises pour ce contrôle.")
+    start = Barrier(2)
 
     def finalize(item):
         group_id, data = item
         key = uuid4()
         with Session(engine) as independent:
             independent.execute(text("SET statement_timeout = '8s'"))
+            start.wait(timeout=5)
             stock = StockService(independent, a["org"], a["user"], lambda *args: None)
             grouped = EncaissementGroupeService(CaisseService(VenteService(stock, a["site"])))
             try:
