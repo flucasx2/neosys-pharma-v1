@@ -928,7 +928,6 @@ def test_finalisation_groupe_atomique_reçus_mouvements_fidelite_et_rejeu(
     }).status_code == 409
 
 
-
 def test_finalisation_groupe_rollback_apres_creation_des_reçus(raw_client, account, monkeypatch):
     from neosys_pharma.presentation import encaissement_groupe_api
 
