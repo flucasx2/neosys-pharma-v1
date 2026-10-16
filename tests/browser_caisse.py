@@ -91,7 +91,7 @@ with sync_playwright() as p:
     allocation = page.locator('#cash-group-allocation-body input').first; original_allocation = int(allocation.input_value()); allocation.fill(str(original_allocation-1)); activate(page.get_by_role('button',name='Enregistrer la ventilation manuelle',exact=True)); expect(page.locator('#cash-message')).to_contain_text('Ventilation invalide')
     allocation.fill(str(original_allocation)); activate(page.get_by_role('button',name='Enregistrer la ventilation manuelle',exact=True)); expect(page.locator('#cash-group-allocation-status')).to_contain_text('ventilation équilibrée')
     expect(page.locator('#cash-group-finalise')).to_be_disabled(); expect(page.locator('#cash-group-payments')).to_contain_text('CARTE'); shot('p4c4-brouillon-groupe.png')
-    activate(page.get_by_role('button',name='Abandonner le brouillon',exact=True)); expect(page.locator('#cash-group-status')).to_contain_text('ABANDONNE')
+    activate(page.get_by_role('button',name='Abandonner le brouillon',exact=True)); expect(page.locator('#cash-group-status')).to_contain_text('ABANDONNE'); expect(page.locator('#cash-group-payments fieldset')).to_have_count(0)
     activate(page.get_by_role('button',name='Encaissement simple',exact=True)); expect(page.locator('#cash-group-selected-total')).to_contain_text('0 ticket(s)'); expect(page.locator('#cash-waiting').locator('xpath=ancestor::article[1]')).to_be_visible()
     page.unroute('**/api/caisses/organisations/*/groupes**'); page.unroute('**/api/caisses/organisations/*/ventes/*')
     # Recette PostgreSQL jetable : finalisation réelle via P4-C.3. Le premier
@@ -105,6 +105,7 @@ with sync_playwright() as p:
         checkbox=page.get_by_role('checkbox',name='Sélectionner la vente '+sale_id[:8]);checkbox.check()
         expect(page.locator('#cash-group-selected-total')).to_contain_text(f'{count} ticket(s)')
     activate(page.get_by_role('button',name='Créer un brouillon groupé',exact=True)); expect(page.locator('#cash-group-status')).to_contain_text('BROUILLON')
+    expect(page.locator('#cash-group-payments fieldset')).to_have_count(0)
     expect(page.locator('#cash-group-draft-sales tr')).to_have_count(3)
     first_loyalty=page.locator('#cash-group-loyalty-'+f['p44_vente_1']);third_loyalty=page.locator('#cash-group-loyalty-'+f['p44_vente_3']);blocked_loyalty=page.locator('#cash-group-loyalty-'+f['p44_vente_2'])
     expect(first_loyalty).to_contain_text('Cliente fidélité A');expect(third_loyalty).to_contain_text('Cliente fidélité A')

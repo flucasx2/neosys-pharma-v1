@@ -133,6 +133,14 @@ function cgBusy(value) {
   if (value) for (const button of cg("panel").querySelectorAll("button")) button.disabled = true;
   else { cgRenderSelection(); if (cashGroupState.draft) cgRenderDraft(); }
 }
+function cgResetDraftTransient() {
+  cashGroupState.payments = [];
+  cashGroupState.allocations = [];
+  cashGroupState.loyalty.clear();
+  cashGroupState.mutationRetry = null;
+  cashGroupState.finalisationKey = null;
+  cashGroupState.finalisationPayload = null;
+}
 function cgInt(value) { return /^\d+$/.test(String(value)) ? Number(value) : NaN; }
 function cgSelectedTotal() {
   return [...cashGroupState.selected.values()].reduce((sum, sale) => sum + Number(sale.totaux.ttc), 0);
@@ -237,6 +245,7 @@ async function cgCreateDraft() {
   if (cashGroupState.draft?.dossier?.etat === "BROUILLON") return cgAddSelected();
   cgRequireSession(); cgPermissionForSelection();
   if (cashGroupState.selected.size < 2) throw new Error("Sélectionnez au moins deux tickets.");
+  cgResetDraftTransient();
   cgBusy(true);
   try {
     const created = await cgMutation("", "POST", { session_id: cashState.session.id });
@@ -565,7 +574,7 @@ async function cgAbandon() {
   cgBusy(true);
   try {
     cashGroupState.draft = await cgMutation(`/${d.dossier.id}/abandonner`, "POST", { revision: d.dossier.revision });
-    cashGroupState.mutationRetry = null; cgRenderDraft(); cgMessage("Brouillon abandonné. Aucune écriture financière n’a été effectuée.");
+    cgResetDraftTransient(); cgRenderDraft(); cgMessage("Brouillon abandonné. Aucune écriture financière n’a été effectuée.");
   } catch (error) { cgFailure(error); }
   finally { cgBusy(false); }
 }
