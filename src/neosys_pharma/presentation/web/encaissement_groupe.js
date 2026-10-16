@@ -127,6 +127,12 @@ function cgMessage(text, error = false) {
   const node = $("cash-message"); node.textContent = text || "";
   node.classList.toggle("error", Boolean(error));
 }
+function cgSyncFinaliseButton() {
+  const button = cg("finalise");
+  const enabled = cgCanFinalize();
+  button.disabled = !enabled;
+  button.setAttribute("aria-disabled", String(!enabled));
+}
 function cgBusy(value) {
   cashGroupState.busy = value;
   cg("panel").setAttribute("aria-busy", String(value));
@@ -229,7 +235,7 @@ async function cgLoadActivation() {
     ? "L’API a autorisé la finalisation dans cet environnement. Vérifiez le récapitulatif avant validation."
     : "La finalisation groupée demeure désactivée par le serveur hors de la recette isolée.";
   cg("finalise").textContent = cashGroupState.finalisationEnabled ? "Finaliser le dossier" : "Finalisation indisponible";
-  if (cashGroupState.draft) cg("finalise").disabled = !cgCanFinalize();
+  if (cashGroupState.draft) cgSyncFinaliseButton();
 }
 function cgRenderSelection() {
   const rows = [...cashGroupState.selected.values()];
@@ -362,7 +368,7 @@ function cgRenderDraft() {
   cgRenderPayments(); cgRenderAllocations(); cgRenderReview(); cgRenderReceipts();
   const editable = d.dossier.etat === "BROUILLON";
   for (const id of ["add-payment", "save-payments", "auto", "save-allocations", "abandon", "add-selected"]) cg(id).disabled = !editable || cashGroupState.busy;
-  cg("finalise").disabled = !cgCanFinalize();
+  cgSyncFinaliseButton();
 }
 function cgRenderLoyaltyCell(cell, sale) {
   cell.replaceChildren();
