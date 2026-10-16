@@ -98,8 +98,9 @@ class RegularisationService:
         pdf=document_pdf(data);return data,pdf,sha256(pdf).hexdigest()
     def session_summary(self,session):
         payments=self.s.scalars(select(MouvementCaisseModel).where(MouvementCaisseModel.organisation_id==self.org,MouvementCaisseModel.session_id==session.id)).all()
+        grouped=self.stock.lignes(MouvementCaisseGroupeModel,session_id=session.id)
         extras=self.stock.lignes(MouvementFinancierModel,session_id=session.id)
-        modes={mode:str(sum((m.montant_net for m in payments if m.mode==mode),Decimal(0))+sum((m.montant for m in extras if m.mode==mode),Decimal(0))) for mode in MODES}
+        modes={mode:str(sum((m.montant_net for m in payments if m.mode==mode),Decimal(0))+sum((m.montant_net for m in grouped if m.mode==mode),Decimal(0))+sum((m.montant for m in extras if m.mode==mode),Decimal(0))) for mode in MODES}
         return self.cash.session_detail(session)|{'nets_par_mode':modes}
     def cloture_x(self,data):
         session=self.cash.session(data['session_id'],'caisse.cloture.x');self.revision(session,data)
@@ -114,6 +115,11 @@ class RegularisationService:
         result=[]
         for c in self.s.scalars(query):
             if self.stock.lignes(ReglementModel,confirmation_id=c.id):continue
+            group_reglements=self.stock.lignes(ReglementGroupeModel,confirmation_id=c.id)
+            if group_reglements:
+                group=self.stock.obtenir(EncaissementGroupeModel,group_reglements[0].dossier_id)
+                if group.etat=='FINALISE':continue
+                if group.etat=='ABANDONNE':continue
             refunded=self.stock.lignes(RemboursementModel,confirmation_id=c.id,etat='EXECUTE')
             if not refunded:result.append(c)
         return result
@@ -208,7 +214,14 @@ class RegularisationService:
         if data.get('retour_id'):
             ret,enc=self.retour_scope(data['retour_id'],'caisse.remboursement.demander');amount=ret.montant
             # Reserve original-mode budgets across all requested dossiers, including concurrent requests.
-            paid={m:sum((r.montant-r.rendu for r in self.stock.lignes(ReglementModel,encaissement_id=enc.id) if r.mode==m),Decimal(0)) for m in MODES}
+            group_link=self.s.scalar(select(EncaissementGroupeVenteModel).where(EncaissementGroupeVenteModel.organisation_id==self.org,EncaissementGroupeVenteModel.encaissement_id==enc.id))
+            if group_link:
+                paid={mode:Decimal(0) for mode in MODES}
+                for allocation in self.stock.lignes(AllocationReglementGroupeModel,dossier_id=group_link.dossier_id,vente_id=group_link.vente_id):
+                    grouped_payment=self.stock.obtenir(ReglementGroupeModel,allocation.reglement_id)
+                    paid[grouped_payment.mode]+=allocation.montant
+            else:
+                paid={m:sum((r.montant-r.rendu for r in self.stock.lignes(ReglementModel,encaissement_id=enc.id) if r.mode==m),Decimal(0)) for m in MODES}
             returnids={r.id for r in self.stock.lignes(RetourVenteModel,encaissement_id=enc.id)}
             for old in self.stock.lignes(RemboursementModel):
                 if old.retour_id in returnids:
@@ -216,7 +229,10 @@ class RegularisationService:
                         original=p.get('mode_origine',p['mode']);paid[original]-=Decimal(p['montant'])
         else:
             confirmation=self.stock.obtenir(ConfirmationReglementModel,data['confirmation_id']);self.vente.obtenir(confirmation.vente_id,'caisse.remboursement.demander')
-            if self.stock.lignes(ReglementModel,confirmation_id=confirmation.id):raise ConflitStock('Paiement déjà encaissé : utiliser un retour de vente.')
+            if (self.stock.lignes(ReglementModel,confirmation_id=confirmation.id)
+                    or any(self.stock.obtenir(EncaissementGroupeModel,row.dossier_id).etat=='FINALISE'
+                           for row in self.stock.lignes(ReglementGroupeModel,confirmation_id=confirmation.id))):
+                raise ConflitStock('Paiement déjà encaissé : utiliser un retour de vente.')
             amount=confirmation.montant;paid={m:amount if m==confirmation.mode else Decimal(0) for m in MODES}
         planned=[]
         for row in data['reglements']:

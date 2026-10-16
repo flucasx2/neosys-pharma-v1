@@ -73,9 +73,10 @@ class CaisseService:
 
     def session_detail(self,row):
         cash=self.s.scalar(select(func.coalesce(func.sum(MouvementCaisseModel.montant_net),0)).where(MouvementCaisseModel.session_id==row.id,MouvementCaisseModel.organisation_id==self.org,MouvementCaisseModel.mode=='ESPECES'))
+        grouped_cash=self.s.scalar(select(func.coalesce(func.sum(MouvementCaisseGroupeModel.montant_net),0)).where(MouvementCaisseGroupeModel.session_id==row.id,MouvementCaisseGroupeModel.organisation_id==self.org,MouvementCaisseGroupeModel.mode=='ESPECES'))
         from neosys_pharma.infrastructure.regularisation_models import MouvementFinancierModel
         extras=self.s.scalar(select(func.coalesce(func.sum(MouvementFinancierModel.montant),0)).where(MouvementFinancierModel.session_id==row.id,MouvementFinancierModel.organisation_id==self.org,MouvementFinancierModel.mode=='ESPECES'))
-        expected=row.fond_initial+cash+extras
+        expected=row.fond_initial+cash+grouped_cash+extras
         return serial(row)|{'especes_attendues':str(expected),'ecart_especes':str(row.comptage_final-expected) if row.comptage_final is not None else None}
 
     def fermer(self,key,data):

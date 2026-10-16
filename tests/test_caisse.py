@@ -408,6 +408,28 @@ def groupe_put(client, account, path, body, status=200):
     return response.json()
 
 
+def prepare_group_for_sale(client, account, sale, session):
+    draft = groupe_post(client, account, "", {"cle": str(uuid4()), "session_id": session["id"]}, 201)
+    group_id = draft["dossier"]["id"]
+    draft = groupe_put(client, account, f"/{group_id}/ventes", {
+        "cle": str(uuid4()), "revision": draft["dossier"]["revision"],
+        "ventes": [{"vente_id": sale["id"], "revision": sale["revision"]}],
+    })
+    due = Decimal(draft["ventes"][0]["montant_du"])
+    draft = groupe_put(client, account, f"/{group_id}/reglements", {
+        "cle": str(uuid4()), "revision": draft["dossier"]["revision"],
+        "reglements": [{"mode": "ESPECES", "montant": str(due)}],
+    })
+    allocations = client.get(root(account) + f"/groupes/{group_id}/allocations/proposition", params={
+        "revision": draft["dossier"]["revision"],
+    }).json()
+    draft = groupe_put(client, account, f"/{group_id}/allocations", {
+        "cle": str(uuid4()), "revision": draft["dossier"]["revision"],
+        "allocations": allocations,
+    })
+    return group_id, draft
+
+
 def test_brouillon_groupe_multi_ventes_allocations_et_abandon(raw_client, account):
     client, a = raw_client, account
     from neosys_pharma.presentation.encaissement_groupe_api import (
@@ -415,10 +437,7 @@ def test_brouillon_groupe_multi_ventes_allocations_et_abandon(raw_client, accoun
         router as grouped_router,
     )
     assert GROUPED_ENCASHMENT_ENABLED is False
-    assert not any(
-        route.path.endswith("/finaliser")
-        for route in grouped_router.routes
-    )
+    assert any(route.path.endswith("/{dossier_id}/finaliser") for route in grouped_router.routes)
     first, session, product, pack, post_id, caisse_id = ready(client, a, q=3)
     second = line(client, a, create(client, a, post_id), product, pack, q=2)
     second = act(client, a, second, "valider")
@@ -490,6 +509,12 @@ def test_brouillon_groupe_multi_ventes_allocations_et_abandon(raw_client, accoun
     finally:
         gen.close()
 
+    disabled = client.post(root(a) + f"/groupes/{dossier_id}/finaliser", json={
+        "cle": str(uuid4()), "revision": dossier["dossier"]["revision"],
+        "revision_session": session["revision"], "fidelite": [],
+    })
+    assert disabled.status_code == 503
+
     abandoned = groupe_post(client, a, f"/{dossier_id}/abandonner", {
         "cle": str(uuid4()), "revision": dossier["dossier"]["revision"],
     })
@@ -558,3 +583,426 @@ def test_brouillon_confirme_reglement_non_especes(raw_client, account):
         "allocations": proposed,
     })
     assert saved["totaux"]["allocation_valide"] is True
+
+
+def test_finalisation_groupe_atomique_reçus_mouvements_fidelite_et_rejeu(
+    raw_client, account, monkeypatch, tmp_path
+):
+    from neosys_pharma.presentation import encaissement_groupe_api
+
+    monkeypatch.setattr(encaissement_groupe_api, "GROUPED_ENCASHMENT_ENABLED", True)
+    client, a = raw_client, account
+    first, session, product, pack, post_id, caisse_id = ready(client, a, q=3)
+    second = line(client, a, create(client, a, post_id), product, pack, q=2)
+    second = act(client, a, second, "valider")
+    second = act(client, a, second, "transmettre", caisse_id=caisse_id)
+    account_row = post(client, a, "/fidelite", {"nom": "Cliente du groupe"})
+    rule(client, a, category(client, a, product))
+    confirmation = post(client, a, f"/ventes/{first['id']}/confirmations", {
+        "session_id": session["id"], "revision": first["revision"],
+        "mode": "CARTE", "montant": 200, "reference": "GROUPE-TERM-01",
+        "source": "MANUEL_TERMINAL", "preuve": "Autorisé par le terminal indépendant",
+    })
+
+    draft = groupe_post(client, a, "", {"cle": str(uuid4()), "session_id": session["id"]}, 201)
+    group_id = draft["dossier"]["id"]
+    draft = groupe_put(client, a, f"/{group_id}/ventes", {
+        "cle": str(uuid4()), "revision": draft["dossier"]["revision"],
+        "ventes": [
+            {"vente_id": first["id"], "revision": first["revision"]},
+            {"vente_id": second["id"], "revision": second["revision"]},
+        ],
+    })
+    due = sum(Decimal(row["montant_du"]) for row in draft["ventes"])
+    assert due == Decimal(502)
+    draft = groupe_put(client, a, f"/{group_id}/reglements", {
+        "cle": str(uuid4()), "revision": draft["dossier"]["revision"],
+        "reglements": [
+            {"mode": "CARTE", "montant": 200, "confirmation_id": confirmation["id"]},
+            {"mode": "ESPECES", "montant": 350, "rendu": 48},
+        ],
+    })
+    payments = {row["mode"]: row for row in draft["reglements"]}
+    first_sale, second_sale = draft["ventes"]
+    allocations = [
+        {"reglement_id": payments["CARTE"]["id"], "vente_id": first_sale["vente_id"], "montant": "200"},
+        {"reglement_id": payments["ESPECES"]["id"], "vente_id": first_sale["vente_id"], "montant": "101"},
+        {"reglement_id": payments["ESPECES"]["id"], "vente_id": second_sale["vente_id"], "montant": "201"},
+    ]
+    draft = groupe_put(client, a, f"/{group_id}/allocations", {
+        "cle": str(uuid4()), "revision": draft["dossier"]["revision"],
+        "allocations": allocations,
+    })
+    assert draft["totaux"]["allocation_valide"] is True
+
+    payload = {
+        "cle": str(uuid4()),
+        "revision": draft["dossier"]["revision"],
+        "revision_session": session["revision"],
+        "fidelite": [{"vente_id": first["id"], "compte_id": account_row["id"],
+                      "revision_compte": account_row["revision"]}],
+    }
+    first_result = groupe_post(client, a, f"/{group_id}/finaliser", payload, 200)
+    assert first_result["dossier"]["etat"] == "FINALISE"
+    assert len(first_result["resultat"]["recus_individuels"]) == 2
+    assert first_result["resultat"]["recu_collectif"]["reference"].startswith("G-")
+    replay = client.post(root(a) + f"/groupes/{group_id}/finaliser", json=payload)
+    assert replay.status_code == 200 and replay.json() == first_result
+    changed = {**payload, "revision_session": session["revision"] + 1}
+    assert client.post(root(a) + f"/groupes/{group_id}/finaliser", json=changed).status_code == 409
+
+    assert client.get(vente_root(a) + f"/{first['id']}").json()["etat"] == "ENCAISSEE"
+    assert client.get(vente_root(a) + f"/{second['id']}").json()["etat"] == "ENCAISSEE"
+    assert stocks(client, a)[0]["physique"] == 5 and stocks(client, a)[0]["reserve"] == 0
+    assert client.get(root(a) + f"/fidelite/{account_row['id']}").json()["points"] == 3
+    assert client.get(root(a) + "/sessions").json()["items"][0]["especes_attendues"] == "1302"
+
+    movements = client.get(root(a) + "/mouvements", params={"session_id": session["id"]}).json()
+    assert movements["total"] == 2 and all(row["source"] == "GROUPE" for row in movements["items"])
+    group_pdf = client.get(root(a) + f"/groupes/{group_id}/recu.pdf")
+    assert group_pdf.status_code == 200
+    (tmp_path / "recu-groupe.pdf").write_bytes(group_pdf.content)
+    text_pdf = "".join(page.extract_text() for page in PdfReader(BytesIO(group_pdf.content)).pages)
+    assert first_result["resultat"]["recu_collectif"]["reference"] in text_pdf
+    assert first["id"] in text_pdf and second["id"] in text_pdf
+
+    from neosys_pharma.infrastructure.securite_models import RoleModel
+    gen = db(client)
+    permission_session = next(gen)
+    try:
+        role_id = permission_session.scalar(select(RoleModel.id_role).where(
+            RoleModel.organisation_id == a['org'], RoleModel.code == 'CATALOGUE'
+        ))
+        for permission in (
+            'caisse.cloture.x', 'vente.retour.gerer',
+            'caisse.remboursement.demander', 'caisse.remboursement.autoriser',
+            'caisse.remboursement.executer',
+        ):
+            permission_key = permission_id(permission)
+            if not permission_session.scalar(select(RolePermissionModel.role_id).where(
+                RolePermissionModel.role_id == role_id,
+                RolePermissionModel.permission_id == permission_key,
+            )):
+                permission_session.add(RolePermissionModel(
+                    role_id=role_id, permission_id=permission_key
+                ))
+        permission_session.commit()
+    finally:
+        gen.close()
+    login(client, a)
+    finance_root = f"/api/regularisations/organisations/{a['org']}"
+    x_response = client.post(finance_root + "/clotures/x", json={
+        "cle": str(uuid4()), "session_id": session["id"],
+        "revision": session["revision"] + 1,
+    })
+    assert x_response.status_code == 201, x_response.text
+    x = x_response.json()
+    assert x["instantane"]["session"]["nets_par_mode"] == {
+        "ESPECES": "302", "CARTE": "200", "MOBILE_MONEY": "0", "CHEQUE": "0", "VIREMENT": "0",
+    }
+
+    encaissement_first = next(
+        row for row in first_result["resultat"]["recus_individuels"]
+        if row["vente_id"] == first["id"]
+    )
+    rejected_external_refund = client.post(finance_root + "/remboursements", json={
+        "cle": str(uuid4()), "confirmation_id": confirmation["id"],
+        "session_id": session["id"], "revision": session["revision"] + 1,
+        "reglements": [{"mode": "CARTE", "montant": "200"}],
+        "justification": "Une vente encaissée doit passer par un retour.",
+    })
+    assert rejected_external_refund.status_code == 409
+
+    returnable = client.get(finance_root + f"/recus/{encaissement_first['id']}/retournable")
+    assert returnable.status_code == 200, returnable.text
+    returned_line = returnable.json()["lignes"][0]
+    returned = client.post(finance_root + "/retours", json={
+        "cle": str(uuid4()), "encaissement_id": encaissement_first["id"],
+        "lignes": [{"ligne_id": returned_line["ligne_id"],
+                    "stock_id": returned_line["stock_id"], "quantite": 3}],
+        "justification": "Retour complet de la première vente du groupe.",
+    })
+    assert returned.status_code == 201, returned.text
+    refund_url = finance_root + "/remboursements"
+    over_allocated = client.post(refund_url, json={
+        "cle": str(uuid4()), "retour_id": returned.json()["id"],
+        "session_id": session["id"], "revision": session["revision"] + 1,
+        "reglements": [{"mode": "CARTE", "mode_origine": "CARTE", "montant": "301"}],
+        "justification": "Montant carte supérieur à l'allocation de la vente.",
+    })
+    assert over_allocated.status_code == 409
+    refund = client.post(refund_url, json={
+        "cle": str(uuid4()), "retour_id": returned.json()["id"],
+        "session_id": session["id"], "revision": session["revision"] + 1,
+        "reglements": [
+            {"mode": "CARTE", "mode_origine": "CARTE", "montant": "200"},
+            {"mode": "ESPECES", "mode_origine": "ESPECES", "montant": "101"},
+        ],
+        "justification": "Restitution selon les moyens alloués à cette vente.",
+    })
+    assert refund.status_code == 201, refund.text
+    authorized = client.post(finance_root + f"/remboursements/{refund.json()['id']}/autoriser", json={
+        "cle": str(uuid4()), "revision": refund.json()["revision"],
+        "justification": "Ventilation vérifiée avec les allocations du reçu collectif.",
+    })
+    assert authorized.status_code == 200, authorized.text
+    session_now = next(row for row in client.get(root(a) + "/sessions").json()["items"]
+                       if row["id"] == session["id"])
+    executed = client.post(finance_root + f"/remboursements/{refund.json()['id']}/executer", json={
+        "cle": str(uuid4()), "revision": authorized.json()["revision"],
+        "justification": "Restitution effectivement remise.",
+        "preuves": [
+            {"reference": "ANNULATION-GROUPE-TPE", "preuve": "Retour carte confirmé."},
+            {},
+        ],
+    })
+    assert executed.status_code == 200, executed.text
+    assert client.get(root(a) + f"/fidelite/{account_row['id']}").json()["points"] == 0
+    assert next(row for row in client.get(root(a) + "/sessions").json()["items"]
+                if row["id"] == session["id"])["especes_attendues"] == "1201"
+    assert client.get(vente_root(a) + f"/{second['id']}").json()["etat"] == "ENCAISSEE"
+
+
+def test_finalisation_groupe_rollback_apres_creation_des_reçus(raw_client, account, monkeypatch):
+    from neosys_pharma.presentation import encaissement_groupe_api
+
+    monkeypatch.setattr(encaissement_groupe_api, "GROUPED_ENCASHMENT_ENABLED", True)
+    client, a = raw_client, account
+    first, session, product, pack, post_id, caisse_id = ready(client, a, q=3)
+    second = line(client, a, create(client, a, post_id), product, pack, q=2)
+    second = act(client, a, second, "valider")
+    second = act(client, a, second, "transmettre", caisse_id=caisse_id)
+    draft = groupe_post(client, a, "", {"cle": str(uuid4()), "session_id": session["id"]}, 201)
+    group_id = draft["dossier"]["id"]
+    draft = groupe_put(client, a, f"/{group_id}/ventes", {
+        "cle": str(uuid4()), "revision": draft["dossier"]["revision"],
+        "ventes": [
+            {"vente_id": first["id"], "revision": first["revision"]},
+            {"vente_id": second["id"], "revision": second["revision"]},
+        ],
+    })
+    due = sum(Decimal(row["montant_du"]) for row in draft["ventes"])
+    draft = groupe_put(client, a, f"/{group_id}/reglements", {
+        "cle": str(uuid4()), "revision": draft["dossier"]["revision"],
+        "reglements": [{"mode": "ESPECES", "montant": str(due)}],
+    })
+    proposal = client.get(root(a) + f"/groupes/{group_id}/allocations/proposition", params={
+        "revision": draft["dossier"]["revision"],
+    }).json()
+    draft = groupe_put(client, a, f"/{group_id}/allocations", {
+        "cle": str(uuid4()), "revision": draft["dossier"]["revision"],
+        "allocations": proposal,
+    })
+    payload = {
+        "cle": str(uuid4()), "revision": draft["dossier"]["revision"],
+        "revision_session": session["revision"], "fidelite": [],
+    }
+    stale_session = client.post(root(a) + f"/groupes/{group_id}/finaliser", json={
+        **payload, "cle": str(uuid4()), "revision_session": session["revision"] + 1,
+    })
+    assert stale_session.status_code == 409
+    assert client.post(root({**a, "org": str(uuid4())}) + f"/groupes/{group_id}/finaliser",
+                       json=payload).status_code == 403
+    original_site = client.headers["X-Site-ID"]
+    client.headers["X-Site-ID"] = str(a["other"])
+    assert client.post(root(a) + f"/groupes/{group_id}/finaliser", json=payload).status_code == 403
+    client.headers["X-Site-ID"] = original_site
+
+    def fail_group_pdf(_):
+        raise RuntimeError("Échec de rendu injecté après les reçus individuels.")
+
+    from neosys_pharma.infrastructure import caisse_pdf
+    monkeypatch.setattr(caisse_pdf, "recu_groupe_pdf", fail_group_pdf)
+    with pytest.raises(RuntimeError, match="Échec de rendu injecté"):
+        client.post(root(a) + f"/groupes/{group_id}/finaliser", json=payload)
+
+    unchanged = client.get(root(a) + f"/groupes/{group_id}").json()
+    assert unchanged["dossier"]["etat"] == "BROUILLON"
+    assert all(client.get(vente_root(a) + f"/{sale_id}").json()["etat"] == "TRANSMISE"
+               for sale_id in (first["id"], second["id"]))
+    assert stocks(client, a)[0]["physique"] == 10 and stocks(client, a)[0]["reserve"] == 5
+    movements = client.get(root(a) + "/mouvements", params={"session_id": session["id"]}).json()
+    assert movements["total"] == 0
+
+    monkeypatch.undo()
+    monkeypatch.setattr(encaissement_groupe_api, "GROUPED_ENCASHMENT_ENABLED", True)
+    result = client.post(root(a) + f"/groupes/{group_id}/finaliser", json=payload)
+    assert result.status_code == 200, result.text
+    assert result.json()["dossier"]["etat"] == "FINALISE"
+
+
+def test_concurrence_postgresql_finalisation_groupe_meme_cle(raw_client, account):
+    from concurrent.futures import ThreadPoolExecutor
+    from sqlalchemy.orm import Session
+    from neosys_pharma.infrastructure.caisse_models import EncaissementGroupeModel
+    from neosys_pharma.application.encaissement_groupe_service import EncaissementGroupeService
+
+    client, a = raw_client, account
+    sale, session, _, _, _, _ = ready(client, a, q=3)
+    draft = groupe_post(client, a, "", {"cle": str(uuid4()), "session_id": session["id"]}, 201)
+    group_id = draft["dossier"]["id"]
+    draft = groupe_put(client, a, f"/{group_id}/ventes", {
+        "cle": str(uuid4()), "revision": draft["dossier"]["revision"],
+        "ventes": [{"vente_id": sale["id"], "revision": sale["revision"]}],
+    })
+    due = Decimal(draft["ventes"][0]["montant_du"])
+    draft = groupe_put(client, a, f"/{group_id}/reglements", {
+        "cle": str(uuid4()), "revision": draft["dossier"]["revision"],
+        "reglements": [{"mode": "ESPECES", "montant": str(due)}],
+    })
+    proposal = client.get(root(a) + f"/groupes/{group_id}/allocations/proposition", params={
+        "revision": draft["dossier"]["revision"],
+    }).json()
+    draft = groupe_put(client, a, f"/{group_id}/allocations", {
+        "cle": str(uuid4()), "revision": draft["dossier"]["revision"], "allocations": proposal,
+    })
+    request_key = uuid4()
+    data = {"revision": draft["dossier"]["revision"], "revision_session": session["revision"], "fidelite": []}
+    gen = db(client)
+    db_session = next(gen)
+    engine = db_session.get_bind()
+    db_session.close()
+    gen.close()
+    if engine.dialect.name != "postgresql":
+        pytest.skip("Deux connexions PostgreSQL natives requises pour ce contrôle.")
+
+    def finalize(_):
+        with Session(engine) as independent:
+            independent.execute(text("SET statement_timeout = '8s'"))
+            stock = StockService(independent, a["org"], a["user"], lambda *args: None)
+            cash = CaisseService(VenteService(stock, a["site"]))
+            grouped = EncaissementGroupeService(cash)
+            try:
+                return stock.operation(
+                    request_key, "P4C:BROUILLON:FINALISER:" + group_id, data,
+                    lambda: grouped.finaliser(UUID(group_id), data, request_key),
+                )
+            except ConflitStock as exc:
+                return {"conflit": str(exc)}
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first, second = pool.map(finalize, range(2))
+    assert first == second and "resultat" in first
+    with Session(engine) as verify:
+        assert verify.scalar(select(func.count()).select_from(EncaissementModel).where(
+            EncaissementModel.vente_id == UUID(sale["id"])
+        )) == 1
+        assert verify.scalar(select(func.count()).select_from(MouvementCaisseGroupeModel).where(
+            MouvementCaisseGroupeModel.dossier_id == UUID(group_id)
+        )) == 1
+        assert verify.get(EncaissementGroupeModel, UUID(group_id)).etat == "FINALISE"
+
+
+def test_concurrence_postgresql_encaissement_individuel_contre_groupe(raw_client, account):
+    from concurrent.futures import ThreadPoolExecutor
+    from sqlalchemy.orm import Session
+    from neosys_pharma.application.encaissement_groupe_service import EncaissementGroupeService
+
+    client, a = raw_client, account
+    sale, session, _, _, _, _ = ready(client, a, q=3)
+    draft = groupe_post(client, a, "", {"cle": str(uuid4()), "session_id": session["id"]}, 201)
+    group_id = draft["dossier"]["id"]
+    draft = groupe_put(client, a, f"/{group_id}/ventes", {
+        "cle": str(uuid4()), "revision": draft["dossier"]["revision"],
+        "ventes": [{"vente_id": sale["id"], "revision": sale["revision"]}],
+    })
+    due = Decimal(draft["ventes"][0]["montant_du"])
+    draft = groupe_put(client, a, f"/{group_id}/reglements", {
+        "cle": str(uuid4()), "revision": draft["dossier"]["revision"],
+        "reglements": [{"mode": "ESPECES", "montant": str(due)}],
+    })
+    proposal = client.get(root(a) + f"/groupes/{group_id}/allocations/proposition", params={
+        "revision": draft["dossier"]["revision"],
+    }).json()
+    draft = groupe_put(client, a, f"/{group_id}/allocations", {
+        "cle": str(uuid4()), "revision": draft["dossier"]["revision"], "allocations": proposal,
+    })
+    group_data = {"revision": draft["dossier"]["revision"], "revision_session": session["revision"], "fidelite": []}
+    individual_data = {
+        "revision": sale["revision"], "session_id": session["id"],
+        "revision_session": session["revision"],
+        "reglements": [{"mode": "ESPECES", "montant": str(due)}],
+        "compte_id": None, "revision_compte": None, "points_utilises": 0, "consentement": False,
+    }
+    gen = db(client)
+    db_session = next(gen)
+    engine = db_session.get_bind()
+    db_session.close()
+    gen.close()
+    if engine.dialect.name != "postgresql":
+        pytest.skip("Deux connexions PostgreSQL natives requises pour ce contrôle.")
+
+    def run_group():
+        with Session(engine) as independent:
+            independent.execute(text("SET statement_timeout = '8s'"))
+            stock = StockService(independent, a["org"], a["user"], lambda *args: None)
+            grouped = EncaissementGroupeService(CaisseService(VenteService(stock, a["site"])))
+            try:
+                stock.operation(uuid4(), "P4C:FINALISER", group_data,
+                    lambda: grouped.finaliser(UUID(group_id), group_data, uuid4()))
+                return "groupe"
+            except ConflitStock:
+                return "conflit"
+
+    def run_individual():
+        with Session(engine) as independent:
+            independent.execute(text("SET statement_timeout = '8s'"))
+            stock = StockService(independent, a["org"], a["user"], lambda *args: None)
+            cash = CaisseService(VenteService(stock, a["site"]))
+            try:
+                stock.operation(uuid4(), "P4.4:FINALISER:" + sale["id"], individual_data,
+                    lambda: cash.finaliser(UUID(sale["id"]), individual_data))
+                return "individuel"
+            except ConflitStock:
+                return "conflit"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = sorted([pool.submit(run_group), pool.submit(run_individual)], key=lambda future: id(future))
+        results = [future.result(timeout=12) for future in outcomes]
+    assert sorted(results).count("conflit") == 1
+    assert len(set(results) & {"groupe", "individuel"}) == 1
+    assert client.get(vente_root(a) + f"/{sale['id']}").json()["etat"] == "ENCAISSEE"
+
+
+def test_concurrence_postgresql_deux_dossiers_meme_vente(raw_client, account):
+    from concurrent.futures import ThreadPoolExecutor
+    from sqlalchemy.orm import Session
+    from neosys_pharma.application.encaissement_groupe_service import EncaissementGroupeService
+
+    client, a = raw_client, account
+    sale, session, _, _, _, _ = ready(client, a, q=3)
+    group_a, draft_a = prepare_group_for_sale(client, a, sale, session)
+    group_b, draft_b = prepare_group_for_sale(client, a, sale, session)
+    pending = [
+        (group_a, {"revision": draft_a["dossier"]["revision"],
+                   "revision_session": session["revision"], "fidelite": []}),
+        (group_b, {"revision": draft_b["dossier"]["revision"],
+                   "revision_session": session["revision"], "fidelite": []}),
+    ]
+    gen = db(client)
+    db_session = next(gen)
+    engine = db_session.get_bind()
+    db_session.close()
+    gen.close()
+    if engine.dialect.name != "postgresql":
+        pytest.skip("Deux connexions PostgreSQL natives requises pour ce contrôle.")
+
+    def finalize(item):
+        group_id, data = item
+        key = uuid4()
+        with Session(engine) as independent:
+            independent.execute(text("SET statement_timeout = '8s'"))
+            stock = StockService(independent, a["org"], a["user"], lambda *args: None)
+            grouped = EncaissementGroupeService(CaisseService(VenteService(stock, a["site"])))
+            try:
+                stock.operation(key, "P4C:FINALISER:" + group_id, data,
+                    lambda: grouped.finaliser(UUID(group_id), data, key))
+                return group_id
+            except ConflitStock:
+                return "conflit"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(finalize, item) for item in pending]
+        results = [future.result(timeout=12) for future in futures]
+    assert sum(result != "conflit" for result in results) == 1
+    assert client.get(vente_root(a) + f"/{sale['id']}").json()["etat"] == "ENCAISSEE"

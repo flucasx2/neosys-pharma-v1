@@ -1,8 +1,8 @@
-"""API P4-C.3a des brouillons et allocations; aucune route de finalisation ici."""
+"""API P4-C.3 des brouillons et de la finalisation groupée protégée par défaut."""
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import Field
 
 from neosys_pharma.application.caisse_service import CaisseService
@@ -22,6 +22,8 @@ POLICY.update({
     "groupe_allocations_proposer": "caisse.encaisser",
     "groupe_allocations_definir": "caisse.encaisser",
     "groupe_abandonner": "caisse.encaisser",
+    "groupe_finaliser": "caisse.encaisser",
+    "groupe_recu_pdf": "caisse.consulter",
 })
 
 router = APIRouter(
@@ -31,8 +33,8 @@ router = APIRouter(
 )
 
 
-def service(base=Depends(vente_service)):
-    return EncaissementGroupeService(CaisseService(base))
+def service(request: Request, base=Depends(vente_service)):
+    return EncaissementGroupeService(CaisseService(base), request.state.vente_controle)
 
 
 def mutate(s, data, kind, action):
@@ -74,6 +76,17 @@ class AllocationGroupe(Input):
 
 class AllocationsGroupe(Revision):
     allocations: list[AllocationGroupe] = Field(max_length=100)
+
+
+class FideliteVenteGroupe(Input):
+    vente_id: UUID
+    compte_id: UUID
+    revision_compte: int = Field(strict=True, ge=1)
+
+
+class FinalisationGroupe(Revision):
+    revision_session: int = Field(strict=True, ge=1)
+    fidelite: list[FideliteVenteGroupe] = Field(default_factory=list, max_length=50)
 
 
 @router.post("", status_code=201, name="groupe_creer")
@@ -121,3 +134,23 @@ def groupe_abandonner(dossier_id: UUID, data: Revision, s=Depends(service)):
     return mutate(s, data, "ABANDONNER:" + str(dossier_id), lambda: s.abandonner(
         dossier_id, data.revision
     ))
+
+
+@router.post("/{dossier_id}/finaliser", name="groupe_finaliser")
+def groupe_finaliser(dossier_id: UUID, data: FinalisationGroupe, s=Depends(service)):
+    if not GROUPED_ENCASHMENT_ENABLED:
+        raise HTTPException(503, "La finalisation groupée reste désactivée jusqu'à la recette complète.")
+    body = data.model_dump(mode="json", exclude={"cle"})
+    return mutate(s, data, "FINALISER:" + str(dossier_id), lambda: s.finaliser(
+        dossier_id, body, data.cle
+    ))
+
+
+@router.get("/{dossier_id}/recu.pdf", name="groupe_recu_pdf")
+def groupe_recu_pdf(dossier_id: UUID, s=Depends(service)):
+    pdf = execute(lambda: s.recu_collectif_pdf(dossier_id))
+    return Response(
+        pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="recu-groupe-{dossier_id}.pdf"'},
+    )
