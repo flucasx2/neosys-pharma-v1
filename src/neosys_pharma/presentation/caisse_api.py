@@ -155,7 +155,11 @@ def caisse_appel_pdf(key:UUID,s=Depends(service)):
 @router.get('/mouvements')
 def caisse_mouvements(session_id:UUID,page_:int=Query(1,alias='page',ge=1),page_size:int=Query(25,ge=1,le=100),s=Depends(service)):
     execute(lambda:s.session(session_id,'caisse.consulter'))
-    return page(s,select(MouvementCaisseModel).where(MouvementCaisseModel.organisation_id==s.org,MouvementCaisseModel.session_id==session_id).order_by(MouvementCaisseModel.date,MouvementCaisseModel.id),page_,page_size)
+    ordinary=[serial(row)|{'source':'INDIVIDUEL'} for row in s.stock.lignes(MouvementCaisseModel,session_id=session_id)]
+    grouped=[serial(row)|{'source':'GROUPE'} for row in s.stock.lignes(MouvementCaisseGroupeModel,session_id=session_id)]
+    items=sorted(ordinary+grouped,key=lambda row:(row['date'],row['id']))
+    start=(page_-1)*page_size
+    return {'items':items[start:start+page_size],'total':len(items),'page':page_,'page_size':page_size}
 @router.get('/fidelite')
 def fidelite_recherche(q:str=Query('',min_length=3,max_length=200),page_:int=Query(1,alias='page',ge=1),page_size:int=Query(20,ge=1,le=100),s=Depends(service)):
     term=s.stock.repo.terme(q);phone=re.sub(r'[\s().-]','',q)
