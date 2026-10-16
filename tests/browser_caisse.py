@@ -32,12 +32,14 @@ with sync_playwright() as p:
     grouped = {'id': str(uuid4()), 'revision': 1, 'etat': 'BROUILLON', 'ventes': [], 'reglements': [], 'allocations': []}
     group_session = page.evaluate("async()=> (await cashRequest('/sessions?page=1&page_size=10')).items.find(x=>x.etat==='OUVERTE').id")
     fake_confirmation = str(uuid4()); sales_cache = {}
-    async def mock_group(route):
+    def mock_group(route):
         request = route.request; path = urlparse(request.url).path.split('/groupes', 1)[1]
         body = request.post_data_json if request.post_data else {}
+        if request.method == 'GET' and path == '/activation':
+            route.fulfill(json={'finalisation_active':False}); return
         if request.method == 'POST' and path == '':
             grouped.update({'revision':1,'etat':'BROUILLON','session_id':group_session,'ventes':[],'reglements':[],'allocations':[]})
-            await route.fulfill(status=201,json={'dossier':{'id':grouped['id'],'revision':1,'etat':'BROUILLON','session_id':group_session},'ventes':[],'reglements':[],'allocations':[],'totaux':{'du_xaf':'0','net_regle_xaf':'0','alloue_xaf':'0','reste_xaf':'0','allocation_valide':False}}); return
+            route.fulfill(status=201,json={'dossier':{'id':grouped['id'],'revision':1,'etat':'BROUILLON','session_id':group_session},'ventes':[],'reglements':[],'allocations':[],'totaux':{'du_xaf':'0','net_regle_xaf':'0','alloue_xaf':'0','reste_xaf':'0','allocation_valide':False}}); return
         if request.method == 'PUT' and path.endswith('/ventes'):
             grouped['ventes']=[{'vente_id':row['vente_id'],'revision_vente':row['revision'],'montant_du':str(sales_cache[row['vente_id']]['totaux']['ttc']),'ordre':i+1} for i,row in enumerate(body['ventes'])]; grouped['revision']+=1
         elif request.method == 'PUT' and path.endswith('/reglements'):
@@ -54,20 +56,20 @@ with sync_playwright() as p:
                     allocated=min(amount,rest[sale['vente_id']])
                     if allocated: out.append({'reglement_id':payment['id'],'vente_id':sale['vente_id'],'montant':str(allocated)}); rest[sale['vente_id']]-=allocated; amount-=allocated
                     if not amount: break
-            await route.fulfill(json=out); return
+            route.fulfill(json=out); return
         elif request.method == 'POST' and path.endswith('/finaliser'):
-            await route.fulfill(status=503,json={'detail':'Finalisation désactivée.'}); return
+            route.fulfill(status=503,json={'detail':'Finalisation désactivée.'}); return
         due=sum(int(row['montant_du']) for row in grouped['ventes']); net=sum(int(row['montant'])-int(row.get('rendu',0)) for row in grouped['reglements']); allocated=sum(int(row['montant']) for row in grouped['allocations'])
         data={'dossier':{'id':grouped['id'],'revision':grouped['revision'],'etat':grouped['etat'],'session_id':group_session},'ventes':grouped['ventes'],'reglements':grouped['reglements'],'allocations':grouped['allocations'],'totaux':{'du_xaf':str(due),'net_regle_xaf':str(net),'alloue_xaf':str(allocated),'reste_xaf':str(due-net),'allocation_valide':bool(grouped['allocations']) and allocated==net==due}}
-        await route.fulfill(status=201 if request.method=='POST' else 200,json=data)
-    async def add_mock_confirmation(route):
-        response=await route.fetch(); data=await response.json(); sale_id=urlparse(route.request.url).path.rsplit('/',1)[-1]; sales_cache[sale_id]=data
+        route.fulfill(status=201 if request.method=='POST' else 200,json=data)
+    def add_mock_confirmation(route):
+        response=route.fetch(); data=response.json(); sale_id=urlparse(route.request.url).path.rsplit('/',1)[-1]; sales_cache[sale_id]=data
         if sale_id==f['p44_vente_0']: data['confirmations']=[{'id':fake_confirmation,'mode':'CARTE','montant':'50','reference':'CARTE-MOCK-C44'}]
-        await route.fulfill(response=response,json=data)
+        route.fulfill(response=response,json=data)
     page.on('dialog',lambda dialog:dialog.accept())
     page.route('**/api/caisses/organisations/*/groupes*',mock_group)
     page.route('**/api/caisses/organisations/*/ventes/*',add_mock_confirmation)
-    activate(page.get_by_role('button',name='Encaissement multiple',exact=True)); expect(page.locator('#cash-group-sales tr')).to_have_count(2)
+    activate(page.get_by_role('button',name='Encaissement multiple',exact=True)); expect(page.locator('#cash-group-sales tr')).to_have_count(4)
     for count,sale_id in enumerate([f['p44_vente_0'],f['p44_vente_1']],start=1):
         page.get_by_role('checkbox',name='Sélectionner la vente '+sale_id[:8]).check()
         expect(page.locator('#cash-group-selected-total')).to_contain_text(f'{count} ticket(s)')
@@ -81,6 +83,40 @@ with sync_playwright() as p:
     activate(page.get_by_role('button',name='Abandonner le brouillon',exact=True)); expect(page.locator('#cash-group-status')).to_contain_text('ABANDONNE')
     activate(page.get_by_role('button',name='Encaissement simple',exact=True)); expect(page.locator('#cash-group-selected-total')).to_contain_text('0 ticket(s)'); expect(page.locator('#cash-waiting').closest('article')).to_be_visible()
     page.unroute('**/api/caisses/organisations/*/groupes*'); page.unroute('**/api/caisses/organisations/*/ventes/*')
+    # Recette PostgreSQL jetable : finalisation réelle via P4-C.3. Le premier
+    # essai est refusé au transport; la reprise après rechargement doit rejouer
+    # exactement la même clé et afficher les reçus réels du backend.
+    activate(page.get_by_role('button',name='Encaissement multiple',exact=True))
+    for sale_id in [f['p44_vente_1'],f['p44_vente_2']]:
+        page.get_by_role('checkbox',name='Sélectionner la vente '+sale_id[:8]).check()
+    activate(page.get_by_role('button',name='Créer un brouillon groupé',exact=True)); expect(page.locator('#cash-group-status')).to_contain_text('BROUILLON')
+    due=2*int(f['p44_total']);first_payment=due//2
+    activate(page.get_by_role('button',name='Ajouter un règlement',exact=True));page.locator('[aria-label="Montant règlement 1"]').fill(str(first_payment))
+    activate(page.get_by_role('button',name='Ajouter un règlement',exact=True));page.locator('[aria-label="Montant règlement 2"]').fill(str(due-first_payment))
+    activate(page.get_by_role('button',name='Enregistrer les règlements',exact=True));activate(page.get_by_role('button',name='Proposer et enregistrer la ventilation automatique',exact=True));expect(page.locator('#cash-group-allocation-status')).to_contain_text('ventilation équilibrée')
+    expect(page.locator('#cash-group-finalise')).to_be_enabled();assert 'autorisé' in page.locator('#cash-group-finalisation-note').inner_text()
+    finalise_calls=[]
+    def fail_first_finalisation(route):
+        finalise_calls.append(route.request.post_data_json['cle'])
+        if len(finalise_calls)==1: route.fulfill(status=503,json={'detail':'Refus de transport simulé pour recette idempotence.'})
+        else: route.continue_()
+    page.route('**/api/caisses/organisations/*/groupes/*/finaliser',fail_first_finalisation)
+    page.locator('#cash-group-finalise').evaluate('(button)=>{button.click();button.click()}')
+    expect(page.locator('#cash-message')).to_contain_text('Refus de transport simulé')
+    assert len(finalise_calls)==1
+    dossier_id=page.locator('#cash-group-resume-id').input_value()
+    page.reload();expect(page.locator('#app-shell')).to_be_visible();activate(page.get_by_role('button',name='Utiliser cette session',exact=True));activate(page.get_by_role('button',name='Encaissement multiple',exact=True))
+    expect(page.locator('#cash-group-resume-id')).to_have_value(dossier_id)
+    activate(page.get_by_role('button',name='Consulter le dossier',exact=True));expect(page.locator('#cash-group-status')).to_contain_text('BROUILLON')
+    activate(page.locator('#cash-group-finalise'));expect(page.locator('#cash-group-status')).to_contain_text('FINALISE');assert len(finalise_calls)==2 and finalise_calls[0]==finalise_calls[1]
+    expect(page.locator('#cash-group-receipts')).to_be_visible();expect(page.locator('#cash-group-receipt-actions button')).to_have_count(3)
+    with page.expect_response('**/groupes/*/recu.pdf') as group_pdf_response: activate(page.get_by_role('button',name='Ouvrir le reçu collectif',exact=True))
+    assert group_pdf_response.value.status==200 and group_pdf_response.value.headers.get('content-type','').startswith('application/pdf')
+    individual_receipt=page.locator('#cash-group-receipt-actions button').nth(1)
+    with page.expect_response('**/recus/*/pdf') as individual_pdf_response: activate(individual_receipt)
+    assert individual_pdf_response.value.status==200 and individual_pdf_response.value.headers.get('content-type','').startswith('application/pdf')
+    page.unroute('**/api/caisses/organisations/*/groupes/*/finaliser')
+    activate(page.get_by_role('button',name='Encaissement simple',exact=True))
     row=page.locator('#cash-waiting tr').filter(has_text=f['p44_vente_0'][:8]);activate(row.get_by_role('button'));expect(page.locator('#cash-title')).to_contain_text(f['p44_vente_0'][:8]);shot('p44-caisse-preparation.png')
     activate(page.get_by_role('button',name='Nouveau client',exact=True));fill(modal().locator('[name=nom]'),'élise fidélité');fill(modal().locator('[name=telephone]'),'070123456');save();expect(page.locator('#cash-selected-client')).to_contain_text('ÉLISE FIDÉLITÉ')
     activate(page.get_by_role('button',name='Ajouter / remplacer une carte',exact=True));fill(modal().locator('[name=code]'),'FIDELITE-QA-44');save()
@@ -91,7 +127,7 @@ with sync_playwright() as p:
     with page.expect_download() as dl:activate(page.get_by_role('button',name='Télécharger le reçu PDF',exact=True))
     dl.value.save_as('qa/p44-recu.pdf')
     activate(page.get_by_role('button',name='Barèmes fidélité',exact=True));expect(modal()).to_contain_text('ACQUISITION');shot('p44-baremes.png');page.keyboard.press('Escape')
-    activate(page.get_by_role('button',name='Fermer ma session',exact=True));fill(modal().locator('[name=comptage_final]'),int(f['p44_total'])-50+1000);fill(modal().locator('[name=justification]'),'Fin de service recette');save()
-    readonly=browser.new_context();rp=readonly.new_page();rp.on('pageerror',lambda e:errors.append(str(e)));login(rp,'caisse.lecture.qa');expect(rp.get_by_role('button',name='F2 · Ouvrir une session',exact=True)).to_have_count(0);expect(rp.get_by_role('button',name='Moyens de paiement',exact=True)).to_have_count(0);rp.locator('#cash-waiting tr').filter(has_text=f['p44_vente_1'][:8]).get_by_role('button').focus();rp.keyboard.press('Enter');expect(rp.locator('#cash-sale')).to_be_visible();expect(rp.get_by_role('button',name='F10 · Encaisser intégralement',exact=True)).to_have_count(0)
+    activate(page.get_by_role('button',name='Fermer ma session',exact=True));fill(modal().locator('[name=comptage_final]'),1000+2*int(f['p44_total'])+int(f['p44_total'])-50);fill(modal().locator('[name=justification]'),'Fin de service recette');save()
+    readonly=browser.new_context();rp=readonly.new_page();rp.on('pageerror',lambda e:errors.append(str(e)));login(rp,'caisse.lecture.qa');expect(rp.get_by_role('button',name='F2 · Ouvrir une session',exact=True)).to_have_count(0);expect(rp.get_by_role('button',name='Moyens de paiement',exact=True)).to_have_count(0);rp.locator('#cash-waiting tr').filter(has_text=f['p44_vente_3'][:8]).get_by_role('button').focus();rp.keyboard.press('Enter');expect(rp.locator('#cash-sale')).to_be_visible();expect(rp.get_by_role('button',name='F10 · Encaisser intégralement',exact=True)).to_have_count(0)
     status=rp.evaluate('''async org=>{const csrf=document.cookie.split('; ').find(x=>x.startsWith('neosys_csrf=')).split('=')[1];return (await fetch('/api/caisses/organisations/'+org+'/sessions',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':decodeURIComponent(csrf),'X-Site-ID':document.querySelector('#sites').value},body:'{}'})).status}''',f['organisation_id']);assert status==403
     rp.screenshot(path='qa/p44-lecture-seule.png',full_page=True);assert not errors,errors;browser.close();print('P4.4 Chromium intégralement au clavier : sessions, modes, paiements mixtes/erreur, compte/carte, acquisition, reçu, lecture seule et 403 : OK')

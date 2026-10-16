@@ -20,7 +20,7 @@ with SessionLocal() as s:
         for code in permissions:repo.ajouter(RolePermission(role_id=r.id_role,permission_id=permission_id(code)))
         s.commit();u=Utilisateur(organisation_id=org,identifiant=name,nom=name);provisionner(s,u,[site],[loc],[r.id_role],f['password']);users[name]=u.id_utilisateur
     stock=StockService(s,org,users['caisse.qa'],lambda *a:None);vente=VenteService(stock,site);cash=CaisseService(vente)
-    for i in range(2):
+    for i in range(4):
         v=stock.operation(uuid4(),'QA:CREER',{},lambda:vente.creer({'emplacement_id':loc,'poste_id':UUID(f['p4_poste']),'mode':'SANS_TIERS'}))
         v=stock.operation(uuid4(),'QA:LIGNE',{},lambda:vente.ajouter_ligne(vente.obtenir(v['id'],'vente.preparer'),{'revision':v['revision'],'produit_id':UUID(f['p4_product']),'conditionnement_id':UUID(f['p4_pack']),'quantite':1}))
         v=stock.operation(uuid4(),'QA:VALIDER',{},lambda:vente.changer_etat(vente.obtenir(v['id'],'vente.valider'),'VALIDEE_PREPARATION',{'revision':v['revision']}))

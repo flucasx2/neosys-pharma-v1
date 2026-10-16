@@ -437,6 +437,7 @@ def test_brouillon_groupe_multi_ventes_allocations_et_abandon(raw_client, accoun
         router as grouped_router,
     )
     assert GROUPED_ENCASHMENT_ENABLED is False
+    assert client.get(root(a) + "/groupes/activation").json() == {"finalisation_active": False}
     assert any(route.path.endswith("/{dossier_id}/finaliser") for route in grouped_router.routes)
     first, session, product, pack, post_id, caisse_id = ready(client, a, q=3)
     second = line(client, a, create(client, a, post_id), product, pack, q=2)
@@ -520,6 +521,28 @@ def test_brouillon_groupe_multi_ventes_allocations_et_abandon(raw_client, accoun
     })
     assert abandoned["dossier"]["etat"] == "ABANDONNE"
     assert client.get(root(a) + f"/groupes/{dossier_id}").status_code == 200
+
+
+def test_activation_groupe_reservee_a_la_recette_jetable(monkeypatch):
+    from neosys_pharma.presentation.encaissement_groupe_api import _grouped_encashment_enabled
+
+    monkeypatch.setenv("GROUPED_ENCASHMENT_ENABLED", "true")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:password@localhost/neosys_browser")
+    monkeypatch.setenv("CI", "false")
+    monkeypatch.setenv("P4C4_CI_DISPOSABLE_DATABASE", "1")
+    assert _grouped_encashment_enabled() is False
+    monkeypatch.setenv("CI", "true")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:password@localhost/neosys_pharma_v1")
+    assert _grouped_encashment_enabled() is False
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:password@localhost/neosys_browser")
+    monkeypatch.delenv("P4C4_CI_DISPOSABLE_DATABASE")
+    assert _grouped_encashment_enabled() is False
+    monkeypatch.setenv("P4C4_CI_DISPOSABLE_DATABASE", "1")
+    assert _grouped_encashment_enabled() is True
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:password@db.example/neosys_browser")
+    assert _grouped_encashment_enabled() is False
+    monkeypatch.setenv("GROUPED_ENCASHMENT_ENABLED", "false")
+    assert _grouped_encashment_enabled() is False
 
 
 def test_brouillon_refuse_vente_deja_encaissee(raw_client, account):

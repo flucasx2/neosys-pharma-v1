@@ -5,11 +5,34 @@
 const cashGroupState = {
   mode: "INDIVIDUEL", page: 1, pageSize: 15, selected: new Map(), draft: null,
   saleDetails: new Map(), payments: [], allocations: [], busy: false,
-  mutationRetry: null, finalisationKey: null,
+  mutationRetry: null, finalisationKey: null, finalisationPayload: null,
+  finalisationEnabled: false,
 };
 const cg = id => document.getElementById("cash-group-" + id);
 const cgMoney = value => venteMoney(Number(value || 0));
 const cgIdempotentKey = () => crypto.randomUUID();
+const cgDraftStorageKey = () => `neosys:p4c4:draft:${authState.me?.organisation?.id_organisation || ""}:${authState.site || ""}`;
+function cgRememberDraft(id) {
+  if (!id) return;
+  cg("resume-id").value = id;
+  try { localStorage.setItem(cgDraftStorageKey(), id); } catch (_) {}
+}
+function cgFinalizationKey(dossierId, fingerprint) {
+  const key = `${cgDraftStorageKey()}:${dossierId}:finalisation`;
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || "null");
+    if (saved?.fingerprint === fingerprint && saved?.key) return saved.key;
+    const next = cgIdempotentKey();
+    localStorage.setItem(key, JSON.stringify({ fingerprint, key: next }));
+    return next;
+  } catch (_) {
+    if (cashGroupState.finalisationPayload === fingerprint && cashGroupState.finalisationKey) return cashGroupState.finalisationKey;
+    throw new Error("Le navigateur ne peut pas conserver la clé d’idempotence. Autorisez le stockage local avant de finaliser.");
+  }
+}
+function cgClearFinalizationKey(dossierId) {
+  try { localStorage.removeItem(`${cgDraftStorageKey()}:${dossierId}:finalisation`); } catch (_) {}
+}
 
 async function cgRequest(path, method = "GET", body = null) {
   const response = await authFetch(cashRoot() + "/groupes" + path, {
@@ -38,9 +61,7 @@ function cgMessage(text, error = false) {
 function cgBusy(value) {
   cashGroupState.busy = value;
   cg("panel").setAttribute("aria-busy", String(value));
-  if (value) for (const button of cg("panel").querySelectorAll("button")) {
-    if (button.id !== "cash-group-finalise") button.disabled = true;
-  }
+  if (value) for (const button of cg("panel").querySelectorAll("button")) button.disabled = true;
   else { cgRenderSelection(); if (cashGroupState.draft) cgRenderDraft(); }
 }
 function cgInt(value) { return /^\d+$/.test(String(value)) ? Number(value) : NaN; }
@@ -83,6 +104,11 @@ function cgSetMode(mode) {
   if (group) cgLoadSales().catch(error => cgMessage(error.message, true));
 }
 async function cgLoadSales() {
+  await cgLoadActivation();
+  try {
+    const remembered = localStorage.getItem(cgDraftStorageKey());
+    if (remembered && !cg("resume-id").value) cg("resume-id").value = remembered;
+  } catch (_) {}
   const page = cashGroupState.page;
   const result = await cashRequest(`/attente?page=${page}&page_size=${cashGroupState.pageSize}`);
   const body = cg("sales"); body.replaceChildren();
@@ -112,6 +138,20 @@ async function cgLoadSales() {
   cg("page").textContent = `${result.total} préparation(s) · page ${page}`;
   cg("prev").disabled = page <= 1; cg("next").disabled = page * cashGroupState.pageSize >= result.total;
   cgRenderSelection();
+}
+async function cgLoadActivation() {
+  try {
+    const result = await cgRequest("/activation");
+    cashGroupState.finalisationEnabled = result.finalisation_active === true;
+  } catch (error) {
+    cashGroupState.finalisationEnabled = false;
+    cgMessage(error.message, true);
+  }
+  cg("finalisation-note").textContent = cashGroupState.finalisationEnabled
+    ? "L’API a autorisé la finalisation dans cet environnement. Vérifiez le récapitulatif avant validation."
+    : "La finalisation groupée demeure désactivée par le serveur hors de la recette isolée.";
+  cg("finalise").textContent = cashGroupState.finalisationEnabled ? "Finaliser le dossier" : "Finalisation indisponible";
+  if (cashGroupState.draft) cg("finalise").disabled = !cgCanFinalize();
 }
 function cgRenderSelection() {
   const rows = [...cashGroupState.selected.values()];
@@ -178,6 +218,7 @@ async function cgResume() {
   try {
     const draft = await cgRequest(`/${encodeURIComponent(id)}`);
     cashGroupState.draft = draft; cashGroupState.mutationRetry = null;
+    cgRememberDraft(draft.dossier.id);
     await cgLoadDraftSales(); cgRenderDraft(); cgMessage("Dossier rechargé depuis le serveur.");
   } catch (error) { cgFailure(error); }
   finally { cgBusy(false); }
@@ -203,6 +244,7 @@ function cgRenderDraft() {
   if (!cashGroupState.payments.length && d.reglements.length) cashGroupState.payments = d.reglements.map(row => ({ mode: row.mode, montant: String(row.montant), rendu: String(row.rendu), confirmation_id: row.confirmation_id }));
   cashGroupState.allocations = d.allocations;
   cg("resume-id").value = d.dossier.id;
+  cgRememberDraft(d.dossier.id);
   cg("status").textContent = `${d.dossier.etat} · Révision ${d.dossier.revision} · ${d.ventes.length} vente(s)`;
   cg("session").textContent = `Session ${d.dossier.session_id} · ${cashState.session?.id === d.dossier.session_id ? "session courante" : "vérifiez votre session active"}`;
   const rows = cg("draft-sales"); rows.replaceChildren();
@@ -222,6 +264,16 @@ function cgRenderDraft() {
   cgRenderPayments(); cgRenderAllocations(); cgRenderReview(); cgRenderReceipts();
   const editable = d.dossier.etat === "BROUILLON";
   for (const id of ["add-payment", "save-payments", "auto", "save-allocations", "abandon", "add-selected"]) cg(id).disabled = !editable || cashGroupState.busy;
+  cg("finalise").disabled = !cgCanFinalize();
+}
+function cgCanFinalize() {
+  const d = cashGroupState.draft;
+  return Boolean(!cashGroupState.busy && cashGroupState.finalisationEnabled && d &&
+    d.dossier.etat === "BROUILLON" && d.dossier.session_id === cashState.session?.id &&
+    cashState.session?.etat === "OUVERTE" && Number(d.totaux.du_xaf) > 0 &&
+    Number(d.totaux.reste_xaf) === 0 && Number(d.totaux.du_xaf) === Number(d.totaux.net_regle_xaf) &&
+    d.totaux.allocation_valide && d.ventes.length > 1 &&
+    d.ventes.every(row => { const sale = cashGroupState.saleDetails.get(row.vente_id); return sale && authHas("caisse.encaisser", sale.emplacement_id); }));
 }
 function cgConfirmationOptions(mode, amount) {
   const choices = [];
@@ -403,10 +455,41 @@ function cgRenderReceipts() {
     button.addEventListener("click", () => cashPDF(`/recus/${receipt.id}/pdf`, false).catch(cgFailure)); actions.append(button);
   }
 }
+async function cgFinalize() {
+  if (cashGroupState.busy) return;
+  if (!cgCanFinalize()) throw new Error("Le dossier, la session ou les allocations ne permettent pas la finalisation. Rechargez et vérifiez les données.");
+  const d = cashGroupState.draft;
+  const payload = { revision: d.dossier.revision, revision_session: cashState.session.revision, fidelite: [] };
+  const fingerprint = JSON.stringify(payload);
+  if (cashGroupState.finalisationPayload !== fingerprint) {
+    const key = cgFinalizationKey(d.dossier.id, fingerprint);
+    cashGroupState.finalisationPayload = fingerprint;
+    cashGroupState.finalisationKey = key;
+  }
+  const recap = [...cg("review").querySelectorAll("li")].map(item => item.textContent).join("\n");
+  if (!window.confirm(`Finaliser définitivement ce dossier ?\n\n${recap}\n\nCette opération encaisse toutes les ventes du dossier.`)) return;
+  cgBusy(true);
+  try {
+    const result = await cgMutation(`/${d.dossier.id}/finaliser`, "POST", payload, cashGroupState.finalisationKey);
+    cashGroupState.mutationRetry = null;
+    cashGroupState.draft = result;
+    if (result.dossier?.etat !== "FINALISE" || !result.resultat?.recu_collectif || !Array.isArray(result.resultat?.recus_individuels)) {
+      throw new Error("La réponse du serveur ne contient pas le résultat finalisé attendu. Rechargez le dossier pour vérifier son état.");
+    }
+    cashGroupState.finalisationKey = null; cashGroupState.finalisationPayload = null;
+    cgClearFinalizationKey(d.dossier.id);
+    cgRenderDraft();
+    cgMessage("Finalisation confirmée par le serveur. Consultez les reçus associés ci-dessous.");
+  } catch (error) {
+    cgFailure(error);
+    if (error.status === 409) await cgReload();
+  } finally { cgBusy(false); }
+}
 function cgReset() {
   cashGroupState.mode = "INDIVIDUEL";
   cashGroupState.page = 1; cashGroupState.selected.clear(); cashGroupState.saleDetails.clear(); cashGroupState.draft = null;
   cashGroupState.payments = []; cashGroupState.allocations = []; cashGroupState.mutationRetry = null;
+  cashGroupState.finalisationKey = null; cashGroupState.finalisationPayload = null;
   if (cg("panel")) {
     cg("panel").hidden = true; cg("draft").hidden = true; cg("sales").replaceChildren();
     $("cash-mode-group").setAttribute("aria-pressed", "false"); $("cash-mode-individual").setAttribute("aria-pressed", "true");
@@ -428,10 +511,10 @@ cg("save-payments").addEventListener("click", () => cgSavePayments().catch(cgFai
 cg("auto").addEventListener("click", () => cgAutoAllocate().catch(cgFailure));
 cg("save-allocations").addEventListener("click", () => cgSaveAllocations().catch(cgFailure));
 cg("abandon").addEventListener("click", () => cgAbandon());
-$("cash-group-finalise").addEventListener("click", () => cgMessage("La finalisation reste désactivée côté serveur jusqu’à la recette complète.", true));
-$("cash-group-finalise").dataset.locked = "true";
+$("cash-group-finalise").addEventListener("click", () => cgFinalize().catch(cgFailure));
 cg("create").disabled = true; cg("add-selected").disabled = true;
 cg("resume-id").addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); cgResume(); } });
+try { cg("resume-id").value = localStorage.getItem(cgDraftStorageKey()) || ""; } catch (_) {}
 
 // Reprendre l'actualisation existante sans modifier le parcours individuel.
 const cgOriginalLoad = cashLoad;
