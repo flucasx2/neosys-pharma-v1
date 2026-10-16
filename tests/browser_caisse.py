@@ -113,7 +113,10 @@ with sync_playwright() as p:
     due=3*int(f['p44_total']);first_payment=due//2
     activate(page.get_by_role('button',name='Ajouter un règlement',exact=True));page.locator('[aria-label="Montant règlement 1"]').fill(str(first_payment))
     activate(page.get_by_role('button',name='Ajouter un règlement',exact=True));page.locator('[aria-label="Montant règlement 2"]').fill(str(due-first_payment))
-    activate(page.get_by_role('button',name='Enregistrer les règlements',exact=True));activate(page.get_by_role('button',name='Proposer et enregistrer la ventilation automatique',exact=True));expect(page.locator('#cash-group-allocation-status')).to_contain_text('ventilation équilibrée')
+    activate(page.get_by_role('button',name='Enregistrer les règlements',exact=True));expect(page.locator('#cash-group-panel')).to_have_attribute('aria-busy','false')
+    # Simuler l'acceptation opérateur des confirmations natives du parcours réel.
+    page.on('dialog',lambda dialog:dialog.accept())
+    activate(page.get_by_role('button',name='Proposer et enregistrer la ventilation automatique',exact=True));expect(page.locator('#cash-group-allocation-status')).to_contain_text('ventilation équilibrée')
     expect(page.locator('#cash-group-finalise')).to_be_enabled();assert 'autorisé' in page.locator('#cash-group-finalisation-note').inner_text()
     finalise_calls=[];finalise_payloads=[]
     def fail_first_finalisation(route):
