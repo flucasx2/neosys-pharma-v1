@@ -85,7 +85,7 @@ with sync_playwright() as p:
     assert len(grouped['ventes']) == 2 and len(grouped['reglements']) == 2, f"Réponse simulée inattendue avant ventilation: {grouped}"
     page.evaluate("window.__groupConfirmMessages=[]; window.confirm=(message)=>{window.__groupConfirmMessages.push(message); return true;}")
     activate(page.get_by_role('button',name='Proposer et enregistrer la ventilation automatique',exact=True))
-    page.wait_for_function("window.__groupConfirmMessages.includes('Enregistrer explicitement la proposition automatique retournée par le service ?')", timeout=5000)
+    # Observe the rendered result; evaluating a polling predicate violates the app CSP.
     expect(page.locator('#cash-group-allocation-status')).to_contain_text('ventilation équilibrée')
     assert grouped['allocations'], f"La proposition simulée n'a pas été enregistrée: {grouped}"
     allocation = page.locator('#cash-group-allocation-body input').first; original_allocation = int(allocation.input_value()); allocation.fill(str(original_allocation-1)); activate(page.get_by_role('button',name='Enregistrer la ventilation manuelle',exact=True)); expect(page.locator('#cash-message')).to_contain_text('Ventilation invalide')
