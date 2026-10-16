@@ -69,7 +69,7 @@ with sync_playwright() as p:
     page.on('dialog',lambda dialog:dialog.accept())
     page.route('**/api/caisses/organisations/*/groupes*',mock_group)
     page.route('**/api/caisses/organisations/*/ventes/*',add_mock_confirmation)
-    activate(page.get_by_role('button',name='Encaissement multiple',exact=True)); expect(page.locator('#cash-group-sales tr')).to_have_count(5)
+    activate(page.get_by_role('button',name='Encaissement multiple',exact=True)); expect(page.locator('#cash-group-sales tr')).to_have_count(6)
     for count,sale_id in enumerate([f['p44_vente_0'],f['p44_vente_1']],start=1):
         page.get_by_role('checkbox',name='Sélectionner la vente '+sale_id[:8]).check()
         expect(page.locator('#cash-group-selected-total')).to_contain_text(f'{count} ticket(s)')
