@@ -118,6 +118,19 @@ with sync_playwright() as p:
     # Simuler l'acceptation opérateur des confirmations natives du parcours réel.
     page.on('dialog',lambda dialog:dialog.accept())
     activate(page.get_by_role('button',name='Proposer et enregistrer la ventilation automatique',exact=True));expect(page.locator('#cash-group-allocation-status')).to_contain_text('ventilation équilibrée')
+    # Attendre la fin de la mutation et du rendu avant de vérifier le verrou financier.
+    expect(page.locator('#cash-group-panel')).to_have_attribute('aria-busy','false')
+    readiness = page.evaluate("""() => { const d=cashGroupState.draft; return {
+      busy:cashGroupState.busy, activation:cashGroupState.finalisationEnabled,
+      draft_state:d?.dossier?.etat, session_match:d?.dossier?.session_id===cashState.session?.id,
+      session_state:cashState.session?.etat, due:d?.totaux?.du_xaf,
+      net:d?.totaux?.net_regle_xaf, remaining:d?.totaux?.reste_xaf,
+      allocation_valid:d?.totaux?.allocation_valide, sales:d?.ventes?.length,
+      sale_checks:d?.ventes?.map(row=>{const sale=cashGroupState.saleDetails.get(row.vente_id);
+        const loyalty=cashGroupState.loyalty.get(row.vente_id);
+        return {sale:row.vente_id,loaded:!!sale,permission:!!sale&&authHas('caisse.encaisser',sale.emplacement_id),loyalty:loyalty?.status};}),
+      can_finalize:cgCanFinalize()}; }""")
+    assert readiness['can_finalize'], f"Finalisation bloquée, conditions réelles : {readiness}"
     expect(page.locator('#cash-group-finalise')).to_be_enabled();assert 'autorisé' in page.locator('#cash-group-finalisation-note').inner_text()
     finalise_calls=[];finalise_payloads=[]
     def fail_first_finalisation(route):
