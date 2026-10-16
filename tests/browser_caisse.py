@@ -35,6 +35,7 @@ with sync_playwright() as p:
     def mock_group(route):
         request = route.request; path = urlparse(request.url).path.split('/groupes', 1)[1]
         body = request.post_data_json if request.post_data else {}
+        grouped['last_request'] = (request.method, path)
         if request.method == 'GET' and path == '/activation':
             route.fulfill(json={'finalisation_active':False}); return
         if request.method == 'POST' and path == '':
@@ -56,6 +57,7 @@ with sync_playwright() as p:
                     allocated=min(amount,rest[sale['vente_id']])
                     if allocated: out.append({'reglement_id':payment['id'],'vente_id':sale['vente_id'],'montant':str(allocated)}); rest[sale['vente_id']]-=allocated; amount-=allocated
                     if not amount: break
+            grouped['last_proposal'] = out
             route.fulfill(json=out); return
         elif request.method == 'POST' and path.endswith('/finaliser'):
             route.fulfill(status=503,json={'detail':'Finalisation désactivée.'}); return
