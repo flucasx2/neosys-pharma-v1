@@ -115,8 +115,7 @@ with sync_playwright() as p:
     activate(page.get_by_role('button',name='Ajouter un règlement',exact=True));page.locator('[aria-label="Mode règlement 1"]').select_option('ESPECES');page.locator('[aria-label="Montant règlement 1"]').fill(str(first_payment))
     activate(page.get_by_role('button',name='Ajouter un règlement',exact=True));page.locator('[aria-label="Mode règlement 2"]').select_option('ESPECES');page.locator('[aria-label="Montant règlement 2"]').fill(str(due-first_payment))
     activate(page.get_by_role('button',name='Enregistrer les règlements',exact=True));expect(page.locator('#cash-group-panel')).to_have_attribute('aria-busy','false');expect(page.locator('#cash-group-due')).to_contain_text(f'Règlements nets {due} FCFA')
-    # Simuler l'acceptation opérateur des confirmations natives du parcours réel.
-    page.on('dialog',lambda dialog:dialog.accept())
+    # Le gestionnaire de dialogues a déjà été enregistré une seule fois pour la page.
     activate(page.get_by_role('button',name='Proposer et enregistrer la ventilation automatique',exact=True));expect(page.locator('#cash-group-allocation-status')).to_contain_text('ventilation équilibrée')
     # Attendre la fin de la mutation et du rendu avant de vérifier le verrou financier.
     expect(page.locator('#cash-group-panel')).to_have_attribute('aria-busy','false')
@@ -159,7 +158,9 @@ with sync_playwright() as p:
     assert sum(f'{points_per_sale} point(s) · Cliente fidélité A' in label for label in receipt_labels)==2
     assert any('sans fidélité' in label for label in receipt_labels)
     accounts=page.evaluate('''async ids=>Promise.all(ids.map(async id=>await cashRequest('/fidelite/'+id)))''',[f['p44_account_a'],f['p44_account_b']])
-    assert accounts[0]['points']==2*points_per_sale and accounts[1]['points']==0 and accounts[1]['dette']=='1'
+    assert accounts[0]['points']==2*points_per_sale, f"Compte fidélité A : attendu {2*points_per_sale} points, reçu {accounts[0]['points']!r}; compte={accounts[0]!r}"
+    assert accounts[1]['points']==0, f"Compte fidélité B : attendu 0 point, reçu {accounts[1]['points']!r}; compte={accounts[1]!r}"
+    assert str(accounts[1]['dette'])=='1', f"Compte fidélité B : dette attendue 1, reçue {accounts[1]['dette']!r}; compte={accounts[1]!r}"
     with page.expect_response('**/groupes/*/recu.pdf') as group_pdf_response: activate(page.get_by_role('button',name='Ouvrir le reçu collectif',exact=True))
     assert group_pdf_response.value.status==200 and group_pdf_response.value.headers.get('content-type','').startswith('application/pdf')
     individual_receipt=page.locator('#cash-group-receipt-actions button').nth(1)
