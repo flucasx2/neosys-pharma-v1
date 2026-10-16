@@ -257,6 +257,9 @@ async function cgCreateDraft() {
       ventes: sales.map(sale => ({ vente_id: sale.id, revision: sale.revision })),
     });
     cashGroupState.mutationRetry = null; cashGroupState.draft = saved;
+    // Charger les fiches et les comptes fidélité avant de construire les cellules du brouillon.
+    // Les détails de sélection ne garantissent pas un état de fidélité initialisé.
+    await cgLoadDraftSales();
     cgRenderDraft(); cgMessage("Brouillon créé. Les ventes ne sont pas réservées par ce dossier.");
   } catch (error) { cgFailure(error); }
   finally { cgBusy(false); cgRenderSelection(); }
