@@ -99,6 +99,7 @@ with sync_playwright() as p:
     def fail_first_finalisation(route):
         finalise_calls.append(route.request.post_data_json['cle'])
         if len(finalise_calls)==1: route.fulfill(status=503,json={'detail':'Refus de transport simulé pour recette idempotence.'})
+        elif len(finalise_calls)==2: route.fulfill(status=409,json={'detail':'Révision modifiée par un autre opérateur.'})
         else: route.continue_()
     page.route('**/api/caisses/organisations/*/groupes/*/finaliser',fail_first_finalisation)
     page.locator('#cash-group-finalise').evaluate('(button)=>{button.click();button.click()}')
@@ -108,7 +109,8 @@ with sync_playwright() as p:
     page.reload();expect(page.locator('#app-shell')).to_be_visible();activate(page.get_by_role('button',name='Utiliser cette session',exact=True));activate(page.get_by_role('button',name='Encaissement multiple',exact=True))
     expect(page.locator('#cash-group-resume-id')).to_have_value(dossier_id)
     activate(page.get_by_role('button',name='Consulter le dossier',exact=True));expect(page.locator('#cash-group-status')).to_contain_text('BROUILLON')
-    activate(page.locator('#cash-group-finalise'));expect(page.locator('#cash-group-status')).to_contain_text('FINALISE');assert len(finalise_calls)==2 and finalise_calls[0]==finalise_calls[1]
+    activate(page.locator('#cash-group-finalise'));expect(page.locator('#cash-message')).to_contain_text('modification concurrente');assert len(finalise_calls)==2
+    activate(page.locator('#cash-group-finalise'));expect(page.locator('#cash-group-status')).to_contain_text('FINALISE');assert len(finalise_calls)==3 and len(set(finalise_calls))==1
     expect(page.locator('#cash-group-receipts')).to_be_visible();expect(page.locator('#cash-group-receipt-actions button')).to_have_count(3)
     with page.expect_response('**/groupes/*/recu.pdf') as group_pdf_response: activate(page.get_by_role('button',name='Ouvrir le reçu collectif',exact=True))
     assert group_pdf_response.value.status==200 and group_pdf_response.value.headers.get('content-type','').startswith('application/pdf')

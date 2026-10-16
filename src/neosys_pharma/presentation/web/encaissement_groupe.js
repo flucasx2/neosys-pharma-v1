@@ -459,6 +459,7 @@ async function cgFinalize() {
   if (cashGroupState.busy) return;
   if (!cgCanFinalize()) throw new Error("Le dossier, la session ou les allocations ne permettent pas la finalisation. Rechargez et vérifiez les données.");
   const d = cashGroupState.draft;
+  let revisionConflict = false;
   const payload = { revision: d.dossier.revision, revision_session: cashState.session.revision, fidelite: [] };
   const fingerprint = JSON.stringify(payload);
   if (cashGroupState.finalisationPayload !== fingerprint) {
@@ -482,8 +483,15 @@ async function cgFinalize() {
     cgMessage("Finalisation confirmée par le serveur. Consultez les reçus associés ci-dessous.");
   } catch (error) {
     cgFailure(error);
-    if (error.status === 409) await cgReload();
+    if (error.status === 409) {
+      await cgReload();
+      revisionConflict = true;
+    }
   } finally { cgBusy(false); }
+  if (revisionConflict) {
+    cg("status").textContent += " · Conflit de révision, données rechargées";
+    cgMessage("Le serveur a détecté une modification concurrente. Vérifiez les montants et la ventilation avant de confirmer à nouveau.", true);
+  }
 }
 function cgReset() {
   cashGroupState.mode = "INDIVIDUEL";
