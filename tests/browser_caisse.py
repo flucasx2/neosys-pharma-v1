@@ -86,7 +86,7 @@ with sync_playwright() as p:
     allocation.fill(str(original_allocation)); activate(page.get_by_role('button',name='Enregistrer la ventilation manuelle',exact=True)); expect(page.locator('#cash-group-allocation-status')).to_contain_text('ventilation équilibrée')
     expect(page.locator('#cash-group-finalise')).to_be_disabled(); expect(page.locator('#cash-group-payments')).to_contain_text('CARTE'); shot('p4c4-brouillon-groupe.png')
     activate(page.get_by_role('button',name='Abandonner le brouillon',exact=True)); expect(page.locator('#cash-group-status')).to_contain_text('ABANDONNE')
-    activate(page.get_by_role('button',name='Encaissement simple',exact=True)); expect(page.locator('#cash-group-selected-total')).to_contain_text('0 ticket(s)'); expect(page.locator('#cash-waiting').closest('article')).to_be_visible()
+    activate(page.get_by_role('button',name='Encaissement simple',exact=True)); expect(page.locator('#cash-group-selected-total')).to_contain_text('0 ticket(s)'); expect(page.locator('#cash-waiting').locator('xpath=ancestor::article[1]')).to_be_visible()
     page.unroute('**/api/caisses/organisations/*/groupes**'); page.unroute('**/api/caisses/organisations/*/ventes/*')
     # Recette PostgreSQL jetable : finalisation réelle via P4-C.3. Le premier
     # essai est refusé au transport; la reprise après rechargement doit rejouer
