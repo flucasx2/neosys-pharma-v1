@@ -11,7 +11,10 @@ from neosys_pharma.domain.organisation.permissions_systeme import CAISSE_PERMISS
 from neosys_pharma.application.stock_service import StockService
 from neosys_pharma.application.vente_service import VenteService
 from neosys_pharma.application.caisse_service import CaisseService
+from neosys_pharma.application.stock_service import serial as stock_serial
 from neosys_pharma.infrastructure.catalogue_models import ProduitModel
+from neosys_pharma.infrastructure.caisse_models import CompteFideliteModel
+from neosys_pharma.infrastructure.client_models import ClientModel
 f=json.loads(Path('/tmp/p1-browser-fixture.json').read_text());org,site,loc=[UUID(f[k]) for k in ('organisation_id','site_id','location_id')]
 with SessionLocal() as s:
     repo=SqlAlchemySecuriteRepository(s);users={}
@@ -20,8 +23,17 @@ with SessionLocal() as s:
         for code in permissions:repo.ajouter(RolePermission(role_id=r.id_role,permission_id=permission_id(code)))
         s.commit();u=Utilisateur(organisation_id=org,identifiant=name,nom=name);provisionner(s,u,[site],[loc],[r.id_role],f['password']);users[name]=u.id_utilisateur
     stock=StockService(s,org,users['caisse.qa'],lambda *a:None);vente=VenteService(stock,site);cash=CaisseService(vente)
-    for i in range(4):
-        v=stock.operation(uuid4(),'QA:CREER',{},lambda:vente.creer({'emplacement_id':loc,'poste_id':UUID(f['p4_poste']),'mode':'SANS_TIERS'}))
+    client_a=stock.operation(uuid4(),'QA:CLIENT',{},lambda:stock_serial(stock.ajouter(ClientModel,nom='Cliente fidélité A',telephone='070111111')))
+    client_b=stock.operation(uuid4(),'QA:CLIENT',{},lambda:stock_serial(stock.ajouter(ClientModel,nom='Client fidélité B',telephone='070222222')))
+    account_a=stock.operation(uuid4(),'QA:FIDELITE',{},lambda:cash.creer_compte_pour_client(UUID(client_a['id'])))
+    account_b=stock.operation(uuid4(),'QA:FIDELITE',{},lambda:cash.creer_compte_pour_client(UUID(client_b['id'])))
+    # Le modèle n'a pas d'état actif sur le compte; une dette constitue le cas
+    # d'inadmissibilité métier testé par le moteur P4.5/P4-C.3.
+    blocked=s.get(CompteFideliteModel,UUID(account_b['id']));blocked.dette=1;blocked.revision+=1;s.commit()
+    f.update(p44_client_a=client_a['id'],p44_client_b=client_b['id'],p44_account_a=account_a['id'],p44_account_b=account_b['id'],p44_account_a_revision=account_a['revision'])
+    for i in range(5):
+        client_id=client_a['id'] if i in (1,3) else client_b['id'] if i==2 else None
+        v=stock.operation(uuid4(),'QA:CREER',{},lambda:vente.creer({'emplacement_id':loc,'poste_id':UUID(f['p4_poste']),'mode':'SANS_TIERS','client_id':UUID(client_id) if client_id else None}))
         v=stock.operation(uuid4(),'QA:LIGNE',{},lambda:vente.ajouter_ligne(vente.obtenir(v['id'],'vente.preparer'),{'revision':v['revision'],'produit_id':UUID(f['p4_product']),'conditionnement_id':UUID(f['p4_pack']),'quantite':1}))
         v=stock.operation(uuid4(),'QA:VALIDER',{},lambda:vente.changer_etat(vente.obtenir(v['id'],'vente.valider'),'VALIDEE_PREPARATION',{'revision':v['revision']}))
         v=stock.operation(uuid4(),'QA:TRANSMETTRE',{},lambda:vente.changer_etat(vente.obtenir(v['id'],'vente.transmettre'),'TRANSMISE',{'revision':v['revision'],'caisse_id':UUID(f['p4_caisse'])}))

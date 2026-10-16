@@ -1,4 +1,4 @@
-"""P4.4 Chromium au clavier : sessions, paiements acquis, fidélité, erreurs et lecture seule."""
+"""Recette Chromium P4.4/P4-C.4 : caisse individuelle, groupée et fidélité par vente."""
 import json
 from pathlib import Path
 from playwright.sync_api import sync_playwright,expect
@@ -69,11 +69,14 @@ with sync_playwright() as p:
     page.on('dialog',lambda dialog:dialog.accept())
     page.route('**/api/caisses/organisations/*/groupes*',mock_group)
     page.route('**/api/caisses/organisations/*/ventes/*',add_mock_confirmation)
-    activate(page.get_by_role('button',name='Encaissement multiple',exact=True)); expect(page.locator('#cash-group-sales tr')).to_have_count(4)
+    activate(page.get_by_role('button',name='Encaissement multiple',exact=True)); expect(page.locator('#cash-group-sales tr')).to_have_count(5)
     for count,sale_id in enumerate([f['p44_vente_0'],f['p44_vente_1']],start=1):
         page.get_by_role('checkbox',name='Sélectionner la vente '+sale_id[:8]).check()
         expect(page.locator('#cash-group-selected-total')).to_contain_text(f'{count} ticket(s)')
     activate(page.get_by_role('button',name='Créer un brouillon groupé',exact=True)); expect(page.locator('#cash-group-status')).to_contain_text('BROUILLON')
+    no_client_loyalty=page.locator('#cash-group-loyalty-'+f['p44_vente_0']);eligible_loyalty=page.locator('#cash-group-loyalty-'+f['p44_vente_1'])
+    expect(no_client_loyalty).to_contain_text('Aucun client associé');expect(no_client_loyalty.locator('input')).to_have_count(0)
+    expect(eligible_loyalty).to_contain_text('Cliente fidélité A');expect(eligible_loyalty.get_by_role('checkbox')).to_be_visible()
     activate(page.get_by_role('button',name='Ajouter un règlement',exact=True)); page.locator('[aria-label="Mode règlement 1"]').select_option('CARTE'); page.locator('[aria-label="Montant règlement 1"]').fill('50'); page.locator('[aria-label="Confirmation règlement 1"]').select_option(fake_confirmation)
     activate(page.get_by_role('button',name='Ajouter un règlement',exact=True)); page.locator('[aria-label="Mode règlement 2"]').select_option('ESPECES'); page.locator('[aria-label="Montant règlement 2"]').fill(str(2*int(f['p44_total'])-50))
     activate(page.get_by_role('button',name='Enregistrer les règlements',exact=True)); activate(page.get_by_role('button',name='Proposer et enregistrer la ventilation automatique',exact=True)); expect(page.locator('#cash-group-allocation-status')).to_contain_text('ventilation équilibrée')
@@ -87,17 +90,22 @@ with sync_playwright() as p:
     # essai est refusé au transport; la reprise après rechargement doit rejouer
     # exactement la même clé et afficher les reçus réels du backend.
     activate(page.get_by_role('button',name='Encaissement multiple',exact=True))
-    for sale_id in [f['p44_vente_1'],f['p44_vente_2']]:
+    for sale_id in [f['p44_vente_1'],f['p44_vente_2'],f['p44_vente_3']]:
         page.get_by_role('checkbox',name='Sélectionner la vente '+sale_id[:8]).check()
     activate(page.get_by_role('button',name='Créer un brouillon groupé',exact=True)); expect(page.locator('#cash-group-status')).to_contain_text('BROUILLON')
-    due=2*int(f['p44_total']);first_payment=due//2
+    expect(page.locator('#cash-group-draft-sales tr')).to_have_count(3)
+    first_loyalty=page.locator('#cash-group-loyalty-'+f['p44_vente_1']);third_loyalty=page.locator('#cash-group-loyalty-'+f['p44_vente_3']);blocked_loyalty=page.locator('#cash-group-loyalty-'+f['p44_vente_2'])
+    expect(first_loyalty).to_contain_text('Cliente fidélité A');expect(third_loyalty).to_contain_text('Cliente fidélité A')
+    expect(blocked_loyalty).to_contain_text('dette');expect(blocked_loyalty.locator('input')).to_have_count(0)
+    first_loyalty.get_by_role('checkbox').check();third_loyalty.get_by_role('checkbox').check()
+    due=3*int(f['p44_total']);first_payment=due//2
     activate(page.get_by_role('button',name='Ajouter un règlement',exact=True));page.locator('[aria-label="Montant règlement 1"]').fill(str(first_payment))
     activate(page.get_by_role('button',name='Ajouter un règlement',exact=True));page.locator('[aria-label="Montant règlement 2"]').fill(str(due-first_payment))
     activate(page.get_by_role('button',name='Enregistrer les règlements',exact=True));activate(page.get_by_role('button',name='Proposer et enregistrer la ventilation automatique',exact=True));expect(page.locator('#cash-group-allocation-status')).to_contain_text('ventilation équilibrée')
     expect(page.locator('#cash-group-finalise')).to_be_enabled();assert 'autorisé' in page.locator('#cash-group-finalisation-note').inner_text()
-    finalise_calls=[]
+    finalise_calls=[];finalise_payloads=[]
     def fail_first_finalisation(route):
-        finalise_calls.append(route.request.post_data_json['cle'])
+        finalise_payloads.append(route.request.post_data_json);finalise_calls.append(route.request.post_data_json['cle'])
         if len(finalise_calls)==1: route.fulfill(status=503,json={'detail':'Refus de transport simulé pour recette idempotence.'})
         elif len(finalise_calls)==2: route.fulfill(status=409,json={'detail':'Révision modifiée par un autre opérateur.'})
         else: route.continue_()
@@ -111,7 +119,18 @@ with sync_playwright() as p:
     activate(page.get_by_role('button',name='Consulter le dossier',exact=True));expect(page.locator('#cash-group-status')).to_contain_text('BROUILLON')
     activate(page.locator('#cash-group-finalise'));expect(page.locator('#cash-message')).to_contain_text('modification concurrente');assert len(finalise_calls)==2
     activate(page.locator('#cash-group-finalise'));expect(page.locator('#cash-group-status')).to_contain_text('FINALISE');assert len(finalise_calls)==3 and len(set(finalise_calls))==1
-    expect(page.locator('#cash-group-receipts')).to_be_visible();expect(page.locator('#cash-group-receipt-actions button')).to_have_count(3)
+    expected_fidelity=[{'vente_id':f['p44_vente_1'],'compte_id':f['p44_account_a']},{'vente_id':f['p44_vente_3'],'compte_id':f['p44_account_a']}]
+    for payload in finalise_payloads:
+        assert [{key:item[key] for key in ('vente_id','compte_id')} for item in payload['fidelite']]==expected_fidelity
+        assert all(item['revision_compte']==f['p44_account_a_revision'] for item in payload['fidelite'])
+    assert all(payload==finalise_payloads[0] for payload in finalise_payloads)
+    expect(page.locator('#cash-group-receipts')).to_be_visible();expect(page.locator('#cash-group-receipt-actions button')).to_have_count(4)
+    receipt_labels=page.locator('#cash-group-receipt-actions button').all_inner_texts()
+    points_per_sale=int(f['p44_total'])//100
+    assert sum(f'{points_per_sale} point(s) · Cliente fidélité A' in label for label in receipt_labels)==2
+    assert any('sans fidélité' in label for label in receipt_labels)
+    accounts=page.evaluate('''async ids=>Promise.all(ids.map(async id=>await cashRequest('/fidelite/'+id)))''',[f['p44_account_a'],f['p44_account_b']])
+    assert accounts[0]['points']==2*points_per_sale and accounts[1]['points']==0 and accounts[1]['dette']=='1'
     with page.expect_response('**/groupes/*/recu.pdf') as group_pdf_response: activate(page.get_by_role('button',name='Ouvrir le reçu collectif',exact=True))
     assert group_pdf_response.value.status==200 and group_pdf_response.value.headers.get('content-type','').startswith('application/pdf')
     individual_receipt=page.locator('#cash-group-receipt-actions button').nth(1)
@@ -129,7 +148,7 @@ with sync_playwright() as p:
     with page.expect_download() as dl:activate(page.get_by_role('button',name='Télécharger le reçu PDF',exact=True))
     dl.value.save_as('qa/p44-recu.pdf')
     activate(page.get_by_role('button',name='Barèmes fidélité',exact=True));expect(modal()).to_contain_text('ACQUISITION');shot('p44-baremes.png');page.keyboard.press('Escape')
-    activate(page.get_by_role('button',name='Fermer ma session',exact=True));fill(modal().locator('[name=comptage_final]'),1000+2*int(f['p44_total'])+int(f['p44_total'])-50);fill(modal().locator('[name=justification]'),'Fin de service recette');save()
-    readonly=browser.new_context();rp=readonly.new_page();rp.on('pageerror',lambda e:errors.append(str(e)));login(rp,'caisse.lecture.qa');expect(rp.get_by_role('button',name='F2 · Ouvrir une session',exact=True)).to_have_count(0);expect(rp.get_by_role('button',name='Moyens de paiement',exact=True)).to_have_count(0);rp.locator('#cash-waiting tr').filter(has_text=f['p44_vente_3'][:8]).get_by_role('button').focus();rp.keyboard.press('Enter');expect(rp.locator('#cash-sale')).to_be_visible();expect(rp.get_by_role('button',name='F10 · Encaisser intégralement',exact=True)).to_have_count(0)
+    activate(page.get_by_role('button',name='Fermer ma session',exact=True));fill(modal().locator('[name=comptage_final]'),1000+3*int(f['p44_total'])+int(f['p44_total'])-50);fill(modal().locator('[name=justification]'),'Fin de service recette');save()
+    readonly=browser.new_context();rp=readonly.new_page();rp.on('pageerror',lambda e:errors.append(str(e)));login(rp,'caisse.lecture.qa');expect(rp.get_by_role('button',name='F2 · Ouvrir une session',exact=True)).to_have_count(0);expect(rp.get_by_role('button',name='Moyens de paiement',exact=True)).to_have_count(0);rp.locator('#cash-waiting tr').filter(has_text=f['p44_vente_4'][:8]).get_by_role('button').focus();rp.keyboard.press('Enter');expect(rp.locator('#cash-sale')).to_be_visible();expect(rp.get_by_role('button',name='F10 · Encaisser intégralement',exact=True)).to_have_count(0)
     status=rp.evaluate('''async org=>{const csrf=document.cookie.split('; ').find(x=>x.startsWith('neosys_csrf=')).split('=')[1];return (await fetch('/api/caisses/organisations/'+org+'/sessions',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':decodeURIComponent(csrf),'X-Site-ID':document.querySelector('#sites').value},body:'{}'})).status}''',f['organisation_id']);assert status==403
-    rp.screenshot(path='qa/p44-lecture-seule.png',full_page=True);assert not errors,errors;browser.close();print('P4.4 Chromium intégralement au clavier : sessions, modes, paiements mixtes/erreur, compte/carte, acquisition, reçu, lecture seule et 403 : OK')
+    rp.screenshot(path='qa/p44-lecture-seule.png',full_page=True);assert not errors,errors;browser.close();print('P4.4/P4-C.4 Chromium : parcours individuel, groupé et fidélité par vente : OK')

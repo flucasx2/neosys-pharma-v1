@@ -4,7 +4,7 @@
 // restent exclusivement sous l'autorite de l'API P4-C.3.
 const cashGroupState = {
   mode: "INDIVIDUEL", page: 1, pageSize: 15, selected: new Map(), draft: null,
-  saleDetails: new Map(), payments: [], allocations: [], busy: false,
+  saleDetails: new Map(), loyalty: new Map(), payments: [], allocations: [], busy: false,
   mutationRetry: null, finalisationKey: null, finalisationPayload: null,
   finalisationEnabled: false,
 };
@@ -32,6 +32,75 @@ function cgFinalizationKey(dossierId, fingerprint) {
 }
 function cgClearFinalizationKey(dossierId) {
   try { localStorage.removeItem(`${cgDraftStorageKey()}:${dossierId}:finalisation`); } catch (_) {}
+}
+function cgLoyaltyStorageKey(dossierId) {
+  return `${cgDraftStorageKey()}:${dossierId}:fidelite`;
+}
+function cgSavedLoyaltyChoices(dossierId) {
+  try { return JSON.parse(localStorage.getItem(cgLoyaltyStorageKey(dossierId)) || "{}"); }
+  catch (_) { return {}; }
+}
+function cgStoreLoyaltyChoices() {
+  const dossierId = cashGroupState.draft?.dossier?.id;
+  if (!dossierId) return;
+  const choices = {};
+  for (const [saleId, state] of cashGroupState.loyalty) if (state.selected && state.account) {
+    choices[saleId] = { compte_id: state.account.id, revision_compte: state.account.revision };
+  }
+  try {
+    const key = cgLoyaltyStorageKey(dossierId);
+    if (Object.keys(choices).length) localStorage.setItem(key, JSON.stringify(choices));
+    else localStorage.removeItem(key);
+  } catch (_) {}
+}
+async function cgLoadLoyaltyForSale(sale) {
+  const saleId = sale.id;
+  const base = { status: "loading", selected: false, account: null, message: "Recherche du compte associé…" };
+  const isCurrent = () => cashGroupState.loyalty.get(saleId) === base;
+  cashGroupState.loyalty.set(saleId, base);
+  const cell = document.getElementById(`cash-group-loyalty-${saleId}`);
+  if (cell) cgRenderLoyaltyCell(cell, sale);
+  if (!sale.client) {
+    Object.assign(base, { status: "none", message: "Aucun client associé : fidélité non applicable." });
+    if (cell) cgRenderLoyaltyCell(cell, sale);
+    return;
+  }
+  if (!authHas("fidelite.consulter", sale.emplacement_id)) {
+    Object.assign(base, { status: "blocked", message: "Permission de consultation fidélité absente pour cet emplacement." });
+    if (cell) cgRenderLoyaltyCell(cell, sale);
+    return;
+  }
+  const query = String(sale.client.nom || sale.client.telephone || "").trim();
+  if (query.length < 3) {
+    Object.assign(base, { status: "none", message: "Aucune recherche sûre possible pour ce client." });
+    if (cell) cgRenderLoyaltyCell(cell, sale);
+    return;
+  }
+  try {
+    const result = await cashRequest(`/fidelite?q=${encodeURIComponent(query)}&page=1&page_size=100`);
+    if (!isCurrent()) return;
+    const account = result.items.find(row => row.client?.profil_client_id === sale.client.id) || null;
+    if (!account) {
+      Object.assign(base, { status: "none", message: "Aucun compte fidélité associé à cette fiche client." });
+    } else {
+      const debt = Number(account.dette || 0);
+      const saved = cashGroupState.draft ? cgSavedLoyaltyChoices(cashGroupState.draft.dossier.id)[saleId] : null;
+      const selected = Boolean(saved && saved.compte_id === account.id && saved.revision_compte === account.revision && debt === 0);
+      Object.assign(base, {
+        status: debt > 0 ? "blocked" : "ready", account, selected,
+        message: debt > 0 ? `Compte non admissible : dette de ${cgMoney(debt)}.` : "",
+      });
+      if (saved && !selected) {
+        const choices = cgSavedLoyaltyChoices(cashGroupState.draft.dossier.id);
+        delete choices[saleId];
+        try { localStorage.setItem(cgLoyaltyStorageKey(cashGroupState.draft.dossier.id), JSON.stringify(choices)); } catch (_) {}
+      }
+    }
+  } catch (error) {
+    if (!isCurrent()) return;
+    Object.assign(base, { status: "error", message: error.message || "Le compte fidélité n’a pas pu être consulté." });
+  }
+  if (cell) cgRenderLoyaltyCell(cell, sale);
 }
 
 async function cgRequest(path, method = "GET", body = null) {
@@ -125,6 +194,7 @@ async function cgLoadSales() {
           if (sale.etat !== "TRANSMISE") throw new Error("Cette vente n’est plus admissible. Actualisez la liste.");
           if (!authHas("caisse.encaisser", sale.emplacement_id)) throw new Error("Permission d’encaissement absente pour cet emplacement.");
           cashGroupState.selected.set(sale.id, sale); cashGroupState.saleDetails.set(sale.id, sale);
+          await cgLoadLoyaltyForSale(sale);
         } catch (error) { checkbox.checked = false; cgMessage(error.message, true); }
       } else cashGroupState.selected.delete(row.id);
       cgRenderSelection();
@@ -202,6 +272,13 @@ async function cgReplaceSales(sales) {
       revision: d.dossier.revision, ventes: sales,
       reinitialiser_allocations: d.allocations.length > 0,
     });
+    const retained = new Set(sales.map(row => row.vente_id));
+    for (const saleId of cashGroupState.loyalty.keys()) if (!retained.has(saleId)) cashGroupState.loyalty.delete(saleId);
+    for (const saleId of retained) {
+      const sale = cashGroupState.saleDetails.get(saleId);
+      if (sale && !cashGroupState.loyalty.has(saleId)) await cgLoadLoyaltyForSale(sale);
+    }
+    cgStoreLoyaltyChoices();
     cashGroupState.mutationRetry = null; cgRenderDraft(); cgMessage("Tickets du brouillon actualisés.");
   } catch (error) { cgFailure(error); }
   finally { cgBusy(false); }
@@ -232,9 +309,11 @@ async function cgReload() {
 }
 async function cgLoadDraftSales() {
   cashGroupState.saleDetails.clear();
+  cashGroupState.loyalty.clear();
   await Promise.all(cashGroupState.draft.ventes.map(async row => {
     const sale = await cashRequest(`/ventes/${row.vente_id}`);
     cashGroupState.saleDetails.set(row.vente_id, sale);
+    await cgLoadLoyaltyForSale(sale);
   }));
 }
 function cgRenderDraft() {
@@ -251,9 +330,13 @@ function cgRenderDraft() {
   for (const row of d.ventes) {
     const sale = cashGroupState.saleDetails.get(row.vente_id);
     const tr = document.createElement("tr");
-    for (const text of [row.vente_id.slice(0, 8), sale?.emplacement_id?.slice(0, 8) || "—", cgMoney(row.montant_du)]) {
+    for (const text of [row.vente_id.slice(0, 8), sale?.client?.nom || "Client non associé", sale?.emplacement_id?.slice(0, 8) || "—", cgMoney(row.montant_du)]) {
       const td = document.createElement("td"); td.textContent = text; tr.append(td);
     }
+    const fidelity = document.createElement("td"); fidelity.id = `cash-group-loyalty-${row.vente_id}`;
+    if (sale) cgRenderLoyaltyCell(fidelity, sale);
+    else fidelity.textContent = "Client et fidélité indisponibles";
+    tr.append(fidelity);
     const td = document.createElement("td");
     const remove = document.createElement("button"); remove.type = "button"; remove.className = "secondary"; remove.textContent = "Retirer";
     remove.disabled = d.dossier.etat !== "BROUILLON" || cashGroupState.busy;
@@ -266,6 +349,39 @@ function cgRenderDraft() {
   for (const id of ["add-payment", "save-payments", "auto", "save-allocations", "abandon", "add-selected"]) cg(id).disabled = !editable || cashGroupState.busy;
   cg("finalise").disabled = !cgCanFinalize();
 }
+function cgRenderLoyaltyCell(cell, sale) {
+  cell.replaceChildren();
+  const state = cashGroupState.loyalty.get(sale.id);
+  if (!state || state.status === "loading" || state.status === "none" || state.status === "blocked" || state.status === "error") {
+    cell.textContent = state?.message || "Fidélité non sélectionnée.";
+    return;
+  }
+  const label = document.createElement("label");
+  const checkbox = document.createElement("input"); checkbox.type = "checkbox";
+  checkbox.checked = state.selected; checkbox.disabled = cashGroupState.busy || cashGroupState.draft?.dossier?.etat !== "BROUILLON";
+  checkbox.setAttribute("aria-label", `Attribuer la fidélité du client ${state.account.client.nom} à la vente ${sale.id.slice(0, 8)}`);
+  checkbox.addEventListener("change", () => {
+    state.selected = checkbox.checked;
+    cgStoreLoyaltyChoices(); cgRenderReview();
+  });
+  label.append(checkbox, document.createTextNode(` Compte de ${state.account.client.nom} · ${state.account.points} points · ${state.account.cartes.filter(card => card.etat === "ACTIVE").length} carte(s) active(s)`));
+  cell.append(label);
+}
+function cgLoyaltyPayload() {
+  const selected = [];
+  for (const row of cashGroupState.draft.ventes) {
+    const state = cashGroupState.loyalty.get(row.vente_id);
+    if (!state?.selected) continue;
+    const sale = cashGroupState.saleDetails.get(row.vente_id);
+    if (state.status !== "ready" || !state.account || !sale?.client ||
+        state.account.client?.profil_client_id !== sale.client.id || Number(state.account.dette || 0) > 0 ||
+        !authHas("fidelite.consulter", sale.emplacement_id)) {
+      throw new Error(`Le compte fidélité de la vente ${row.vente_id.slice(0, 8)} n’est plus admissible. Actualisez le dossier.`);
+    }
+    selected.push({ vente_id: row.vente_id, compte_id: state.account.id, revision_compte: state.account.revision });
+  }
+  return selected;
+}
 function cgCanFinalize() {
   const d = cashGroupState.draft;
   return Boolean(!cashGroupState.busy && cashGroupState.finalisationEnabled && d &&
@@ -273,7 +389,11 @@ function cgCanFinalize() {
     cashState.session?.etat === "OUVERTE" && Number(d.totaux.du_xaf) > 0 &&
     Number(d.totaux.reste_xaf) === 0 && Number(d.totaux.du_xaf) === Number(d.totaux.net_regle_xaf) &&
     d.totaux.allocation_valide && d.ventes.length > 1 &&
-    d.ventes.every(row => { const sale = cashGroupState.saleDetails.get(row.vente_id); return sale && authHas("caisse.encaisser", sale.emplacement_id); }));
+    d.ventes.every(row => {
+      const sale = cashGroupState.saleDetails.get(row.vente_id);
+      const loyalty = cashGroupState.loyalty.get(row.vente_id);
+      return sale && authHas("caisse.encaisser", sale.emplacement_id) && loyalty && loyalty.status !== "loading" && loyalty.status !== "error";
+    }));
 }
 function cgConfirmationOptions(mode, amount) {
   const choices = [];
@@ -427,6 +547,14 @@ function cgRenderReview() {
   for (const sale of d.ventes) {
     const allocated = allocatedBySale.get(sale.vente_id) || 0, difference = allocated - Number(sale.montant_du);
     const item = document.createElement("li"); item.textContent = `Vente ${sale.vente_id.slice(0, 8)} · alloué ${cgMoney(allocated)} · dû ${cgMoney(sale.montant_du)} · écart ${cgMoney(difference)}`; list.append(item);
+    const loyalty = cashGroupState.loyalty.get(sale.vente_id);
+    const loyaltyItem = document.createElement("li");
+    loyaltyItem.textContent = loyalty?.selected && loyalty.account
+      ? `Fidélité vente ${sale.vente_id.slice(0, 8)} · compte ${loyalty.account.client.nom} · solde actuel ${loyalty.account.points} points`
+      : loyalty?.status === "error" || loyalty?.status === "loading"
+        ? `Fidélité vente ${sale.vente_id.slice(0, 8)} · à vérifier : ${loyalty.message}`
+        : `Fidélité vente ${sale.vente_id.slice(0, 8)} · ${loyalty?.status === "blocked" ? loyalty.message : "non appliquée"}`;
+    list.append(loyaltyItem);
   }
   root.append(list);
   cg("allocation-status").textContent = `Total dû ${cgMoney(d.totaux.du_xaf)} · Total alloué ${cgMoney(d.totaux.alloue_xaf)} · ${d.totaux.allocation_valide ? "ventilation équilibrée" : "ventilation non validée"}`;
@@ -445,13 +573,15 @@ function cgRenderReceipts() {
   const d = cashGroupState.draft; const result = d?.resultat;
   const section = cg("receipts"); section.hidden = !result;
   if (!result) return;
-  cg("receipt-summary").textContent = `Reçu collectif ${result.recu_collectif.reference} · ${cgMoney(result.recu_collectif.total_xaf)} · ${result.recus_individuels.length} reçu(s) individuel(s).`;
+  cg("receipt-summary").textContent = `Reçu collectif ${result.recu_collectif.reference} · ${cgMoney(result.recu_collectif.total_xaf)} · ${result.recus_individuels.length} reçu(s) individuel(s). Les points affichés proviennent des reçus serveur par vente.`;
   const actions = cg("receipt-actions"); actions.replaceChildren();
   const group = document.createElement("button"); group.type = "button"; group.textContent = "Ouvrir le reçu collectif";
   group.addEventListener("click", () => cashPDF(`/groupes/${d.dossier.id}/recu.pdf`, false).catch(cgFailure)); actions.append(group);
   for (const receipt of result.recus_individuels) {
     const button = document.createElement("button"); button.type = "button"; button.className = "secondary";
-    button.textContent = `Reçu individuel ${receipt.instantane?.numero_encaissement || receipt.id.slice(0, 8)}`;
+    const fidelity = receipt.instantane?.fidelite;
+    const points = fidelity ? `${fidelity.points_acquis ?? fidelity.points ?? 0} point(s) · ${fidelity.client?.nom || "titulaire fidélité"}` : "sans fidélité";
+    button.textContent = `Reçu individuel ${receipt.instantane?.numero_encaissement || receipt.id.slice(0, 8)} · ${points}`;
     button.addEventListener("click", () => cashPDF(`/recus/${receipt.id}/pdf`, false).catch(cgFailure)); actions.append(button);
   }
 }
@@ -460,7 +590,7 @@ async function cgFinalize() {
   if (!cgCanFinalize()) throw new Error("Le dossier, la session ou les allocations ne permettent pas la finalisation. Rechargez et vérifiez les données.");
   const d = cashGroupState.draft;
   let revisionConflict = false;
-  const payload = { revision: d.dossier.revision, revision_session: cashState.session.revision, fidelite: [] };
+  const payload = { revision: d.dossier.revision, revision_session: cashState.session.revision, fidelite: cgLoyaltyPayload() };
   const fingerprint = JSON.stringify(payload);
   if (cashGroupState.finalisationPayload !== fingerprint) {
     const key = cgFinalizationKey(d.dossier.id, fingerprint);
@@ -479,6 +609,7 @@ async function cgFinalize() {
     }
     cashGroupState.finalisationKey = null; cashGroupState.finalisationPayload = null;
     cgClearFinalizationKey(d.dossier.id);
+    try { localStorage.removeItem(cgLoyaltyStorageKey(d.dossier.id)); } catch (_) {}
     cgRenderDraft();
     cgMessage("Finalisation confirmée par le serveur. Consultez les reçus associés ci-dessous.");
   } catch (error) {
@@ -496,6 +627,7 @@ async function cgFinalize() {
 function cgReset() {
   cashGroupState.mode = "INDIVIDUEL";
   cashGroupState.page = 1; cashGroupState.selected.clear(); cashGroupState.saleDetails.clear(); cashGroupState.draft = null;
+  cashGroupState.loyalty.clear();
   cashGroupState.payments = []; cashGroupState.allocations = []; cashGroupState.mutationRetry = null;
   cashGroupState.finalisationKey = null; cashGroupState.finalisationPayload = null;
   if (cg("panel")) {
