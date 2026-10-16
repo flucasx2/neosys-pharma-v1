@@ -98,14 +98,12 @@ with sync_playwright() as p:
     # essai est refusé au transport; la reprise après rechargement doit rejouer
     # exactement la même clé et afficher les reçus réels du backend.
     activate(page.get_by_role('button',name='Encaissement multiple',exact=True))
-    selection_responses=[]
-    page.on('response',lambda response:selection_responses.append((response.request.method,response.url,response.status)) if '/ventes/' in response.url or '/fidelite' in response.url else None)
+    # cgSetMode déclenche le chargement sans l'attendre ; attendre le rendu complet
+    # avant de sélectionner des ventes dans cette seconde recette.
+    page.evaluate("async()=>{await cgLoadSales()}")
     for count,sale_id in enumerate([f['p44_vente_1'],f['p44_vente_2'],f['p44_vente_3']],start=1):
         checkbox=page.get_by_role('checkbox',name='Sélectionner la vente '+sale_id[:8]);checkbox.check()
-        try: expect(page.locator('#cash-group-selected-total')).to_contain_text(f'{count} ticket(s)')
-        except AssertionError:
-            print(f"P4-C.4 selection diagnostic sale={sale_id} checkbox_checked={checkbox.is_checked()} message={page.locator('#cash-message').inner_text()!r} responses={[item for item in selection_responses if sale_id in item[1]]}")
-            raise
+        expect(page.locator('#cash-group-selected-total')).to_contain_text(f'{count} ticket(s)')
     activate(page.get_by_role('button',name='Créer un brouillon groupé',exact=True)); expect(page.locator('#cash-group-status')).to_contain_text('BROUILLON')
     expect(page.locator('#cash-group-draft-sales tr')).to_have_count(3)
     first_loyalty=page.locator('#cash-group-loyalty-'+f['p44_vente_1']);third_loyalty=page.locator('#cash-group-loyalty-'+f['p44_vente_3']);blocked_loyalty=page.locator('#cash-group-loyalty-'+f['p44_vente_2'])
