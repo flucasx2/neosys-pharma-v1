@@ -437,9 +437,9 @@ def test_brouillon_groupe_multi_ventes_allocations_et_abandon(raw_client, accoun
         router as grouped_router,
     )
     assert GROUPED_ENCASHMENT_ENABLED is False
-    assert client.get(root(a) + "/groupes/activation").json() == {"finalisation_active": False}
     assert any(route.path.endswith("/{dossier_id}/finaliser") for route in grouped_router.routes)
     first, session, product, pack, post_id, caisse_id = ready(client, a, q=3)
+    assert client.get(root(a) + "/groupes/activation").json() == {"finalisation_active": False}
     second = line(client, a, create(client, a, post_id), product, pack, q=2)
     second = act(client, a, second, "valider")
     second = act(client, a, second, "transmettre", caisse_id=caisse_id)
