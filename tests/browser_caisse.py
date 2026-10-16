@@ -67,7 +67,9 @@ with sync_playwright() as p:
         if sale_id==f['p44_vente_0']: data['confirmations']=[{'id':fake_confirmation,'mode':'CARTE','montant':'50','reference':'CARTE-MOCK-C44'}]
         route.fulfill(response=response,json=data)
     page.on('dialog',lambda dialog:dialog.accept())
-    page.route('**/api/caisses/organisations/*/groupes*',mock_group)
+    # ``*`` ne traverse pas les slashs de sous-routes Playwright : utiliser
+    # ``**`` après /groupes pour intercepter aussi /{id}/ventes, /allocations…
+    page.route('**/api/caisses/organisations/*/groupes**',mock_group)
     page.route('**/api/caisses/organisations/*/ventes/*',add_mock_confirmation)
     activate(page.get_by_role('button',name='Encaissement multiple',exact=True)); expect(page.locator('#cash-group-sales tr')).to_have_count(6)
     for count,sale_id in enumerate([f['p44_vente_0'],f['p44_vente_1']],start=1):
@@ -85,7 +87,7 @@ with sync_playwright() as p:
     expect(page.locator('#cash-group-finalise')).to_be_disabled(); expect(page.locator('#cash-group-payments')).to_contain_text('CARTE'); shot('p4c4-brouillon-groupe.png')
     activate(page.get_by_role('button',name='Abandonner le brouillon',exact=True)); expect(page.locator('#cash-group-status')).to_contain_text('ABANDONNE')
     activate(page.get_by_role('button',name='Encaissement simple',exact=True)); expect(page.locator('#cash-group-selected-total')).to_contain_text('0 ticket(s)'); expect(page.locator('#cash-waiting').closest('article')).to_be_visible()
-    page.unroute('**/api/caisses/organisations/*/groupes*'); page.unroute('**/api/caisses/organisations/*/ventes/*')
+    page.unroute('**/api/caisses/organisations/*/groupes**'); page.unroute('**/api/caisses/organisations/*/ventes/*')
     # Recette PostgreSQL jetable : finalisation réelle via P4-C.3. Le premier
     # essai est refusé au transport; la reprise après rechargement doit rejouer
     # exactement la même clé et afficher les reçus réels du backend.
