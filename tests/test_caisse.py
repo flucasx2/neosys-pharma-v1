@@ -697,7 +697,8 @@ def test_finalisation_groupe_atomique_reçus_mouvements_fidelite_et_rejeu(
             RoleModel.organisation_id == a['org'], RoleModel.code == 'CATALOGUE'
         ))
         for permission in (
-            'caisse.cloture.x', 'vente.retour.gerer',
+            'caisse.cloture.consulter', 'caisse.cloture.x', 'caisse.cloture.z',
+            'vente.retour.gerer',
             'caisse.remboursement.demander', 'caisse.remboursement.autoriser',
             'caisse.remboursement.executer',
         ):
@@ -739,51 +740,192 @@ def test_finalisation_groupe_atomique_reçus_mouvements_fidelite_et_rejeu(
     returnable = client.get(finance_root + f"/recus/{encaissement_first['id']}/retournable")
     assert returnable.status_code == 200, returnable.text
     returned_line = returnable.json()["lignes"][0]
-    returned = client.post(finance_root + "/retours", json={
+    refund_url = finance_root + "/remboursements"
+
+    # La vente 1 a 301 FCFA ventilés : 200 carte et 101 espèces.
+    # La restitution doit suivre ces allocations et plafonner chaque retour.
+    first_return_response = client.post(finance_root + "/retours", json={
         "cle": str(uuid4()), "encaissement_id": encaissement_first["id"],
         "lignes": [{"ligne_id": returned_line["ligne_id"],
-                    "stock_id": returned_line["stock_id"], "quantite": 3}],
-        "justification": "Retour complet de la première vente du groupe.",
+                    "stock_id": returned_line["stock_id"], "quantite": 1}],
+        "justification": "Premier retour partiel sur la vente du dossier groupé.",
     })
-    assert returned.status_code == 201, returned.text
-    refund_url = finance_root + "/remboursements"
-    over_allocated = client.post(refund_url, json={
-        "cle": str(uuid4()), "retour_id": returned.json()["id"],
+    assert first_return_response.status_code == 201, first_return_response.text
+    first_return = first_return_response.json()
+    assert first_return["montant"] == "100"
+    denied_substitution = client.post(refund_url, json={
+        "cle": str(uuid4()), "retour_id": first_return["id"],
         "session_id": session["id"], "revision": session["revision"] + 1,
-        "reglements": [{"mode": "CARTE", "mode_origine": "CARTE", "montant": "301"}],
+        "reglements": [{"mode": "ESPECES", "mode_origine": "CARTE", "montant": "100"}],
+        "justification": "Substitution sans permission.",
+    })
+    assert denied_substitution.status_code == 403
+
+    def refund_return(returned, payments, proof_rows):
+        session_now = next(row for row in client.get(root(a) + "/sessions").json()["items"]
+                           if row["id"] == session["id"])
+        refund_payload = {
+            "cle": str(uuid4()), "retour_id": returned["id"],
+            "session_id": session["id"], "revision": session_now["revision"],
+            "reglements": payments,
+            "justification": "Restitution selon les règlements alloués à la vente.",
+        }
+        refund = client.post(refund_url, json=refund_payload)
+        assert refund.status_code == 201, refund.text
+        assert client.post(refund_url, json=refund_payload).json() == refund.json()
+        authorized = client.post(finance_root + f"/remboursements/{refund.json()['id']}/autoriser", json={
+            "cle": str(uuid4()), "revision": refund.json()["revision"],
+            "justification": "Allocations du reçu collectif vérifiées.",
+        })
+        assert authorized.status_code == 200, authorized.text
+        execution_payload = {
+            "cle": str(uuid4()), "revision": authorized.json()["revision"],
+            "justification": "Restitution effectivement remise.",
+            "preuves": proof_rows,
+        }
+        executed = client.post(finance_root + f"/remboursements/{refund.json()['id']}/executer", json=execution_payload)
+        assert executed.status_code == 200, executed.text
+        session_revision_after_execution = next(
+            row["revision"] for row in client.get(root(a) + "/sessions").json()["items"]
+            if row["id"] == session["id"]
+        )
+        assert client.post(
+            finance_root + f"/remboursements/{refund.json()['id']}/executer",
+            json=execution_payload,
+        ).json() == executed.json()
+        session_revision_after_replay = next(
+            row["revision"] for row in client.get(root(a) + "/sessions").json()["items"]
+            if row["id"] == session["id"]
+        )
+        assert session_revision_after_replay == session_revision_after_execution
+        pdf = client.get(finance_root + f"/documents/remboursements/{refund.json()['id']}/pdf")
+        assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
+        return executed.json()
+
+    refund_return(first_return, [
+        {"mode": "CARTE", "mode_origine": "CARTE", "montant": "100"},
+    ], [{"reference": "RETOUR-GROUPE-CARTE-1", "preuve": "Remboursement carte vérifié."}])
+    first_partial_points = client.get(root(a) + f"/fidelite/{account_row['id']}").json()["points"]
+    first_receipt = next(
+        row for row in first_result["resultat"]["recus_individuels"]
+        if row["vente_id"] == first["id"]
+    )
+    first_gain = first_receipt["instantane"]["fidelite"]
+    points_revoques_cumules = (
+        int(first_gain["points_acquis"]) * 100 // int(first_gain["eligible_paye"])
+    )
+    assert first_partial_points == int(first_gain["points_acquis"]) - points_revoques_cumules
+
+    # Deuxième retour partiel, testé contre le reliquat réel de chaque moyen.
+    second_return = client.post(finance_root + "/retours", json={
+        "cle": str(uuid4()), "encaissement_id": encaissement_first["id"],
+        "lignes": [{"ligne_id": returned_line["ligne_id"],
+                    "stock_id": returned_line["stock_id"], "quantite": 2}],
+        "justification": "Solde du retour partiel sur la première vente.",
+    })
+    assert second_return.status_code == 201, second_return.text
+    second_return_data = second_return.json()
+    assert second_return_data["montant"] == "201"
+    session_before_overallocation = next(
+        row for row in client.get(root(a) + "/sessions").json()["items"]
+        if row["id"] == session["id"]
+    )
+    over_allocated = client.post(refund_url, json={
+        "cle": str(uuid4()), "retour_id": second_return_data["id"],
+        "session_id": session["id"], "revision": session_before_overallocation["revision"],
+        "reglements": [{"mode": "CARTE", "mode_origine": "CARTE", "montant": "201"}],
         "justification": "Montant carte supérieur à l'allocation de la vente.",
     })
     assert over_allocated.status_code == 409
-    refund = client.post(refund_url, json={
-        "cle": str(uuid4()), "retour_id": returned.json()["id"],
-        "session_id": session["id"], "revision": session["revision"] + 1,
-        "reglements": [
-            {"mode": "CARTE", "mode_origine": "CARTE", "montant": "200"},
-            {"mode": "ESPECES", "mode_origine": "ESPECES", "montant": "101"},
-        ],
-        "justification": "Restitution selon les moyens alloués à cette vente.",
-    })
-    assert refund.status_code == 201, refund.text
-    authorized = client.post(finance_root + f"/remboursements/{refund.json()['id']}/autoriser", json={
-        "cle": str(uuid4()), "revision": refund.json()["revision"],
-        "justification": "Ventilation vérifiée avec les allocations du reçu collectif.",
-    })
-    assert authorized.status_code == 200, authorized.text
-    session_now = next(row for row in client.get(root(a) + "/sessions").json()["items"]
-                       if row["id"] == session["id"])
-    executed = client.post(finance_root + f"/remboursements/{refund.json()['id']}/executer", json={
-        "cle": str(uuid4()), "revision": authorized.json()["revision"],
-        "justification": "Restitution effectivement remise.",
-        "preuves": [
-            {"reference": "ANNULATION-GROUPE-TPE", "preuve": "Retour carte confirmé."},
-            {},
-        ],
-    })
-    assert executed.status_code == 200, executed.text
+    refund_return(second_return_data, [
+        {"mode": "CARTE", "mode_origine": "CARTE", "montant": "100"},
+        {"mode": "ESPECES", "mode_origine": "ESPECES", "montant": "101"},
+    ], [
+        {"reference": "RETOUR-GROUPE-CARTE-2", "preuve": "Remboursement carte vérifié."}, {},
+    ])
     assert client.get(root(a) + f"/fidelite/{account_row['id']}").json()["points"] == 0
     assert next(row for row in client.get(root(a) + "/sessions").json()["items"]
                 if row["id"] == session["id"])["especes_attendues"] == "1201"
     assert client.get(vente_root(a) + f"/{second['id']}").json()["etat"] == "ENCAISSEE"
+
+    # Le retour de la deuxième vente du même groupe respecte son allocation espèces.
+    second_receipt = next(
+        row for row in first_result["resultat"]["recus_individuels"]
+        if row["vente_id"] == second["id"]
+    )
+    second_returnable = client.get(finance_root + f"/recus/{second_receipt['id']}/retournable")
+    assert second_returnable.status_code == 200, second_returnable.text
+    second_line = second_returnable.json()["lignes"][0]
+    third_return = client.post(finance_root + "/retours", json={
+        "cle": str(uuid4()), "encaissement_id": second_receipt["id"],
+        "lignes": [{"ligne_id": second_line["ligne_id"],
+                    "stock_id": second_line["stock_id"], "quantite": 1}],
+        "justification": "Retour partiel sur la deuxième vente du groupe.",
+    })
+    assert third_return.status_code == 201, third_return.text
+    assert third_return.json()["montant"] == "100"
+    from neosys_pharma.infrastructure.securite_models import RoleModel
+    from neosys_pharma.infrastructure.caisse_models import EvenementCaisseModel
+    gen = db(client); permission_session = next(gen)
+    try:
+        role_id = permission_session.scalar(select(RoleModel.id_role).where(
+            RoleModel.organisation_id == a['org'], RoleModel.code == 'CATALOGUE'
+        ))
+        permission_session.add(RolePermissionModel(
+            role_id=role_id,
+            permission_id=permission_id('caisse.remboursement.substituer'),
+        ))
+        permission_session.commit()
+    finally:
+        gen.close()
+    login(client, a)
+    substituted_refund = refund_return(third_return.json(), [
+        {"mode": "CARTE", "mode_origine": "ESPECES", "montant": "100"},
+    ], [{"reference": "SUBSTITUTION-GROUPE", "preuve": "Substitution autorisée et confirmée."}])
+    gen = db(client); audit_session = next(gen)
+    try:
+        substitution_events = audit_session.scalars(select(EvenementCaisseModel).where(
+            EvenementCaisseModel.organisation_id == a['org'],
+            EvenementCaisseModel.type == 'P4.5:REMBOURSEMENT_DEMANDE',
+        )).all()
+        substitution_event = next(
+            (event for event in substitution_events
+             if event.donnees['dossier']['id'] == substituted_refund['id']),
+            None,
+        )
+        assert substitution_event is not None
+        assert substitution_event.donnees['dossier']['reglements'][0] == {
+            'mode': 'CARTE', 'mode_origine': 'ESPECES', 'montant': '100',
+        }
+    finally:
+        gen.close()
+
+    # Z agrège les mouvements groupés et les remboursements, sans double compter les ventes.
+    current_session = next(row for row in client.get(root(a) + "/sessions").json()["items"]
+                           if row["id"] == session["id"])
+    closed = client.post(root(a) + f"/sessions/{session['id']}/fermer", json={
+        "cle": str(uuid4()), "revision": current_session["revision"],
+        "comptage_final": current_session["especes_attendues"],
+        "justification": "Comptage de fin de session après remboursements groupés.",
+    })
+    assert closed.status_code == 200, closed.text
+    period = client.get(finance_root + "/contexte").json()["periode"]
+    z = client.post(finance_root + "/clotures/z", json={
+        "cle": str(uuid4()), "periode_id": period["id"],
+        "justification": "Clôture après encaissement et retours du dossier groupé.",
+    })
+    assert z.status_code == 201, z.text
+    z_snapshot = z.json()["instantane"]
+    assert z_snapshot["sessions"][0]["nets_par_mode"] == {
+        "ESPECES": "201", "CARTE": "-100", "MOBILE_MONEY": "0", "CHEQUE": "0", "VIREMENT": "0",
+    }
+    assert z_snapshot["sections"][0]["lignes"][0][0] == 2
+    assert z_snapshot["sessions"][0]["especes_attendues"] == "1201"
+    assert client.get(vente_root(a) + f"/{second['id']}").json()["etat"] == "ENCAISSEE"
+    assert client.post(finance_root + f"/clotures/z", json={
+        "cle": str(uuid4()), "periode_id": period["id"],
+        "justification": "Double clôture interdite.",
+    }).status_code == 409
 
 
 def test_finalisation_groupe_rollback_apres_creation_des_reçus(raw_client, account, monkeypatch):
