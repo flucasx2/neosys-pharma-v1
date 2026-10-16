@@ -81,13 +81,13 @@ with sync_playwright() as p:
     expect(eligible_loyalty).to_contain_text('Cliente fidélité A');expect(eligible_loyalty.get_by_role('checkbox')).to_be_visible()
     activate(page.get_by_role('button',name='Ajouter un règlement',exact=True)); page.locator('[aria-label="Mode règlement 1"]').select_option('CARTE'); page.locator('[aria-label="Montant règlement 1"]').fill('50'); page.locator('[aria-label="Confirmation règlement 1"]').select_option(fake_confirmation)
     activate(page.get_by_role('button',name='Ajouter un règlement',exact=True)); page.locator('[aria-label="Mode règlement 2"]').select_option('ESPECES'); page.locator('[aria-label="Montant règlement 2"]').fill(str(2*int(f['p44_total'])-50))
-    activate(page.get_by_role('button',name='Enregistrer les règlements',exact=True))
+    activate(page.get_by_role('button',name='Enregistrer les règlements',exact=True)); expect(page.locator('#cash-group-panel')).to_have_attribute('aria-busy','false')
     assert len(grouped['ventes']) == 2 and len(grouped['reglements']) == 2, f"Réponse simulée inattendue avant ventilation: {grouped}"
     page.evaluate("window.__groupConfirmMessages=[]; window.confirm=(message)=>{window.__groupConfirmMessages.push(message); return true;}")
     activate(page.get_by_role('button',name='Proposer et enregistrer la ventilation automatique',exact=True))
-    assert page.evaluate("window.__groupConfirmMessages.includes('Enregistrer explicitement la proposition automatique retournée par le service ?')")
-    assert grouped['allocations'], f"La proposition simulée n'a pas été enregistrée: {grouped}"
+    page.wait_for_function("window.__groupConfirmMessages.includes('Enregistrer explicitement la proposition automatique retournée par le service ?')", timeout=5000)
     expect(page.locator('#cash-group-allocation-status')).to_contain_text('ventilation équilibrée')
+    assert grouped['allocations'], f"La proposition simulée n'a pas été enregistrée: {grouped}"
     allocation = page.locator('#cash-group-allocation-body input').first; original_allocation = int(allocation.input_value()); allocation.fill(str(original_allocation-1)); activate(page.get_by_role('button',name='Enregistrer la ventilation manuelle',exact=True)); expect(page.locator('#cash-message')).to_contain_text('Ventilation invalide')
     allocation.fill(str(original_allocation)); activate(page.get_by_role('button',name='Enregistrer la ventilation manuelle',exact=True)); expect(page.locator('#cash-group-allocation-status')).to_contain_text('ventilation équilibrée')
     expect(page.locator('#cash-group-finalise')).to_be_disabled(); expect(page.locator('#cash-group-payments')).to_contain_text('CARTE'); shot('p4c4-brouillon-groupe.png')
