@@ -395,3 +395,166 @@ def test_paiement_acquis_non_selectionne_ne_peut_devenir_orphelin(raw_client,acc
     post(c,a,f'/ventes/{v["id"]}/finaliser',body(v,se),409)
     assert stocks(c,a)[0]['physique']==10 and stocks(c,a)[0]['reserve']==3
     assert c.get(root(a)+'/mouvements',params={'session_id':se['id']}).json()['total']==0
+# P4-C.3a : brouillons, révisions, règlements et ventilations sans finalisation.
+def groupe_post(client, account, path, body, status=200):
+    response = client.post(root(account) + "/groupes" + path, json=body)
+    assert response.status_code == status, response.text
+    return response.json()
+
+
+def groupe_put(client, account, path, body, status=200):
+    response = client.put(root(account) + "/groupes" + path, json=body)
+    assert response.status_code == status, response.text
+    return response.json()
+
+
+def test_brouillon_groupe_multi_ventes_allocations_et_abandon(raw_client, account):
+    client, a = raw_client, account
+    from neosys_pharma.presentation.encaissement_groupe_api import (
+        GROUPED_ENCASHMENT_ENABLED,
+        router as grouped_router,
+    )
+    assert GROUPED_ENCASHMENT_ENABLED is False
+    assert not any(
+        route.path.endswith("/finaliser")
+        for route in grouped_router.routes
+    )
+    first, session, product, pack, post_id, caisse_id = ready(client, a, q=3)
+    second = line(client, a, create(client, a, post_id), product, pack, q=2)
+    second = act(client, a, second, "valider")
+    second = act(client, a, second, "transmettre", caisse_id=caisse_id)
+
+    key = str(uuid4())
+    dossier = groupe_post(client, a, "", {"cle": key, "session_id": session["id"]}, 201)
+    assert groupe_post(client, a, "", {"cle": key, "session_id": session["id"]}, 201) == dossier
+    conflict = client.post(root(a) + "/groupes", json={
+        "cle": key, "session_id": str(uuid4()),
+    })
+    assert conflict.status_code == 409
+    assert dossier["dossier"]["etat"] == "BROUILLON"
+    initial_revision = dossier["dossier"]["revision"]
+
+    dossier_id = dossier["dossier"]["id"]
+    dossier = groupe_put(client, a, f"/{dossier_id}/ventes", {
+        "cle": str(uuid4()), "revision": initial_revision,
+        "ventes": [
+            {"vente_id": first["id"], "revision": first["revision"]},
+            {"vente_id": second["id"], "revision": second["revision"]},
+        ],
+    })
+    stale = client.put(root(a) + f"/groupes/{dossier_id}/ventes", json={
+        "cle": str(uuid4()), "revision": initial_revision, "ventes": [],
+    })
+    assert stale.status_code == 409
+    due = sum(Decimal(row["montant_du"]) for row in dossier["ventes"])
+    dossier = groupe_put(client, a, f"/{dossier_id}/reglements", {
+        "cle": str(uuid4()), "revision": dossier["dossier"]["revision"],
+        "reglements": [{"mode": "ESPECES", "montant": str(due)}],
+    })
+    suggestion = client.get(root(a) + f"/groupes/{dossier_id}/allocations/proposition",
+                            params={"revision": dossier["dossier"]["revision"]})
+    assert suggestion.status_code == 200, suggestion.text
+    allocations = suggestion.json()
+    assert [Decimal(row["montant"]) for row in allocations] == [
+        Decimal(row["montant_du"]) for row in dossier["ventes"]
+    ]
+    assert sum(Decimal(row["montant"]) for row in allocations) == due
+
+    dossier = groupe_put(client, a, f"/{dossier_id}/allocations", {
+        "cle": str(uuid4()), "revision": dossier["dossier"]["revision"],
+        "allocations": allocations,
+    })
+    assert dossier["totaux"]["allocation_valide"] is True
+    assert Decimal(dossier["totaux"]["reste_xaf"]) == 0
+
+    wrong = [dict(row) for row in allocations]
+    wrong[0]["montant"] = str(Decimal(wrong[0]["montant"]) - 1)
+    response = client.put(root(a) + f"/groupes/{dossier_id}/allocations", json={
+        "cle": str(uuid4()), "revision": dossier["dossier"]["revision"],
+        "allocations": wrong,
+    })
+    assert response.status_code == 422
+
+    # Les brouillons et leurs allocations n'ont ni encaissé les ventes ni écrit en caisse.
+    assert client.get(root(a) + f"/groupes/{dossier_id}").json()["dossier"]["etat"] == "BROUILLON"
+    assert client.get(root(a) + "/mouvements", params={"session_id": session["id"]}).json()["total"] == 0
+    gen = db(client)
+    s = next(gen)
+    try:
+        assert s.scalar(select(EncaissementModel.id).where(
+            EncaissementModel.vente_id.in_([UUID(first["id"]), UUID(second["id"])])
+        )) is None
+        assert s.scalar(select(MouvementCaisseModel.id).where(
+            MouvementCaisseModel.session_id == UUID(session["id"])
+        )) is None
+    finally:
+        gen.close()
+
+    abandoned = groupe_post(client, a, f"/{dossier_id}/abandonner", {
+        "cle": str(uuid4()), "revision": dossier["dossier"]["revision"],
+    })
+    assert abandoned["dossier"]["etat"] == "ABANDONNE"
+    assert client.get(root(a) + f"/groupes/{dossier_id}").status_code == 200
+
+
+def test_brouillon_refuse_vente_deja_encaissee(raw_client, account):
+    client, a = raw_client, account
+    sale, session, *_ = ready(client, a, q=1)
+    post(client, a, f"/ventes/{sale['id']}/finaliser", {
+        "revision": sale["revision"], "session_id": session["id"],
+        "revision_session": session["revision"],
+        "reglements": [{"mode": "ESPECES", "montant": sale["totaux"]["ttc"]}],
+        "points_utilises": 0, "consentement": False,
+        "compte_id": None, "revision_compte": None,
+    }, 200)
+    paid_sale = client.get(vente_root(a) + f"/{sale['id']}").json()
+    draft = groupe_post(client, a, "", {"cle": str(uuid4()), "session_id": session["id"]}, 201)
+    result = groupe_put(client, a, f"/{draft['dossier']['id']}/ventes", {
+        "cle": str(uuid4()), "revision": draft["dossier"]["revision"],
+        "ventes": [{"vente_id": sale["id"], "revision": paid_sale["revision"]}],
+    }, 409)
+    assert "Seules les ventes comptant transmises" in result["detail"]
+
+
+def test_brouillon_confirme_reglement_non_especes(raw_client, account):
+    client, a = raw_client, account
+    first, session, product, pack, post_id, caisse_id = ready(client, a, q=3)
+    second = line(client, a, create(client, a, post_id), product, pack, q=2)
+    second = act(client, a, second, "valider")
+    second = act(client, a, second, "transmettre", caisse_id=caisse_id)
+    confirmation = post(client, a, f"/ventes/{first['id']}/confirmations", {
+        "session_id": session["id"], "revision": first["revision"],
+        "mode": "CARTE", "montant": 200, "reference": "TERMINAL-GROUPE-1",
+        "source": "MANUEL_TERMINAL", "preuve": "Paiement autorisé par le terminal indépendant",
+    })
+    draft = groupe_post(client, a, "", {
+        "cle": str(uuid4()), "session_id": session["id"],
+    }, 201)
+    dossier_id = draft["dossier"]["id"]
+    draft = groupe_put(client, a, f"/{dossier_id}/ventes", {
+        "cle": str(uuid4()), "revision": draft["dossier"]["revision"],
+        "ventes": [
+            {"vente_id": first["id"], "revision": first["revision"]},
+            {"vente_id": second["id"], "revision": second["revision"]},
+        ],
+    })
+    due = sum(Decimal(row["montant_du"]) for row in draft["ventes"])
+    draft = groupe_put(client, a, f"/{dossier_id}/reglements", {
+        "cle": str(uuid4()), "revision": draft["dossier"]["revision"],
+        "reglements": [
+            {"mode": "CARTE", "montant": 200, "confirmation_id": confirmation["id"]},
+            {"mode": "ESPECES", "montant": str(due - 200)},
+        ],
+    })
+    proposal = client.get(root(a) + f"/groupes/{dossier_id}/allocations/proposition", params={
+        "revision": draft["dossier"]["revision"],
+    })
+    assert proposal.status_code == 200, proposal.text
+    proposed = proposal.json()
+    assert len(proposed) >= 2
+    assert sum(Decimal(row["montant"]) for row in proposed) == due
+    saved = groupe_put(client, a, f"/{dossier_id}/allocations", {
+        "cle": str(uuid4()), "revision": draft["dossier"]["revision"],
+        "allocations": proposed,
+    })
+    assert saved["totaux"]["allocation_valide"] is True

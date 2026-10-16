@@ -1,4 +1,4 @@
-from neosys_pharma.presentation import tarification_api, import_catalogue_api, stock_api, vente_api, proforma_api, caisse_api, regularisation_api, client_api
+from neosys_pharma.presentation import tarification_api, import_catalogue_api, stock_api, vente_api, proforma_api, caisse_api, regularisation_api, client_api, encaissement_groupe_api
 from fastapi import FastAPI, Depends, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -31,6 +31,7 @@ def create_app() -> FastAPI:
     app.include_router(vente_api.router)
     app.include_router(proforma_api.router)
     app.include_router(caisse_api.router)
+    app.include_router(encaissement_groupe_api.router)
     app.include_router(regularisation_api.router)
     app.include_router(client_api.router)
     @app.exception_handler(RequestValidationError)
