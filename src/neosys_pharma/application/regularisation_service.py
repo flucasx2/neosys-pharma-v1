@@ -317,14 +317,17 @@ class RegularisationService:
         self.trace('REMBOURSEMENT_'+action.upper(),dossier=serial(row),justification=data['justification']);return serial(row)
     def compenser(self,key):
         ret=self.stock.obtenir(RetourVenteModel,key);enc=self.stock.obtenir(EncaissementModel,ret.encaissement_id)
-        if not enc.compte_id:return
         gain=enc.instantane.get('fidelite') or {};ventilation=None
         if enc.type_encaissement=='GROUPE':
             ventilation=self.stock.obtenir(VentilationEncaissementModel,ret.ventilation_id)
             gain=next((item.get('fidelite') for item in enc.instantane.get('ventes',[]) if item.get('vente_id')==str(ventilation.vente_id)),None) or {'eligible_paye':'0','lignes':[],'points_acquis':0}
+            account_id=ventilation.compte_id
+        else:
+            account_id=enc.compte_id
+        if not account_id:return
         total=int(Decimal(gain.get('eligible_paye','0')))
         if not total:return
-        current=self.stock.obtenir(CompteFideliteModel,enc.compte_id)
+        current=self.stock.obtenir(CompteFideliteModel,account_id)
         ids={r.id for r in self.stock.lignes(RetourVenteModel,encaissement_id=enc.id) if (r.ventilation_id==ret.ventilation_id if enc.type_encaissement=='GROUPE' else True) and (r.id==ret.id or self.stock.lignes(RemboursementModel,retour_id=r.id,etat='EXECUTE'))}
         eligible={ident(x['ligne_id']) for x in gain['lignes']}
         base=sum(int(l.montant) for r in ids for l in self.stock.lignes(LigneRetourVenteModel,retour_id=r) if l.ligne_id in eligible)
@@ -344,6 +347,6 @@ class RegularisationService:
         available=current.points+restore-debt_paid;take=min(revoke,available);debt=revoke-take
         current.points=available-take;current.dette+=debt;current.revision+=1
         details={'retour_id':str(ret.id),'points_restitues':restore,'dette_compensee':debt_paid,'points_revoques':revoke,'base_retour_cumulee':str(base),'base_historique':str(total),'bareme_historique':gain.get('bareme'),'dette_creee':debt}
-        acquisition_=self.stock.lignes(JournalFideliteModel,encaissement_id=enc.id,type='ACQUISITION')
-        journal=self.stock.ajouter(JournalFideliteModel,compte_id=current.id,encaissement_id=None,auteur_id=self.stock.user,type='COMPENSATION' if restore else 'REVOCATION',delta_points=restore-debt_paid-take,delta_dette=debt-debt_paid,compensation_de=acquisition_[0].id if acquisition_ else None,details=details)
+        acquisition_=next((x for x in self.stock.lignes(JournalFideliteModel,encaissement_id=enc.id,type='ACQUISITION') if x.compte_id==current.id),None)
+        journal=self.stock.ajouter(JournalFideliteModel,compte_id=current.id,encaissement_id=None,auteur_id=self.stock.user,type='COMPENSATION' if restore else 'REVOCATION',delta_points=restore-debt_paid-take,delta_dette=debt-debt_paid,compensation_de=acquisition_.id if acquisition_ else None,details=details)
         self.stock.ajouter(CompensationRetourModel,retour_id=ret.id,compte_id=current.id,journal_id=journal.id,points_restitues=restore,points_revoques=revoke,dette_creee=debt,details=details)

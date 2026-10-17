@@ -8,6 +8,7 @@ from alembic import command
 from alembic.config import Config
 from neosys_pharma.infrastructure.config import get_settings
 from neosys_pharma.infrastructure.database import Base
+from neosys_pharma.infrastructure.encaissement_groupe_sql_v1 import guard_sql
 from test_caisse import raw_client, account, ready, final, db
 from test_encaissement_groupe_persistance import eg32_garde_base
 
@@ -29,6 +30,18 @@ def test_cycle_neuf_contraintes_et_permissions(monkeypatch,tmp_path):
             assert c.scalar(text("SELECT count(*) FROM roles_permissions rp JOIN permissions p ON p.id_permission=rp.permission_id WHERE p.code='caisse.encaisser.groupe'"))==0
         engine.dispose();command.downgrade(cfg,'a46c001d2026');command.upgrade(cfg,'head');command.check(cfg)
     finally:get_settings.cache_clear()
+
+
+def test_installateur_postgresql_repetable():
+    statements = guard_sql('postgresql')
+    creates = [s for s in statements if s.startswith(('CREATE TRIGGER ', 'CREATE CONSTRAINT TRIGGER '))]
+    drops = {s.split()[4] for s in statements if s.startswith('DROP TRIGGER IF EXISTS ')}
+    assert creates
+    for statement in creates:
+        parts = statement.split()
+        trigger = parts[3] if parts[:3] == ['CREATE', 'CONSTRAINT', 'TRIGGER'] else parts[2]
+        assert trigger in drops
+    assert any(s.startswith('CREATE OR REPLACE FUNCTION eg32_claim') for s in statements)
 
 
 def test_downgrade_refuse_nouvelles_donnees(raw_client,account,monkeypatch,tmp_path):

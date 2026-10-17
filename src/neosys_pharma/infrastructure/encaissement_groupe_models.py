@@ -33,26 +33,30 @@ class DossierEncaissementGroupeModel(EntiteVente, Base):
 
 class SelectionGroupeModel(EntiteVente, Base):
     __tablename__ = 'caisse_selections_groupes'
-    __table_args__ = scoped('selection_groupe', org_fk('dossier_id', 'caisse_dossiers_groupes'), org_fk('vente_id', 'ventes'),
+    __table_args__ = scoped('selection_groupe', org_fk('dossier_id', 'caisse_dossiers_groupes'), org_fk('vente_id', 'ventes'), org_fk('compte_id', 'fidelite_comptes'),
         UniqueConstraint('dossier_id', 'vente_id', name='uq_selection_groupe_vente'),
         UniqueConstraint('dossier_id', 'ordre', name='uq_selection_groupe_ordre'),
-        CheckConstraint('revision_vente > 0 AND ordre > 0', name='ck_selection_groupe_revision'))
+        CheckConstraint('revision_vente > 0 AND ordre > 0 AND (compte_id IS NULL OR revision_compte > 0)', name='ck_selection_groupe_revision'))
     dossier_id: Mapped[UUID] = mapped_column(Uuid)
     vente_id: Mapped[UUID] = mapped_column(Uuid)
     revision_vente: Mapped[int] = mapped_column()
+    compte_id: Mapped[UUID | None] = mapped_column(Uuid)
+    revision_compte: Mapped[int | None] = mapped_column()
     ordre: Mapped[int] = mapped_column()
 
 
 class VentilationEncaissementModel(EntiteVente, Base):
     __tablename__ = 'caisse_ventilations'
-    __table_args__ = scoped('ventilation', org_fk('encaissement_id', 'caisse_encaissements'), org_fk('vente_id', 'ventes'),
+    __table_args__ = scoped('ventilation', org_fk('encaissement_id', 'caisse_encaissements'), org_fk('vente_id', 'ventes'), org_fk('compte_id', 'fidelite_comptes'),
         UniqueConstraint('vente_id', name='uq_ventilation_vente'),
         UniqueConstraint('id', 'encaissement_id', 'organisation_id', name='uq_ventilation_enc_org'),
         UniqueConstraint('id', 'vente_id', name='uq_ventilation_vente_parent'),
-        CheckConstraint('revision_vente > 0 AND montant_ht >= 0 AND montant_tva >= 0 AND net_ttc >= 0 AND remise_ligne >= 0 AND remise_globale >= 0 AND montant_ht + montant_tva = net_ttc', name='ck_ventilation_montants'))
+        CheckConstraint('revision_vente > 0 AND montant_ht >= 0 AND montant_tva >= 0 AND net_ttc >= 0 AND remise_ligne >= 0 AND remise_globale >= 0 AND montant_ht + montant_tva = net_ttc AND (compte_id IS NULL OR revision_compte > 0)', name='ck_ventilation_montants'))
     encaissement_id: Mapped[UUID] = mapped_column(Uuid)
     vente_id: Mapped[UUID] = mapped_column(Uuid)
     revision_vente: Mapped[int] = mapped_column()
+    compte_id: Mapped[UUID | None] = mapped_column(Uuid)
+    revision_compte: Mapped[int | None] = mapped_column()
     montant_ht: Mapped[Decimal] = mapped_column(MontantXAF())
     montant_tva: Mapped[Decimal] = mapped_column(MontantXAF())
     net_ttc: Mapped[Decimal] = mapped_column(MontantXAF())

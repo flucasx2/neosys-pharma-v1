@@ -113,7 +113,21 @@ def guard_sql(dialect):
       RETURN NULL; END $$""")
     for table in TOTAL_TABLES:
         statements.append(f'CREATE CONSTRAINT TRIGGER {table}_eg32_totals AFTER INSERT ON {table} DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION eg32_totals()')
-    return statements
+    # Metadata.create_all() and the Alembic revision both install these guards:
+    # tests and bootstrap code may therefore invoke the installer more than
+    # once against the same disposable schema. Replacing the functions and
+    # recreating their triggers makes installation repeatable while keeping
+    # the row locks, unique registry and all trigger bodies intact.
+    repeatable = []
+    for statement in statements:
+        statement = statement.replace('CREATE FUNCTION ', 'CREATE OR REPLACE FUNCTION ')
+        if statement.startswith(('CREATE TRIGGER ', 'CREATE CONSTRAINT TRIGGER ')):
+            parts = statement.split()
+            name = parts[3] if parts[:3] == ['CREATE', 'CONSTRAINT', 'TRIGGER'] else parts[2]
+            table = statement.split(' ON ', 1)[1].split()[0]
+            repeatable.append(f'DROP TRIGGER IF EXISTS {name} ON {table}')
+        repeatable.append(statement)
+    return repeatable
 
 
 def drop_guard_sql(dialect):

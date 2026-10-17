@@ -33,7 +33,8 @@ class SqlAlchemyEncaissementGroupeRepository:
             etat=entity.etat.value, revision=entity.revision, empreinte_selection=entity.empreinte_selection))
         self.session.flush()
         self.session.add_all([SelectionGroupeModel(id=s.id, organisation_id=entity.organisation_id,
-            dossier_id=entity.id, vente_id=s.vente_id, revision_vente=s.revision_vente, ordre=s.ordre)
+            dossier_id=entity.id, vente_id=s.vente_id, revision_vente=s.revision_vente, ordre=s.ordre,
+            compte_id=s.compte_id, revision_compte=s.revision_compte)
             for s in entity.selections])
 
     def dossier(self, key):
@@ -47,7 +48,8 @@ class SqlAlchemyEncaissementGroupeRepository:
             session_id=row.session_id, auteur_id=row.auteur_id, compte_id=row.compte_id,
             etat=EtatDossierGroupe(row.etat), revision=row.revision, empreinte_selection=row.empreinte_selection,
             selections=tuple(SelectionGroupe(id=s.id, vente_id=s.vente_id,
-                revision_vente=s.revision_vente, ordre=s.ordre) for s in selections))
+                revision_vente=s.revision_vente, ordre=s.ordre,
+                compte_id=s.compte_id, revision_compte=s.revision_compte) for s in selections))
 
     def modifier_selection(self, entity, revision_attendue):
         self._scope(entity)
@@ -63,7 +65,8 @@ class SqlAlchemyEncaissementGroupeRepository:
         row = self.session.scalar(select(DossierEncaissementGroupeModel).filter_by(id=entity.id, organisation_id=self.organisation_id))
         row.revision, row.empreinte_selection = entity.revision, entity.empreinte_selection
         self.session.add_all([SelectionGroupeModel(id=s.id, organisation_id=self.organisation_id,
-            dossier_id=entity.id, vente_id=s.vente_id, revision_vente=s.revision_vente, ordre=s.ordre)
+            dossier_id=entity.id, vente_id=s.vente_id, revision_vente=s.revision_vente, ordre=s.ordre,
+            compte_id=s.compte_id, revision_compte=s.revision_compte)
             for s in entity.selections])
 
     def ajouter_ventilation(self, entity):
@@ -71,7 +74,8 @@ class SqlAlchemyEncaissementGroupeRepository:
         self.session.add(VentilationEncaissementModel(id=entity.id, organisation_id=entity.organisation_id,
             encaissement_id=entity.encaissement_id, vente_id=entity.vente_id, revision_vente=entity.revision_vente,
             montant_ht=entity.montant_ht, montant_tva=entity.montant_tva, net_ttc=entity.net_ttc,
-            remise_ligne=entity.remise_ligne, remise_globale=entity.remise_globale, instantane=_json(entity.instantane)))
+            remise_ligne=entity.remise_ligne, remise_globale=entity.remise_globale, instantane=_json(entity.instantane),
+            compte_id=entity.compte_id, revision_compte=entity.revision_compte))
 
     def ajouter_allocation(self, entity):
         self._scope(entity)

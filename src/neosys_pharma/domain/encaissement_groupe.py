@@ -30,12 +30,19 @@ class SelectionGroupe:
     vente_id: UUID
     revision_vente: int
     ordre: int
+    compte_id: UUID | None = None
+    revision_compte: int | None = None
     id: UUID = field(default_factory=uuid4)
 
     def __post_init__(self):
         _uuid(self.id, self.vente_id)
         _positive(self.revision_vente)
         _positive(self.ordre)
+        if self.compte_id is None and self.revision_compte is not None:
+            raise ValueError('Révision de fidélité sans compte interdit.')
+        if self.compte_id is not None:
+            _uuid(self.compte_id)
+            _positive(self.revision_compte)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -107,11 +114,18 @@ class VentilationEncaissement:
     instantane: Mapping
     remise_ligne: Decimal = Decimal(0)
     remise_globale: Decimal = Decimal(0)
+    compte_id: UUID | None = None
+    revision_compte: int | None = None
     id: UUID = field(default_factory=uuid4)
 
     def __post_init__(self):
         _uuid(self.id, self.organisation_id, self.encaissement_id, self.vente_id)
         _positive(self.revision_vente)
+        if self.compte_id is None and self.revision_compte is not None:
+            raise ValueError('Révision de fidélité sans compte interdit.')
+        if self.compte_id is not None:
+            _uuid(self.compte_id)
+            _positive(self.revision_compte)
         if not isinstance(self.instantane, Mapping) or not self.instantane:
             raise ValueError('Instantané historique obligatoire.')
         object.__setattr__(self, 'instantane', _freeze(self.instantane))

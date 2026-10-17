@@ -1,6 +1,6 @@
 """Contrôles ciblés du service et du contrat API introduits en 3.3."""
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select, func
@@ -181,5 +181,57 @@ def test_finalisation_atomique_recu_unique_et_rejeu(raw_client, account, monkeyp
         assert session.scalar(select(func.count()).select_from(VentilationEncaissementModel)) == 2
         assert session.scalar(select(func.count()).select_from(VenteEncaisseeModel)) == 2
         assert session.scalar(select(PeriodeCaisseSiteModel.prochain_encaissement)) == 2
+    finally:
+        gen.close()
+
+
+def test_fidelite_attachee_par_vente_et_clients_distincts(raw_client, account, monkeypatch):
+    c, a = raw_client, account
+    prepared = ready(c, a, q=3)
+    other = second_sale(c, a, prepared, prepared[1]['id'])
+    first_account = post(c, a, '/fidelite', {'nom': 'Titulaire vente A'})
+    second_account = post(c, a, '/fidelite', {'nom': 'Titulaire vente B'})
+    gen = db(c); session = next(gen)
+    try:
+        session.get(VenteModel, UUID(prepared[0]['id'])).destinataire = {
+            'nom': 'Titulaire vente A', 'client_id': first_account['client']['id']}
+        session.get(VenteModel, UUID(other['id'])).destinataire = {
+            'nom': 'Titulaire vente B', 'client_id': second_account['client']['id']}
+        session.commit()
+    finally:
+        gen.close()
+    rule(c, a, category(c, a, prepared[2]))
+    grant_group_role(c, a)
+    enable_group(monkeypatch)
+    selections = [
+        {'vente_id': prepared[0]['id'], 'revision': prepared[0]['revision'],
+         'compte_id': first_account['id'], 'revision_compte': first_account['revision']},
+        {'vente_id': other['id'], 'revision': other['revision'],
+         'compte_id': second_account['id'], 'revision_compte': second_account['revision']},
+    ]
+    created = c.post(groupe_root(a), json={'cle': str(uuid4()), 'session_id': prepared[1]['id'],
+        'revision_session': prepared[1]['revision'], 'ventes': selections})
+    assert created.status_code == 201, created.text
+    dossier = created.json()
+    paid = c.post(groupe_root(a) + '/' + dossier['id'] + '/finaliser', json={
+        'cle': str(uuid4()), 'revision': dossier['revision'],
+        'empreinte': dossier['empreinte_selection'], 'revision_session': prepared[1]['revision'],
+        'session_id': prepared[1]['id'], 'ventes': selections,
+        'reglements': [{'mode': 'ESPECES', 'montant': 602}],
+    })
+    assert paid.status_code == 200, paid.text
+    receipt = paid.json()
+    assert receipt['compte_id'] is None
+    per_sale = {row['vente_id']: row for row in receipt['instantane']['fidelite']['ventes']}
+    assert per_sale[prepared[0]['id']]['compte_id'] == first_account['id']
+    assert per_sale[other['id']]['compte_id'] == second_account['id']
+    assert per_sale[prepared[0]['id']]['points_acquis'] == 3
+    assert per_sale[other['id']]['points_acquis'] == 3
+    assert c.get(root(a) + '/fidelite/' + first_account['id']).json()['points'] == 3
+    assert c.get(root(a) + '/fidelite/' + second_account['id']).json()['points'] == 3
+    gen = db(c); session = next(gen)
+    try:
+        rows = session.scalars(select(VentilationEncaissementModel).order_by(VentilationEncaissementModel.vente_id)).all()
+        assert {str(row.compte_id) for row in rows} == {first_account['id'], second_account['id']}
     finally:
         gen.close()

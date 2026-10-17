@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 import os
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select, func, text
 from sqlalchemy.engine import make_url
 
@@ -34,9 +35,22 @@ from neosys_pharma.infrastructure.regularisation_models import (
     CompensationRetourModel, RemboursementModel,
 )
 from neosys_pharma.infrastructure.vente_models import VenteModel
+from neosys_pharma.infrastructure.encaissement_groupe_sql_v1 import guard_sql
 
 
 DATABASE_NAME = 'neosys_p46_validation_34_concurrence_temp'
+
+
+def test_guard_postgresql_peut_etre_installe_deux_fois(raw_client):
+    gen = db(raw_client)
+    session = next(gen)
+    engine = session.get_bind()
+    try:
+        with engine.begin() as connection:
+            for statement in guard_sql('postgresql'):
+                connection.exec_driver_sql(statement)
+    finally:
+        gen.close()
 
 
 @pytest.fixture(scope='session', autouse=True)
@@ -61,7 +75,7 @@ def verifier_postgresql_jetable():
             assert identity[4] >= 180000, f'PostgreSQL 18+ requis, serveur dÃ©tectÃ©: {identity[4]}'
             assert identity[5] != '0' and identity[6] != '0', 'DÃ©lais SQL bornÃ©s requis.'
             versions = conn.execute(text('SELECT version_num FROM alembic_version')).scalars().all()
-            assert versions == ['eg32a2026'], f'Migration attendue absente ou head inattendu: {versions}'
+            assert versions == ['eg34a2026'], f'Migration attendue absente ou head inattendu: {versions}'
             print('PostgreSQL 3.4:', identity)
     finally:
         engine.dispose()
@@ -71,19 +85,21 @@ def _preparer(c, a, monkeypatch):
     enable_group(monkeypatch)
     prepared = ready(c, a, q=3)
     other = second_sale(c, a, prepared, prepared[1]['id'])
-    set_common_recipient(c, a, [prepared[0]['id'], other['id']])
-    loyalty = post(c, a, '/fidelite', {'nom': 'FidÃ©litÃ© validation native 3.4'})
+    loyalty_a = post(c, a, '/fidelite', {'nom': 'Client groupe A'})
+    loyalty_b = post(c, a, '/fidelite', {'nom': 'Client groupe B'})
     rule(c, a, category(c, a, prepared[2]))
     grant_group_role(c, a)
     grant_group_role(c, a, 'vente.retour.gerer')
+    grant_group_role(c, a, 'caisse.remboursement.demander')
     selection = [
-        {'vente_id': prepared[0]['id'], 'revision': prepared[0]['revision']},
-        {'vente_id': other['id'], 'revision': other['revision']},
+        {'vente_id': prepared[0]['id'], 'revision': prepared[0]['revision'],
+         'compte_id': loyalty_a['id'], 'revision_compte': loyalty_a['revision']},
+        {'vente_id': other['id'], 'revision': other['revision'],
+         'compte_id': loyalty_b['id'], 'revision_compte': loyalty_b['revision']},
     ]
     body = {
         'cle': str(uuid4()), 'session_id': prepared[1]['id'],
         'revision_session': prepared[1]['revision'], 'ventes': selection,
-        'compte_id': loyalty['id'], 'revision_compte': loyalty['revision'],
         'identite_commune_confirmee': True,
     }
     response = c.post(groupe_root(a), json=body)
@@ -93,19 +109,17 @@ def _preparer(c, a, monkeypatch):
         'cle': str(uuid4()), 'revision': dossier['revision'],
         'empreinte': dossier['empreinte_selection'],
         'session_id': prepared[1]['id'], 'revision_session': prepared[1]['revision'],
-        'ventes': selection, 'compte_id': loyalty['id'],
-        'revision_compte': loyalty['revision'],
+        'ventes': selection,
         'reglements': [{'mode': 'ESPECES', 'montant': 602}],
     }
-    return prepared, other, loyalty, dossier, finalisation, body
-
+    return prepared, other, (loyalty_a, loyalty_b), dossier, finalisation, body
 
 def _deux_requetes_concurrentes(c, requests, monkeypatch):
-    """Maintient la premiÃ¨re transaction ouverte jusqu'Ã  observer l'autre en attente PG."""
+    """Use independent HTTP clients and require a real PostgreSQL lock wait."""
     first_entered = Event()
     release_first = Event()
     once_lock = Lock()
-    held = {'value': False}
+    held = {'value': False, 'backend_pid': None}
     original = EncaissementGroupeService._fidelite_groupe
 
     def hold_first_transaction(service, *args, **kwargs):
@@ -115,6 +129,7 @@ def _deux_requetes_concurrentes(c, requests, monkeypatch):
                 held['value'] = True
                 should_hold = True
         if should_hold:
+            held['backend_pid'] = service.s.execute(text('SELECT pg_backend_pid()')).scalar_one()
             first_entered.set()
             if not release_first.wait(timeout=10):
                 raise TimeoutError('barriÃ¨re de transaction PostgreSQL expirÃ©e')
@@ -122,11 +137,14 @@ def _deux_requetes_concurrentes(c, requests, monkeypatch):
 
     monkeypatch.setattr(EncaissementGroupeService, '_fidelite_groupe', hold_first_transaction)
     executor = ThreadPoolExecutor(max_workers=2)
+    second_client = TestClient(c.app)
+    second_client.cookies.update(c.cookies)
+    second_client.headers.update(c.headers)
     first = executor.submit(c.post, requests[0][0], json=requests[0][1])
     second = None
     try:
         assert first_entered.wait(timeout=5), 'la premiÃ¨re transaction nâ€™a pas atteint le point de synchronisation'
-        second = executor.submit(c.post, requests[1][0], json=requests[1][1])
+        second = executor.submit(second_client.post, requests[1][0], json=requests[1][1])
         engine = create_engine(os.environ['DATABASE_URL'], connect_args={'connect_timeout': 5})
         try:
             deadline = monotonic() + 5
@@ -135,8 +153,8 @@ def _deux_requetes_concurrentes(c, requests, monkeypatch):
                 with engine.connect() as conn:
                     waiting = bool(conn.execute(text(
                         "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() "
-                        "AND pid <> pg_backend_pid() AND wait_event_type='Lock'"
-                    )).scalar())
+                        "AND pid <> :first_pid AND state='active' AND wait_event_type='Lock'"
+                    ), {'first_pid': held['backend_pid']}).scalar())
                 if waiting:
                     break
                 sleep(0.05)
@@ -144,13 +162,14 @@ def _deux_requetes_concurrentes(c, requests, monkeypatch):
             engine.dispose()
         release_first.set()
         if not waiting:
-            pytest.fail('Aucune seconde connexion en attente de verrou PostgreSQL observÃ©e; concurrence non dÃ©montrÃ©e.')
+            pytest.fail('Aucun second backend PostgreSQL indépendant observé en attente de verrou; concurrence non démontrée.')
         return [first.result(timeout=25), second.result(timeout=25)]
     except FutureTimeout:
         pytest.fail('RequÃªte concurrente bloquÃ©e au-delÃ  de 25 secondes; vÃ©rifier statement_timeout PostgreSQL.')
     finally:
         release_first.set()
-        executor.shutdown(wait=False, cancel_futures=True)
+        executor.shutdown(wait=True, cancel_futures=True)
+        second_client.close()
 
 
 def _count(c, model, where=None):
@@ -163,6 +182,10 @@ def _count(c, model, where=None):
         return session.scalar(query)
     finally:
         gen.close()
+
+
+def _points(c, a, accounts):
+    return [c.get(root(a) + '/fidelite/' + item['id']).json()['points'] for item in accounts]
 
 
 def _creer_second_dossier(c, a, finalisation, selection_body):
@@ -193,7 +216,7 @@ def test_deux_dossiers_groupes_concurrents_meme_vente(raw_client, account, monke
     assert _count(c, VenteEncaisseeModel) == 2
     assert _count(c, ReglementModel) == 1
     assert _count(c, MouvementCaisseModel) == 1
-    assert c.get(root(a) + '/fidelite/' + loyalty['id']).json()['points'] == 6
+    assert _points(c, a, loyalty) == [3, 3]
     assert stocks(c, a)[0]['physique'] == 4 and stocks(c, a)[0]['reserve'] == 0
 
 
@@ -216,7 +239,7 @@ def test_encaissement_individuel_contre_groupe_meme_vente(raw_client, account, m
     assert _count(c, VenteEncaisseeModel) == (2 if group_won else 1)
     assert _count(c, ReglementModel) == (1 if group_won else 1)
     assert _count(c, MouvementCaisseModel) == 1
-    assert c.get(root(a) + '/fidelite/' + loyalty['id']).json()['points'] == (6 if group_won else 0)
+    assert _points(c, a, loyalty) == ([3, 3] if group_won else [0, 0])
     assert stocks(c, a)[0]['physique'] == (4 if group_won else 7)
     assert stocks(c, a)[0]['reserve'] == (0 if group_won else 3)
 
@@ -232,7 +255,7 @@ def test_finalisations_simultanees_meme_dossier_meme_cle(raw_client, account, mo
     assert _count(c, ReglementModel) == 1
     assert _count(c, MouvementCaisseModel) == 1
     assert _count(c, VenteEncaisseeModel) == 2
-    assert c.get(root(a) + '/fidelite/' + loyalty['id']).json()['points'] == 6
+    assert _points(c, a, loyalty) == [3, 3]
 
 
 def test_meme_cle_concurrente_contenus_differents(raw_client, account, monkeypatch):
@@ -265,7 +288,7 @@ def test_rollback_integral_apres_mutation_stock_avant_commit(raw_client, account
     response = c.post(groupe_root(a) + '/' + dossier['id'] + '/finaliser', json=payload)
     assert response.status_code == 422, response.text
     assert stocks(c, a)[0]['physique'] == 10 and stocks(c, a)[0]['reserve'] == 6
-    assert c.get(root(a) + '/fidelite/' + loyalty['id']).json()['points'] == 0
+    assert _points(c, a, loyalty) == [0, 0]
     assert _count(c, EncaissementModel) == 0
     assert _count(c, ReglementModel) == 0
     assert _count(c, MouvementCaisseModel) == 0
@@ -293,6 +316,7 @@ def test_retours_partiels_successifs_remboursement_fidelite_et_trace(
         raw_client, account, monkeypatch):
     c, a = raw_client, account
     prepared, other, loyalty, dossier, payload, _ = _preparer(c, a, monkeypatch)
+    loyalty_a, loyalty_b = loyalty
     group_path = groupe_root(a) + '/' + dossier['id'] + '/finaliser'
     paid = c.post(group_path, json=payload)
     assert paid.status_code == 200, paid.text
@@ -356,20 +380,23 @@ def test_retours_partiels_successifs_remboursement_fidelite_et_trace(
                         for i, p in enumerate(payments)],
         })
         assert executed.status_code == 200, executed.text
-        points = c.get(root(a) + '/fidelite/' + loyalty['id']).json()['points']
-        assert 3 <= points <= 6, f'Une vente ne peut pas compenser les points de lâ€™autre: {points}'
+        points_a, points_b = _points(c, a, loyalty)
+        assert 0 <= points_a <= 3 and points_b == 3, (points_a, points_b)
 
-    assert c.get(root(a) + '/fidelite/' + loyalty['id']).json()['points'] == 3
+    assert _points(c, a, loyalty) == [0, 3]
     assert _count(c, CompensationRetourModel) == 3
     assert _count(c, RemboursementModel, RemboursementModel.etat == 'EXECUTE') == 3
     gen = db(c)
     session = next(gen)
     try:
         journal = session.scalars(select(JournalFideliteModel).where(
-            JournalFideliteModel.compte_id == UUID(loyalty['id']),
+            JournalFideliteModel.compte_id == UUID(loyalty_a['id']),
             JournalFideliteModel.type.in_(('ACQUISITION', 'REVOCATION')))).all()
         assert len(journal) == 4
         assert sum(x.delta_points for x in journal) == 3
+        other_journal = session.scalars(select(JournalFideliteModel).where(
+            JournalFideliteModel.compte_id == UUID(loyalty_b['id']))).all()
+        assert len(other_journal) == 1 and other_journal[0].delta_points == 3
     finally:
         gen.close()
     assert c.get(root(a) + '/recus/' + receipt['id']).status_code == 200

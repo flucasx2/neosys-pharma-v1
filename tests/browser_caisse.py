@@ -24,7 +24,21 @@ with sync_playwright() as p:
         modal().locator('[name='+code+']').focus();page.keyboard.press('Space')
     save()
     page.keyboard.press('Alt+Shift+Digit2');expect(modal()).to_be_visible();page.keyboard.press('Escape');expect(page.locator('dialog[open]')).to_have_count(0)
-    page.keyboard.press('Alt+Shift+Digit2');choose(modal().locator('[name=caisse_id]'),f['p4_caisse']);fill(modal().locator('[name=fond_initial]'),1000);save();expect(page.get_by_role('button',name='Utiliser cette session',exact=True)).to_be_visible()
+    created_session=[None]
+    def capture_session(response):
+        if response.request.method=='POST' and response.url.endswith('/sessions'):
+            try:created_session[0]=response.json()
+            except Exception:pass
+    page.on('response',capture_session)
+    page.keyboard.press('Alt+Shift+Digit2');choose(modal().locator('[name=caisse_id]'),f['p4_caisse']);fill(modal().locator('[name=fond_initial]'),1000);save()
+    use_session=page.get_by_role('button',name='Utiliser cette session',exact=True)
+    if not use_session.count():
+        organisation=page.evaluate('authState.me.organisation.id_organisation')
+        user=page.evaluate('authState.me.utilisateur.id_utilisateur')
+        sessions_response=page.request.get(url+'/api/caisses/organisations/'+organisation+'/sessions?page=1&page_size=10',headers={'X-Site-ID':f['site_id']})
+        listed=sessions_response.json() if sessions_response.ok else {'http':sessions_response.status,'body':sessions_response.text()}
+        raise AssertionError(f'Bouton Utiliser cette session absent; POST={created_session[0]!r}; user courant={user}; GET sessions={listed!r}')
+    expect(use_session).to_be_visible()
     row=page.locator('#cash-waiting tr').filter(has_text=f['p44_vente_0'][:8]);activate(row.get_by_role('button'));expect(page.locator('#cash-title')).to_contain_text(f['p44_vente_0'][:8]);shot('p44-caisse-preparation.png')
     queue=page.locator('#cash-queue-filters [name=q]');fill(queue,f['p44_vente_0'][:8])
     activate(page.locator('#cash-queue-filters').get_by_role('button',name='Rechercher',exact=True));expect(page.locator('#cash-waiting tr')).to_have_count(1)

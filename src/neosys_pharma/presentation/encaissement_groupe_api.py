@@ -37,6 +37,9 @@ class Input(BaseModel):
 class Selection(Input):
     vente_id: UUID
     revision: int = Field(strict=True, ge=1)
+    # Beneficiary is bound to this sale, never inferred from another sale.
+    compte_id: UUID | None = None
+    revision_compte: int | None = Field(default=None, strict=True, ge=1)
 
 
 class Preview(Input):

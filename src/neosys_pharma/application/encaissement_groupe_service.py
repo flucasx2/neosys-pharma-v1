@@ -46,11 +46,16 @@ from neosys_pharma.infrastructure.vente_models import VenteModel
 
 
 def empreinte_selection(session_id, account_id, selections):
-    value = {
-        'session_id': str(session_id),
-        'compte_id': str(account_id) if account_id else None,
-        'ventes': [{'vente_id': str(row['vente_id']), 'revision': int(row['revision'])} for row in selections],
-    }
+    rows = [{'vente_id': str(row['vente_id']), 'revision': int(row['revision'])} for row in selections]
+    beneficiary_ids = [str(row['compte_id']) if row.get('compte_id') else None for row in selections]
+    # Keep fingerprints of legacy single-account drafts byte-for-byte stable.
+    uniform = not any(beneficiary_ids) or (len(set(beneficiary_ids)) == 1 and beneficiary_ids[0] == (str(account_id) if account_id else None))
+    value = {'session_id': str(session_id), 'compte_id': str(account_id) if account_id else None, 'ventes': rows}
+    if not uniform:
+        value['fidelite_par_vente'] = [
+            {'vente_id': str(row['vente_id']), 'compte_id': str(row['compte_id']) if row.get('compte_id') else None,
+             'revision_compte': row.get('revision_compte')}
+            for row in selections]
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
@@ -153,39 +158,87 @@ class EncaissementGroupeService:
             raise ValueError('Aucun destinataire commun identifié : sélectionner explicitement un compte fidélité ou préparer les ventes avec le même destinataire.')
         return account
 
+    def _comptes_par_vente(self, ventes, selections, compte_id=None, revision_compte=None,
+                           identite_commune_confirmee=False):
+        """Validate explicit per-sale loyalty, retaining the old common-account contract."""
+        by_sale = {str(item['vente_id']): item for item in selections}
+        if set(by_sale) != {str(sale.id) for sale in ventes}:
+            raise ValueError('La correspondance des ventes et des comptes fidélité est incomplète.')
+        has_explicit_map = any(item.get('compte_id') is not None for item in selections)
+        if has_explicit_map:
+            if compte_id is not None or revision_compte is not None:
+                raise ValueError('Utiliser soit le compte historique commun, soit les comptes par vente.')
+            accounts = {}
+            for sale in ventes:
+                item = by_sale[str(sale.id)]
+                account_id = item.get('compte_id')
+                account_revision = item.get('revision_compte')
+                if account_id is None:
+                    if account_revision is not None:
+                        raise ValueError('Révision de fidélité sans compte pour la vente.')
+                    continue
+                if account_revision is None:
+                    raise ValueError('Révision du compte fidélité obligatoire pour chaque vente associée.')
+                self.stock.access('fidelite.consulter', self.site, sale.emplacement_id)
+                account = self.stock.obtenir(CompteFideliteModel, account_id)
+                if account.revision != account_revision:
+                    raise ConflitStock('Compte fidélité modifié pour une vente : actualiser et reconfirmer le titulaire.')
+                # If P4-B supplied a stable client id in the sale snapshot, enforce it.
+                client_id = (sale.destinataire or {}).get('client_id')
+                if client_id and str(account.client_id) != str(client_id):
+                    raise PermissionError('Le compte fidélité ne correspond pas au client de cette vente.')
+                accounts[sale.id] = account
+            return accounts, None
+        if compte_id is None:
+            # Loyalty remains optional; a sale without a selected beneficiary
+            # neither borrows another sale's client nor blocks settlement.
+            return {}, None
+        account = self._verifier_identite(ventes, compte_id, revision_compte, identite_commune_confirmee)
+        return ({sale.id: account for sale in ventes} if account else {}), account
+
     def previsualiser(self, session_id, revision_session, selections, compte_id=None, revision_compte=None, identite_commune_confirmee=False):
         session = self._session(session_id, revision=revision_session)
         sales = self._ventes_autorisees(session, selections)
-        account = self._verifier_identite(sales, compte_id, revision_compte, identite_commune_confirmee)
+        accounts, common_account = self._comptes_par_vente(
+            sales, selections, compte_id, revision_compte, identite_commune_confirmee)
         items = []
         total = Decimal(0)
         for sale in sales:
             finance = self.cash.vente.finance(sale)
             amount = francs(finance['totaux']['ttc'], True)
             total += amount
+            account = accounts.get(sale.id)
             items.append({'vente_id': str(sale.id), 'revision': sale.revision,
+                          'compte_id': str(account.id) if account else None,
+                          'revision_compte': account.revision if account else None,
+                          'client_id': str(account.client_id) if account else None,
                           'numero_appel': self.cash.appel(sale).get('affichage'),
                           'totaux': finance['totaux']})
         return {'session_id': str(session.id), 'revision_session': session.revision,
-                'compte_id': str(account.id) if account else None,
+                'compte_id': str(common_account.id) if common_account else None,
                 'ventes': items, 'total_xaf': str(total),
-                'empreinte': empreinte_selection(session.id, account.id if account else None, selections)}
+                'empreinte': empreinte_selection(session.id, common_account.id if common_account else None, selections)}
 
     def creer(self, data):
         session = self._session(data['session_id'], revision=data['revision_session'])
         sales = self._ventes_autorisees(session, data['ventes'])
-        account = self._verifier_identite(sales, data.get('compte_id'), data.get('revision_compte'), data.get('identite_commune_confirmee'))
-        fingerprint = empreinte_selection(session.id, account.id if account else None, data['ventes'])
+        accounts, common_account = self._comptes_par_vente(sales, data['ventes'], data.get('compte_id'), data.get('revision_compte'), data.get('identite_commune_confirmee'))
+        enriched = [{**item, 'compte_id': str(accounts[UUID(str(item['vente_id']))].id) if UUID(str(item['vente_id'])) in accounts else None,
+                     'revision_compte': accounts[UUID(str(item['vente_id']))].revision if UUID(str(item['vente_id'])) in accounts else None}
+                    for item in data['ventes']]
+        fingerprint = empreinte_selection(session.id, common_account.id if common_account else None, enriched)
         entity = DossierEncaissementGroupe(
             organisation_id=self.org, site_id=self.site, emplacement_id=session.emplacement_id,
             caisse_id=session.caisse_id, session_id=session.id, auteur_id=self.stock.user,
-            compte_id=account.id if account else None, selections=tuple(
-                SelectionGroupe(vente_id=UUID(str(row['vente_id'])), revision_vente=row['revision'], ordre=index)
-                for index, row in enumerate(data['ventes'], 1)), empreinte_selection=fingerprint)
+            compte_id=common_account.id if common_account else None, selections=tuple(
+                SelectionGroupe(vente_id=UUID(str(row['vente_id'])), revision_vente=row['revision'], ordre=index,
+                    compte_id=UUID(row['compte_id']) if row['compte_id'] else None,
+                    revision_compte=row['revision_compte'])
+                for index, row in enumerate(enriched, 1)), empreinte_selection=fingerprint)
         self.repo.ajouter_dossier(entity)
         self.cash.trace('DOSSIER_ENCAISSEMENT_GROUPE_CREE', dossier_id=entity.id,
                         ventes=[str(x.vente_id) for x in entity.selections], empreinte=fingerprint,
-                        identite_commune_confirmee=True)
+                        identite_commune_confirmee=bool(common_account))
         self.s.flush()
         return self.dossier(entity.id)
 
@@ -222,7 +275,9 @@ class EncaissementGroupeService:
                 'auteur_id': str(entity.auteur_id), 'compte_id': str(entity.compte_id) if entity.compte_id else None,
                 'etat': entity.etat.value, 'revision': entity.revision,
                 'empreinte_selection': entity.empreinte_selection,
-                'ventes': [{'vente_id': str(x.vente_id), 'revision': x.revision_vente, 'ordre': x.ordre} for x in entity.selections],
+                'ventes': [{'vente_id': str(x.vente_id), 'revision': x.revision_vente, 'ordre': x.ordre,
+                            'compte_id': str(x.compte_id) if x.compte_id else None,
+                            'revision_compte': x.revision_compte} for x in entity.selections],
                 'encaissement_id': str(receipt) if receipt else None}
 
     def autoriser_dossier(self, key):
@@ -237,11 +292,17 @@ class EncaissementGroupeService:
         if session.revision != data['revision_session']:
             raise ConflitStock('Session de caisse modifiée : actualiser.')
         sales = self._ventes_autorisees(session, data['ventes'])
-        account = self._verifier_identite(sales, entity.compte_id, data.get('revision_compte'), data.get('identite_commune_confirmee'))
-        fingerprint = empreinte_selection(session.id, account.id if account else None, data['ventes'])
+        accounts, common_account = self._comptes_par_vente(sales, data['ventes'], entity.compte_id,
+            data.get('revision_compte'), data.get('identite_commune_confirmee'))
+        enriched = [{**item, 'compte_id': str(accounts[UUID(str(item['vente_id']))].id) if UUID(str(item['vente_id'])) in accounts else None,
+                     'revision_compte': accounts[UUID(str(item['vente_id']))].revision if UUID(str(item['vente_id'])) in accounts else None}
+                    for item in data['ventes']]
+        fingerprint = empreinte_selection(session.id, common_account.id if common_account else None, enriched)
         updated = entity.changer_selection(tuple(
-            SelectionGroupe(vente_id=UUID(str(item['vente_id'])), revision_vente=item['revision'], ordre=index)
-            for index, item in enumerate(data['ventes'], 1)), fingerprint)
+            SelectionGroupe(vente_id=UUID(str(item['vente_id'])), revision_vente=item['revision'], ordre=index,
+                compte_id=UUID(item['compte_id']) if item['compte_id'] else None,
+                revision_compte=item['revision_compte'])
+            for index, item in enumerate(enriched, 1)), fingerprint)
         self.repo.modifier_selection(updated, entity.revision)
         self.cash.trace('DOSSIER_ENCAISSEMENT_GROUPE_SELECTION_MODIFIEE', dossier_id=key,
                         revision=updated.revision, empreinte=fingerprint)
@@ -315,15 +376,19 @@ class EncaissementGroupeService:
                 return True
         return False
 
-    def _fidelite_groupe(self, sales, finances, account):
-        if not account:
+    def _fidelite_groupe(self, sales, finances, accounts):
+        if not accounts:
             return None
         rule = self.cash.bareme('ACQUISITION')
         if not rule:
-            return {'points_acquis': 0, 'motif': 'Aucun barème d’acquisition applicable.', 'ventes': []}
-        by_sale, all_lines = [], []
-        total_points = 0
+            return {'points_acquis': 0, 'motif': 'Aucun barème d’acquisition applicable.', 'ventes': [], 'comptes': []}
+        by_sale, all_lines, by_account = [], [], {}
         for sale in sales:
+            account = accounts.get(sale.id)
+            if account is None:
+                by_sale.append({'vente_id': str(sale.id), 'compte_id': None, 'points_acquis': 0,
+                                'eligible_paye': '0', 'lignes': []})
+                continue
             eligible = []
             for line in self.cash.vente.lignes(sale):
                 if not line.actif:
@@ -332,19 +397,34 @@ class EncaissementGroupeService:
                 if self.cash.categorie_eligible(product.categorie_id, rule):
                     paid = str(finances[sale.id]['lignes'][str(line.id)]['ttc'])
                     eligible.append({'ligne_id': str(line.id), 'ttc_paye': paid})
-                    all_lines.append({'vente_id': str(sale.id), **eligible[-1]})
             base = sum((Decimal(x['ttc_paye']) for x in eligible), Decimal(0))
+            # Round once per sale, preserving the P4.5 rule at the sale boundary.
             points = acquisition(base, rule.points, rule.montant_xaf)
-            total_points += points
-            by_sale.append({'vente_id': str(sale.id), 'eligible_paye': str(base), 'lignes': eligible, 'points_acquis': points})
-        debt_paid = min(total_points, account.dette)
-        account.dette -= debt_paid
-        account.points += total_points - debt_paid
-        account.revision += 1
+            sale_result = {'vente_id': str(sale.id), 'compte_id': str(account.id),
+                'client_id': str(account.client_id), 'eligible_paye': str(base),
+                'lignes': eligible, 'points_acquis': points}
+            by_sale.append(sale_result)
+            all_lines.extend({'vente_id': str(sale.id), **line} for line in eligible)
+            aggregate = by_account.setdefault(account.id, {'account': account, 'points_acquis': 0,
+                'eligible_paye': Decimal(0), 'ventes': []})
+            aggregate['points_acquis'] += points
+            aggregate['eligible_paye'] += base
+            aggregate['ventes'].append(str(sale.id))
+        account_results = []
+        for account_id, aggregate in by_account.items():
+            account = aggregate['account']
+            debt_paid = min(aggregate['points_acquis'], account.dette)
+            account.dette -= debt_paid
+            account.points += aggregate['points_acquis'] - debt_paid
+            account.revision += 1
+            account_results.append({'compte_id': str(account_id), 'client_id': str(account.client_id),
+                'ventes': aggregate['ventes'], 'eligible_paye': str(aggregate['eligible_paye']),
+                'points_acquis': aggregate['points_acquis'], 'dette_compensee': debt_paid,
+                'solde': account.points, 'dette': account.dette})
+        total_points = sum(item['points_acquis'] for item in by_sale)
         return {'bareme': serial(rule), 'eligible_paye': str(sum((Decimal(x['eligible_paye']) for x in by_sale), Decimal(0))),
-            'lignes': all_lines, 'ventes': by_sale, 'points_acquis': total_points,
-            'dette_compensee': debt_paid, 'fractions_reportees': False,
-            'solde': account.points, 'dette': account.dette}
+            'lignes': all_lines, 'ventes': by_sale, 'comptes': account_results,
+            'points_acquis': total_points, 'fractions_reportees': False}
 
     def finaliser(self, key, data):
         entity, group_row, session, _ = self._load_authorized(key)
@@ -359,14 +439,42 @@ class EncaissementGroupeService:
         if [{'vente_id': str(x.id), 'revision': x.revision} for x in sales] != [
             {'vente_id': str(x['vente_id']), 'revision': x['revision']} for x in data['ventes']]:
             raise ConflitStock('La sélection de ventes a changé depuis la prévisualisation.')
-        account = None
-        if entity.compte_id:
-            self.stock.access('fidelite.consulter', self.site, entity.emplacement_id)
-            account = self.stock.obtenir(CompteFideliteModel, entity.compte_id)
-            if data.get('compte_id') != entity.compte_id or data.get('revision_compte') != account.revision:
-                raise ConflitStock('Compte fidélité modifié : actualiser et reconfirmer le titulaire.')
-        elif data.get('compte_id') or data.get('revision_compte') is not None:
-            raise ValueError('Compte fidélité différent de celui du dossier.')
+        requested = {str(item['vente_id']): item for item in data['ventes']}
+        stored = {str(item.vente_id): item for item in entity.selections}
+        if set(requested) != set(stored):
+            raise ConflitStock('Les ventes ou leurs bénéficiaires fidélité diffèrent du brouillon.')
+        explicit_request_map = any(item.get('compte_id') is not None for item in data['ventes'])
+        accounts, account_revisions = {}, {}
+        for sale in sales:
+            selection = stored[str(sale.id)]
+            req = requested[str(sale.id)]
+            if int(req['revision']) != selection.revision_vente:
+                raise ConflitStock('La révision d’une vente ne correspond plus au brouillon.')
+            if explicit_request_map:
+                account_id, account_revision = req.get('compte_id'), req.get('revision_compte')
+            elif entity.compte_id:
+                account_id, account_revision = data.get('compte_id'), data.get('revision_compte')
+            else:
+                account_id, account_revision = None, None
+            if account_id != selection.compte_id:
+                raise ConflitStock('Le compte fidélité associé à une vente diffère du brouillon.')
+            if account_id is None:
+                if account_revision is not None or selection.revision_compte is not None:
+                    raise ConflitStock('Révision de compte présente sans bénéficiaire fidélité.')
+                continue
+            if account_revision is None or int(account_revision) != selection.revision_compte:
+                raise ConflitStock('Révision du compte fidélité différente du brouillon.')
+            self.stock.access('fidelite.consulter', self.site, sale.emplacement_id)
+            account = self.stock.obtenir(CompteFideliteModel, account_id)
+            if account.revision != selection.revision_compte:
+                raise ConflitStock('Compte fidélité modifié pour une vente : actualiser et reconfirmer le titulaire.')
+            client_id = (sale.destinataire or {}).get('client_id')
+            if client_id and str(account.client_id) != str(client_id):
+                raise PermissionError('Le compte fidélité ne correspond pas au client de cette vente.')
+            accounts[sale.id] = account
+            account_revisions[sale.id] = selection.revision_compte
+        common_ids = {account.id for account in accounts.values()}
+        common_account = next(iter(accounts.values())) if len(accounts) == 1 and len(accounts) == len(sales) and len(common_ids) == 1 else None
 
         finances = {}
         line_rows = []
@@ -433,7 +541,7 @@ class EncaissementGroupeService:
         from neosys_pharma.infrastructure.caisse_pdf import recu_groupe_pdf
         from neosys_pharma.application.caisse_service import now
 
-        fidelity = self._fidelite_groupe(sales, finances, account) if account else None
+        fidelity = self._fidelite_groupe(sales, finances, accounts) if accounts else None
         snapshot_sales = []
         for sale in sales:
             detail = self.cash.vente.detail(sale)
@@ -450,7 +558,7 @@ class EncaissementGroupeService:
         pdf = recu_groupe_pdf({'id': str(entity.id), **snapshot})
         enc = self.stock.ajouter(EncaissementModel, vente_id=None, type_encaissement='GROUPE',
             dossier_groupe_id=entity.id, session_id=session.id, periode_id=period.id,
-            numero=number, total_xaf=total, compte_id=account.id if account else None,
+            numero=number, total_xaf=total, compte_id=common_account.id if common_account else None,
             instantane=snapshot, pdf=pdf, pdf_sha256=hashlib.sha256(pdf).hexdigest())
 
         ventilations = {}
@@ -461,7 +569,9 @@ class EncaissementGroupeService:
                 vente_id=sale.id, revision_vente=sale.revision,
                 montant_ht=Decimal(finance['totaux']['ht']), montant_tva=Decimal(finance['totaux']['tva']),
                 net_ttc=sale_totals[sale.id], remise_ligne=Decimal(finance['totaux'].get('remise_ligne', 0)),
-                remise_globale=Decimal(finance['totaux'].get('remise_globale', 0)), instantane=detail)
+                remise_globale=Decimal(finance['totaux'].get('remise_globale', 0)), instantane=detail,
+                compte_id=accounts[sale.id].id if sale.id in accounts else None,
+                revision_compte=account_revisions.get(sale.id))
             self.repo.ajouter_ventilation(vent)
             ventilations[sale.id] = vent
 
@@ -487,11 +597,18 @@ class EncaissementGroupeService:
             {r.id: r.montant-r.rendu for r in reglements},
             {(UUID(x['vente_id']), UUID(x['ligne_id'])): x['montant'] for x in line_rows})
 
-        if account and fidelity and 'bareme' in fidelity:
-            self.stock.ajouter(JournalFideliteModel, compte_id=account.id, encaissement_id=enc.id,
-                auteur_id=self.stock.user, type='ACQUISITION',
-                delta_points=fidelity['points_acquis']-fidelity['dette_compensee'],
-                delta_dette=-fidelity['dette_compensee'], details=fidelity)
+        if fidelity and 'bareme' in fidelity:
+            for account_result in fidelity['comptes']:
+                account_id = UUID(account_result['compte_id'])
+                account_sales = [row for row in fidelity['ventes'] if row.get('compte_id') == str(account_id)]
+                account_points = sum(row['points_acquis'] for row in account_sales)
+                self.stock.ajouter(JournalFideliteModel, compte_id=account_id, encaissement_id=enc.id,
+                    auteur_id=self.stock.user, type='ACQUISITION',
+                    delta_points=account_points-account_result['dette_compensee'],
+                    delta_dette=-account_result['dette_compensee'],
+                    details={'bareme': fidelity['bareme'], 'compte': account_result,
+                             'ventes': account_sales, 'lignes': [line for line in fidelity['lignes']
+                                 if line['vente_id'] in account_result['ventes']]})
         for sale in sales:
             self.cash.consommer_reservations(sale)
             sale.etat = 'ENCAISSEE'

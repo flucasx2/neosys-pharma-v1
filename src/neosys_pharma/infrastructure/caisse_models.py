@@ -140,7 +140,7 @@ class MouvementCaisseModel(EntiteVente,Base):
 
 class JournalFideliteModel(EntiteVente,Base):
     __tablename__='fidelite_journal'
-    __table_args__=scoped('journal_fidelite',org_fk('compte_id','fidelite_comptes'),org_fk('encaissement_id','caisse_encaissements'),org_fk('auteur_id','utilisateurs','id_utilisateur'),org_fk('compensation_de','fidelite_journal'),UniqueConstraint('encaissement_id','type'),CheckConstraint("type IN ('ACQUISITION','UTILISATION','RESTITUTION','REVOCATION','DETTE','COMPENSATION')"))
+    __table_args__=scoped('journal_fidelite',org_fk('compte_id','fidelite_comptes'),org_fk('encaissement_id','caisse_encaissements'),org_fk('auteur_id','utilisateurs','id_utilisateur'),org_fk('compensation_de','fidelite_journal'),UniqueConstraint('encaissement_id','type','compte_id',name='uq_journal_fidelite_encaissement_type_compte'),CheckConstraint("type IN ('ACQUISITION','UTILISATION','RESTITUTION','REVOCATION','DETTE','COMPENSATION')"))
     compte_id:Mapped[UUID]=mapped_column(Uuid)
     encaissement_id:Mapped[UUID|None]=mapped_column(Uuid)
     auteur_id:Mapped[UUID]=mapped_column(Uuid)
