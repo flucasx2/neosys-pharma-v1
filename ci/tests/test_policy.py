@@ -14,7 +14,7 @@ import browser
 import receipt
 
 A, B = 'a' * 40, 'b' * 40
-GOOD = dict(sqlite='success', postgres='success', browser='success')
+GOOD = dict(sqlite='success', postgres='success', postgres_34='success', browser='success')
 
 
 class Policy(unittest.TestCase):
@@ -67,6 +67,11 @@ class Policy(unittest.TestCase):
 
     def test_missing_job_rejected(self):
         self.assertEqual(verdict(True, {'sqlite': 'success'}, A, A, A)[0], 'failure')
+
+    def test_postgres18_is_mandatory_for_green_status(self):
+        results = dict(sqlite='success', postgres='success', browser='success')
+        self.assertEqual(verdict(True, results, A, A, A)[0], 'failure')
+        self.assertEqual(verdict(True, dict(results, postgres_34='skipped'), A, A, A)[0], 'failure')
 
     def test_complete_exact_commit(self):
         self.assertEqual(verdict(True, GOOD, A, A, A)[0], 'success')
@@ -216,6 +221,32 @@ class Browser(unittest.TestCase):
             with self.assertRaises(ValueError): browser.commands(p)
             (p / 'tests/browser_future.py').unlink(); (p / 'tests/browser_p1.py').touch()
             with self.assertRaises(ValueError): browser.commands(p)
+
+
+class WorkflowContract(unittest.TestCase):
+    def test_postgres18_job_is_mandatory_and_database_is_explicitly_disposable(self):
+        workflow = (ROOT / '.github/workflows/tests.yml').read_text()
+        result_job = workflow.split('\n  result:\n', 1)[1]
+        self.assertIn('needs: [changes, sqlite, postgres, postgres_34, browser]', result_job)
+        self.assertIn('"postgres_34":"${{ needs.postgres_34.result }}"', result_job)
+        self.assertIn('name: CI / concurrence PostgreSQL 18 - P4.6', workflow)
+        self.assertIn('EG34_CONFIRM_DATABASE: neosys_p46_validation_34_concurrence_temp', workflow)
+        self.assertIn('neosys_p46_validation_34_concurrence_temp', workflow)
+        self.assertIn('assert versions == ["eg34a2026"]', workflow)
+
+    def test_database_only_suites_exclude_postgres18_specific_module(self):
+        workflow = (ROOT / '.github/workflows/tests.yml').read_text()
+        command = 'pytest -q --ignore=tests/test_encaissement_groupe_3_4_postgresql.py'
+        self.assertGreaterEqual(workflow.count(command), 2)
+
+    def test_postgres_and_browser_jobs_do_not_get_suppressed_by_sqlite_failure(self):
+        workflow = (ROOT / '.github/workflows/tests.yml').read_text()
+        postgres = workflow.split('\n  postgres:\n', 1)[1].split('\n  postgres_34:\n', 1)[0]
+        postgres18 = workflow.split('\n  postgres_34:\n', 1)[1].split('\n  browser:\n', 1)[0]
+        browser_job = workflow.split('\n  browser:\n', 1)[1].split('\n  result:\n', 1)[0]
+        self.assertIn('needs: changes', postgres)
+        self.assertIn('needs: changes', postgres18)
+        self.assertIn('needs: changes', browser_job)
 
 
 if __name__ == '__main__':

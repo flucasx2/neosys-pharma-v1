@@ -70,18 +70,22 @@ class LocalAPI(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError):
             receipt.status('owner/repo', A, 'success', 'Test refusé')
 
-    def test_actual_http_finish_skipped_never_publishes_green(self):
+    def test_actual_http_finish_skipped_required_job_never_publishes_green(self):
         with tempfile.TemporaryDirectory() as tmp:
             p = Path(tmp); (p / 'event').write_text('{}')
-            env = dict(GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_EVENT_PATH=str(p/'event'),
-                GITHUB_REPOSITORY='owner/repo', TESTED_SHA=A, ACTUAL_SHA=A, FULL='true',
-                TARGET_BRANCH='feat/p4-vente-caisse', GITHUB_REF='refs/heads/main',
-                GITHUB_STEP_SUMMARY=str(p/'summary'),
-                JOB_RESULTS=json.dumps(dict(sqlite='success',postgres='skipped',browser='success')))
-            with patch.dict(os.environ, env), patch.object(sys, 'argv', ['receipt.py','finish']):
-                with self.assertRaises(SystemExit): receipt.main()
-            self.assertEqual(self.calls[-1][2]['state'], 'failure')
-            self.assertEqual(self.calls[0][1], '/repos/owner/repo/git/ref/heads/feat/p4-vente-caisse')
+            for skipped in ('postgres', 'postgres_34'):
+                results = dict(sqlite='success', postgres='success', postgres_34='success', browser='success')
+                results[skipped] = 'skipped'
+                env = dict(GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_EVENT_PATH=str(p/'event'),
+                    GITHUB_REPOSITORY='owner/repo', TESTED_SHA=A, ACTUAL_SHA=A, FULL='true',
+                    TARGET_BRANCH='feat/p4-vente-caisse', GITHUB_REF='refs/heads/main',
+                    GITHUB_STEP_SUMMARY=str(p/'summary'), JOB_RESULTS=json.dumps(results))
+                with self.subTest(skipped=skipped), patch.dict(os.environ, env), \
+                        patch.object(sys, 'argv', ['receipt.py','finish']):
+                    with self.assertRaises(SystemExit): receipt.main()
+                    self.assertEqual(self.calls[-1][2]['state'], 'failure')
+                    self.assertEqual(self.calls[0][1], '/repos/owner/repo/git/ref/heads/feat/p4-vente-caisse')
+                    self.calls.clear()
 
     def test_actual_http_complete_finish_publishes_green_on_target_sha(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -90,7 +94,7 @@ class LocalAPI(unittest.TestCase):
                 GITHUB_REPOSITORY='owner/repo',TESTED_SHA=A,ACTUAL_SHA=A,FULL='true',
                 TARGET_BRANCH='feat/p4-vente-caisse',GITHUB_REF='refs/heads/main',
                 GITHUB_STEP_SUMMARY=str(p/'summary'),
-                JOB_RESULTS=json.dumps(dict(sqlite='success',postgres='success',browser='success')))
+                JOB_RESULTS=json.dumps(dict(sqlite='success',postgres='success',postgres_34='success',browser='success')))
             with patch.dict(os.environ,env),patch.object(sys,'argv',['receipt.py','finish']): receipt.main()
             self.assertEqual(self.calls[-1][1],'/repos/owner/repo/statuses/'+A)
             self.assertEqual(self.calls[-1][2]['state'],'success')

@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path, PurePosixPath
 
 SHA = re.compile(r"^[0-9a-f]{40}$")
-REQUIRED = ("sqlite", "postgres", "browser")
+REQUIRED = ("sqlite", "postgres", "postgres_34", "browser")
 CONTEXT = "neosys/recette-complete"
 
 
@@ -43,7 +43,7 @@ def verdict(full, results, tested_sha, current_sha, actual_sha):
     if not full:
         return "pending", "Recette complète requise ; SQLite seul ou documentation ne la valide pas"
     if any(results.get(job) != "success" for job in REQUIRED):
-        return "failure", "Recette incomplète : SQLite, PostgreSQL/migrations et Chromium doivent réussir"
+        return "failure", "Recette incomplète : SQLite, PostgreSQL 17, PostgreSQL 18 et Chromium doivent réussir"
     return "success", "Recette complète réussie sur ce commit exact"
 
 
