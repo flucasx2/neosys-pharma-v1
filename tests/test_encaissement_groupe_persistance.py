@@ -7,6 +7,7 @@ import pytest
 import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 from neosys_pharma.infrastructure.config import get_settings
 from neosys_pharma.infrastructure.database import Base
@@ -97,7 +98,7 @@ def _migration_cycle(url, monkeypatch, *, expected_database=None):
         with engine.connect() as connection:
             inspector = sa.inspect(connection)
             assert P4C_TABLES <= set(inspector.get_table_names())
-            assert connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == "20261015_02"
+            assert connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == ScriptDirectory.from_config(cfg).get_current_head()
             assert connection.execute(
                 sa.text("SELECT nom FROM clients WHERE id=:id AND organisation_id=:org").bindparams(
                     sa.bindparam("id", type_=sa.Uuid()), sa.bindparam("org", type_=sa.Uuid())

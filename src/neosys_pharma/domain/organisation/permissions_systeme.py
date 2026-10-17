@@ -52,10 +52,17 @@ CAISSE_PERMISSIONS = (
     ("client.consulter", "Consulter les fiches client et leurs organismes associés"),
     ("client.gerer", "Créer et modifier les fiches client et leurs associations"),
 )
+P5A_PERMISSIONS = (
+    ("tiers_payant.consulter", "Consulter conventions, adhésions et priorités de prise en charge"),
+    ("tiers_payant.convention.gerer", "Créer et versionner les conventions de prise en charge"),
+    ("tiers_payant.adhesion.consulter", "Consulter les bénéficiaires et adhésions de prise en charge"),
+    ("tiers_payant.adhesion.gerer", "Gérer les bénéficiaires et adhésions de prise en charge"),
+    ("tiers_payant.priorites.gerer", "Configurer et versionner les priorités de prise en charge"),
+)
 PERMISSIONS = P1_PERMISSIONS + P3_PERMISSIONS + P4_PERMISSIONS + CAISSE_PERMISSIONS + (
     ("catalogue.consulter", "Consulter le catalogue"),
     ("catalogue.gerer", "Gérer le catalogue"),
-)
+) + P5A_PERMISSIONS
 ROLES = (
     ("OBSERVATEUR", "Observateur", ("organisation.consulter", "utilisateur.consulter", "role.consulter")),
     ("GESTION_ORGANISATION", "Gestion de l'organisation", tuple(code for code, _ in P1_PERMISSIONS)),
