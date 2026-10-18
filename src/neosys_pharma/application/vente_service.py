@@ -112,7 +112,8 @@ class VenteService(RemisesService):
     def changer_etat(self,v,target,data):
         self.revision(v,data['revision']);transition(v.etat,target)
         if target=='VALIDEE_PREPARATION':
-            if v.mode!='SANS_TIERS':raise ValueError('Règles de tiers payant ou crédit indisponibles : préparation non validable.')
+            if v.mode=='CREDIT':raise ValueError('Le crédit reste indisponible dans ce parcours.')
+            if v.mode!='SANS_TIERS':self.stock.access('tiers_payant.consulter',self.site,v.emplacement_id)
             rows=[r for r in self.lignes(v) if r.actif]
             if not rows:raise ValueError('Au moins une ligne commerciale est obligatoire.')
             if any(r.statut in ('DEMANDEE',) for r in self.stock.lignes(self.remise_model,vente_id=v.id)):raise ValueError('Demande de remise en attente : validation interdite.')

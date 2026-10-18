@@ -13,7 +13,7 @@ from test_http_autorisations_p1 import set_state
 from neosys_pharma.domain.organisation.permissions_systeme import P4_PERMISSIONS, permission_id
 from neosys_pharma.domain.vente import transition, remise_valide, LigneVente
 from neosys_pharma.infrastructure.organisation_models import PosteVenteModel,CaisseModel
-from neosys_pharma.infrastructure.securite_models import RolePermissionModel
+from neosys_pharma.infrastructure.securite_models import RoleModel,RolePermissionModel
 from neosys_pharma.application.stock_service import StockService
 from neosys_pharma.application.vente_service import VenteService
 from neosys_pharma.domain.stock import ConflitStock
@@ -109,10 +109,25 @@ def test_401_403_csrf_et_lecture_seule(raw_client,account):
 
 
 @pytest.mark.parametrize('mode',['CNAMGS','MUTUELLE','CNAMGS_MUTUELLE','CREDIT'])
-def test_modes_financiers_non_configures_non_validables(raw_client,account,mode):
+def test_modes_financiers_sans_permission_tiers_restant_non_validables(raw_client,account,mode):
     c,a=raw_client,account;prod,pack,pid,_=setup(c,a);v=line(c,a,create(c,a,pid,mode=mode),prod,pack)
     assert v['part_client'] is None and not v['prise_en_charge_disponible']
-    post(c,a,f'/{v["id"]}/valider',{'revision':v['revision']},422)
+    post(c,a,f'/{v["id"]}/valider',{'revision':v['revision']},403 if mode!='CREDIT' else 422)
+
+
+def test_preparation_et_transmission_tiers_requiert_permission_referentiel(raw_client,account):
+    c,a=raw_client,account
+    prod,pack,pid,cid=setup(c,a)
+    v=line(c,a,create(c,a,pid,mode='MUTUELLE'),prod,pack)
+    assert c.post(root(a)+f'/{v["id"]}/valider',json={'cle':str(uuid4()),'revision':v['revision']}).status_code==403
+    gen=db(c);s=next(gen)
+    try:
+        role=s.scalar(select(RoleModel).where(RoleModel.organisation_id==a['org'],RoleModel.code=='CATALOGUE'))
+        s.add(RolePermissionModel(role_id=role.id_role,permission_id=permission_id('tiers_payant.consulter')));s.commit()
+    finally:gen.close()
+    validated=post(c,a,f'/{v["id"]}/valider',{'revision':v['revision']},200)
+    transmitted=post(c,a,f'/{v["id"]}/transmettre',{'revision':validated['revision'],'caisse_id':cid},200)
+    assert transmitted['etat']=='TRANSMISE'
 
 
 def test_concurrence_postgresql_vente_et_stock(raw_client,account):

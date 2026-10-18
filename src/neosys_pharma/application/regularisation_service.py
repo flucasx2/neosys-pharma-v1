@@ -14,6 +14,9 @@ from neosys_pharma.infrastructure.vente_models import VenteModel,LigneVenteModel
 from neosys_pharma.infrastructure.stock_models import StockEmplacementModel,LotModel,AllocationReservationModel,ReservationStockModel
 from neosys_pharma.infrastructure.organisation_models import CoffreModel,SiteModel,OrganisationModel
 from neosys_pharma.infrastructure.securite_models import UtilisateurModel
+from neosys_pharma.infrastructure.prise_en_charge_models import (
+    LigneCalculPriseEnChargeModel, RealisationPriseEnChargeModel,
+)
 
 class RegularisationService:
     def __init__(self,cash):
@@ -169,7 +172,17 @@ class RegularisationService:
         self.trace('CLOTURE_Z',cloture_id=row.id,ancienne_periode=p.id,nouvelle_periode=next_.id);return serial(row)
     def retour(self,data):
         enc=self.stock.obtenir(EncaissementModel,data['encaissement_id']);v=self.vente.obtenir(enc.vente_id,'vente.retour.gerer')
-        rows=[];seen=set();amount=Decimal(0);snapshots={x['id']:x for x in enc.instantane['lignes'] if x['actif']}
+        rows=[];seen=set();amount=Decimal(0);gross_amount=0;organisme_amount=0
+        snapshots={x['id']:x for x in enc.instantane['lignes'] if x['actif']}
+        realization=self.s.scalar(select(RealisationPriseEnChargeModel).where(
+            RealisationPriseEnChargeModel.encaissement_id==enc.id,
+            RealisationPriseEnChargeModel.organisation_id==self.org,
+        ))
+        client_paid_by_line={}
+        if realization:
+            calc_lines=self.stock.lignes(LigneCalculPriseEnChargeModel,calcul_id=realization.calcul_id)
+            client_paid_by_line={row.ligne_vente_id:row.part_client_xaf for row in calc_lines}
+            if not client_paid_by_line:raise ConflitStock('Ventilation client/organisme absente : retour financier bloqué.')
         for entry in data['lignes']:
             line=self.stock.obtenir(LigneVenteModel,entry['ligne_id']);balance=self.stock.obtenir(StockEmplacementModel,entry['stock_id'])
             if line.vente_id!=v.id or not line.actif or line.id not in [ident(x) for x in snapshots]:raise PermissionError('Ligne étrangère à la vente encaissée.')
@@ -186,8 +199,26 @@ class RegularisationService:
             if n+q>line.quantite:raise ConflitStock('Quantité supérieure au solde retournable.')
             hist=snapshots[str(line.id)];ttc=int(Decimal(str(hist['montants_appliques']['ttc'])));tva=int(Decimal(str(hist['montants_appliques']['tva'])))
             net=(ttc*(n+q)//line.quantite)-(ttc*n//line.quantite);tax=(tva*(n+q)//line.quantite)-(tva*n//line.quantite)
-            rows.append({'line':line,'balance':balance,'quantite':q,'montant':Decimal(net),'instantane':{'designation':hist['designation'],'conditionnement':hist['conditionnement'],'quantite':q,'ttc':str(net),'tva':str(tax),'ht':str(net-tax),'quantite_cumulee':n+q,'historique':hist}});amount+=net;seen.add((line.id,balance.id))
-        ret=self.stock.ajouter(RetourVenteModel,encaissement_id=enc.id,site_id=self.site,auteur_id=self.stock.user,montant=amount,justification=data['justification'],instantane={'vente_id':str(v.id),'numero_encaissement':enc.instantane['numero_encaissement'],'lignes':[r['instantane'] for r in rows]})
+            client_line_total=client_paid_by_line.get(line.id,ttc)
+            client_before=client_line_total*n//line.quantite
+            client_after=client_line_total*(n+q)//line.quantite
+            client_return=client_after-client_before
+            org_return=net-client_return
+            rows.append({'line':line,'balance':balance,'quantite':q,'montant':Decimal(client_return),
+                'instantane':{'designation':hist['designation'],'conditionnement':hist['conditionnement'],
+                    'quantite':q,'ttc':str(net),'part_client_xaf':client_return,
+                    'part_organismes_xaf':org_return,'tva':str(tax),'ht':str(net-tax),
+                    'quantite_cumulee':n+q,'historique':hist}})
+            amount+=client_return;gross_amount+=net;organisme_amount+=org_return;seen.add((line.id,balance.id))
+        snapshot={'vente_id':str(v.id),'numero_encaissement':enc.instantane['numero_encaissement'],
+            'lignes':[r['instantane'] for r in rows],
+            'prise_en_charge':({'realisation_id':str(realization.id),
+                'calcul_id':str(realization.calcul_id),'montant_client_xaf':int(amount),
+                'montant_organismes_xaf':organisme_amount,'montant_ttc_xaf':gross_amount}
+                if realization else None)}
+        ret=self.stock.ajouter(RetourVenteModel,encaissement_id=enc.id,site_id=self.site,auteur_id=self.stock.user,
+            montant=amount,montant_ttc_xaf=gross_amount,montant_organismes_xaf=organisme_amount,
+            justification=data['justification'],instantane=snapshot)
         for r in rows:
             line=self.stock.ajouter(LigneRetourVenteModel,retour_id=ret.id,ligne_id=r['line'].id,stock_id=r['balance'].id,quantite=r['quantite'],montant=r['montant'],instantane=r['instantane'])
             self.stock.ajouter(QuarantaineModel,ligne_retour_id=line.id,stock_id=r['balance'].id,quantite=r['quantite'])
@@ -295,7 +326,8 @@ class RegularisationService:
         current=self.stock.obtenir(CompteFideliteModel,enc.compte_id)
         ids={r.id for r in self.stock.lignes(RetourVenteModel,encaissement_id=enc.id) if r.id==ret.id or self.stock.lignes(RemboursementModel,retour_id=r.id,etat='EXECUTE')}
         eligible={ident(x['ligne_id']) for x in gain['lignes']}
-        base=sum(int(l.montant) for r in ids for l in self.stock.lignes(LigneRetourVenteModel,retour_id=r) if l.ligne_id in eligible)
+        base=sum(int(l.instantane.get('part_client_xaf',l.montant)) for r in ids
+                 for l in self.stock.lignes(LigneRetourVenteModel,retour_id=r) if l.ligne_id in eligible)
         cumulative=int(gain['points_acquis'])*base//total
         previous=sum(x.points_revoques for r in ids if r!=ret.id for x in self.stock.lignes(CompensationRetourModel,retour_id=r))
         revoke=cumulative-previous;restore=0
@@ -305,7 +337,8 @@ class RegularisationService:
             historic=usages[0].details.get('base_eligible_historique')
             line_ids=usages[0].details.get('lignes_eligibles')
             if not historic or not line_ids:raise ConflitStock('Base historique de points utilisés manquante : régularisation impossible sans inventer une règle.')
-            usedbase=sum(int(l.montant) for r in ids for l in self.stock.lignes(LigneRetourVenteModel,retour_id=r) if str(l.ligne_id) in line_ids)
+            usedbase=sum(int(l.instantane.get('part_client_xaf',l.montant)) for r in ids
+                         for l in self.stock.lignes(LigneRetourVenteModel,retour_id=r) if str(l.ligne_id) in line_ids)
             restored_before=sum(x.points_restitues for r in ids if r!=ret.id for x in self.stock.lignes(CompensationRetourModel,retour_id=r))
             restore=used*usedbase//int(Decimal(str(historic)))-restored_before
         debt_paid=min(current.dette,restore);current.dette-=debt_paid

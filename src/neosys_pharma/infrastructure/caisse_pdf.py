@@ -18,7 +18,28 @@ def recu_pdf(data):
     for x in data['lignes']:rows.append([p(x['designation']+' / '+x['conditionnement']),p(x['quantite']),p(x['montants_appliques']['ttc'])])
     table=LongTable(rows,colWidths=[340,45,110],repeatRows=1,hAlign='LEFT');table.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#e8f1f2')),('VALIGN',(0,0),(-1,-1),'TOP'),('BOTTOMPADDING',(0,0),(-1,-1),8),('LINEBELOW',(0,0),(-1,0),.5,colors.grey),('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.white,colors.HexColor('#f6f8f9')])]))
     story.extend([table,Spacer(1,14)])
-    for k,label in [('ht','Total HT'),('tva','TVA'),('ttc','Net réglé TTC')]:story.append(p(label+' : '+str(data['totaux'][k])+' XAF'))
+    for k,label in [('ht','Total HT'),('tva','TVA'),('ttc','Net TTC de la vente')]:story.append(p(label+' : '+str(data['totaux'][k])+' XAF'))
+    coverage=data.get('prise_en_charge')
+    if coverage:
+        story.extend([Spacer(1,8),Paragraph('Répartition de la prise en charge',styles['Heading2']),
+            p('Part client encaissée : '+str(coverage['part_client_xaf'])+' XAF'),
+            p('Parts organismes : '+str(coverage['total_organismes_xaf'])+' XAF')])
+        for payer in coverage.get('organismes',[]):
+            story.append(p(payer['nom']+' : '+str(payer['montant_xaf'])+' XAF'))
+        split=[[p(x) for x in ('Ligne','Net TTC','Part client','Parts organismes')]]
+        sale_lines={row['id']:row for row in data['lignes']}
+        for split_line in coverage.get('lignes',[]):
+            sale_line=sale_lines.get(split_line['ligne_vente_id'],{})
+            organisms=', '.join(f"{x['nom']} {x['montant_xaf']}" for x in split_line.get('organismes',[])) or '—'
+            split.append([p(sale_line.get('designation','Ligne de vente')),
+                p(split_line['net_xaf']),p(split_line['part_client_xaf']),p(organisms)])
+        table=LongTable(split,colWidths=[210,70,70,145],repeatRows=1,hAlign='LEFT')
+        table.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#e8f1f2')),
+            ('VALIGN',(0,0),(-1,-1),'TOP'),('BOTTOMPADDING',(0,0),(-1,-1),6),
+            ('LINEBELOW',(0,0),(-1,0),.5,colors.grey)]))
+        story.append(table)
+    else:
+        story.append(p('Net réglé TTC : '+str(data['totaux']['ttc'])+' XAF'))
     story.extend([Spacer(1,12),Paragraph('Règlements acquis',styles['Heading2'])])
     for x in data['reglements']:
         c=x.get('confirmation');label=x['mode']+' : '+str(x['montant'])+' XAF · rendu '+str(x['rendu'])+' XAF'

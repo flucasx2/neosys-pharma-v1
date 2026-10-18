@@ -207,9 +207,19 @@ def vente_attendre(vente_id:UUID,data:Action,request:Request,s=Depends(service))
 @router.post('/{vente_id}/reprendre')
 def vente_reprendre(vente_id:UUID,data:Action,request:Request,s=Depends(service)):return action(s,request,vente_id,data,'PREPARATION')
 @router.post('/{vente_id}/valider')
-def vente_valider(vente_id:UUID,data:Action,request:Request,s=Depends(service)):return action(s,request,vente_id,data,'VALIDEE_PREPARATION')
+def vente_valider(vente_id:UUID,data:Action,request:Request,s=Depends(service)):
+    current=vente(s,request,vente_id)
+    if current.mode not in ('SANS_TIERS','CREDIT'):
+        try:request.state.vente_controle.verifier('tiers_payant.consulter',s.site,current.emplacement_id)
+        except PermissionError as exc:raise HTTPException(403,'Permission tiers_payant.consulter requise pour valider cette préparation.') from exc
+    return mutation(s,data,'VALIDEE:'+str(vente_id),lambda:s.changer_etat(s.obtenir(vente_id,'vente.valider'),'VALIDEE_PREPARATION',data.model_dump()))
 @router.post('/{vente_id}/transmettre')
-def vente_transmettre(vente_id:UUID,data:Action,request:Request,s=Depends(service)):return action(s,request,vente_id,data,'TRANSMISE')
+def vente_transmettre(vente_id:UUID,data:Action,request:Request,s=Depends(service)):
+    current=vente(s,request,vente_id)
+    if current.mode not in ('SANS_TIERS','CREDIT'):
+        try:request.state.vente_controle.verifier('tiers_payant.consulter',s.site,current.emplacement_id)
+        except PermissionError as exc:raise HTTPException(403,'Permission tiers_payant.consulter requise pour transmettre cette préparation.') from exc
+    return action(s,request,vente_id,data,'TRANSMISE')
 @router.post('/{vente_id}/annuler')
 def vente_annuler(vente_id:UUID,data:Action,request:Request,s=Depends(service)):return action(s,request,vente_id,data,'ANNULEE')
 @router.post('/{vente_id}/remises',status_code=201)

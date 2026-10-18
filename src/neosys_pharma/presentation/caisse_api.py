@@ -117,7 +117,10 @@ def caisse_attente(page_:int=Query(1,alias='page',ge=1),page_size:int=Query(25,g
 @router.get('/ventes/{key}')
 def caisse_vente(key:UUID,s=Depends(service)):
     v=execute(lambda:s.vente.obtenir(key,'caisse.consulter'))
-    return execute(lambda:s.vente.detail(v))|{'confirmations':[serial(c) for c in s.stock.lignes(ConfirmationReglementModel,vente_id=v.id)]}
+    receipt=s.s.scalar(select(EncaissementModel).where(EncaissementModel.vente_id==v.id,EncaissementModel.organisation_id==s.org))
+    coverage=(receipt.instantane.get('prise_en_charge') if receipt else
+              execute(lambda:s.prise_en_charge_detail_optionnelle(v)))
+    return execute(lambda:s.vente.detail(v))|{'prise_en_charge':coverage,'confirmations':[serial(c) for c in s.stock.lignes(ConfirmationReglementModel,vente_id=v.id)]}
 @router.post('/ventes/{key}/confirmations',status_code=201)
 def caisse_confirmer(key:UUID,d:Confirmation,s=Depends(service)):
     execute(lambda:s.vente.obtenir(key,'caisse.paiement.confirmer'));execute(lambda:s.session(d.session_id,'caisse.paiement.confirmer'))

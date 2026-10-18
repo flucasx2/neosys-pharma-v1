@@ -27,6 +27,16 @@ def post(c,a,path,body=None,status=201,key=None):
     r=c.post(root(a)+path,json={'cle':str(key or uuid4()),**(body or {})});assert r.status_code==status,r.text;return r.json()
 def ready(c,a,q=3):
     product,pack,pid,cid=setup(c,a)
+    from neosys_pharma.infrastructure.catalogue_models import ProduitModel,NatureMedicamentModel
+    gen=db(c);s=next(gen)
+    try:
+        nature=s.scalar(select(NatureMedicamentModel).where(
+            NatureMedicamentModel.organisation_id==a['org'],NatureMedicamentModel.code=='COSMETIQUE'))
+        if not nature:
+            nature=NatureMedicamentModel(id_nature=uuid4(),organisation_id=a['org'],code='COSMETIQUE',nom='Cosmétique',actif=True)
+            s.add(nature);s.flush()
+        s.get(ProduitModel,UUID(product)).nature_id=nature.id_nature;s.commit()
+    finally:gen.close()
     from neosys_pharma.infrastructure.securite_models import RoleModel
     gen=db(c);s=next(gen)
     try:

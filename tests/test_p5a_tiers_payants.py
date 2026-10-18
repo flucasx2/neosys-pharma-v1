@@ -215,7 +215,10 @@ def test_p5a_migration_is_additive_and_round_trips_on_temporary_sqlite(tmp_path,
         inspector = sa.inspect(engine)
         assert {"tiers_payant_conventions", "tiers_payant_beneficiaires", "tiers_payant_adhesions",
                 "tiers_payant_adhesion_beneficiaires", "tiers_payant_parametrages_priorite",
-                "tiers_payant_priorites", "tiers_payant_evenements"}.issubset(set(inspector.get_table_names()))
+                "tiers_payant_priorites", "tiers_payant_evenements",
+                "tiers_payant_calculs_vente", "tiers_payant_calculs_lignes",
+                "tiers_payant_calculs_parts", "tiers_payant_calculs_etapes",
+                "tiers_payant_realisations"}.issubset(set(inspector.get_table_names()))
         convention_fks = inspector.get_foreign_keys("tiers_payant_conventions")
         assert any(fk["name"] == "fk_tp_convention_organisme_org" and fk["constrained_columns"] == ["organisme_id", "organisation_id"] for fk in convention_fks)
         membership_fks = inspector.get_foreign_keys("tiers_payant_adhesion_beneficiaires")
@@ -224,6 +227,27 @@ def test_p5a_migration_is_additive_and_round_trips_on_temporary_sqlite(tmp_path,
         assert {"ck_tp_priorite_rang", "ck_tp_principal_premier"} <= {check["name"] for check in priority_checks}
         assert any(unique["name"] == "uq_tp_priorite_rang" for unique in inspector.get_unique_constraints("tiers_payant_priorites"))
         assert any(index["name"] == "uq_tp_priorite_principal" and index["unique"] for index in inspector.get_indexes("tiers_payant_priorites"))
+        assert any(unique["name"] == "uq_tp_calc_vente_unique" for unique in inspector.get_unique_constraints("tiers_payant_calculs_vente"))
+        calc_checks = inspector.get_check_constraints("tiers_payant_calculs_vente")
+        assert {"ck_tp_calc_montants", "ck_tp_calc_equilibre"} <= {check["name"] for check in calc_checks}
+        calc_fks = inspector.get_foreign_keys("tiers_payant_calculs_vente")
+        assert any(fk["name"] == "fk_tp_calc_vente_site_org" and fk["constrained_columns"] == ["vente_id", "organisation_id", "site_id"] for fk in calc_fks)
+        realization_fks = inspector.get_foreign_keys("tiers_payant_realisations")
+        assert {"fk_tp_realisation_vente", "fk_tp_realisation_encaissement",
+                "fk_tp_realisation_calcul"} <= {fk["name"] for fk in realization_fks}
+        realization_uniques = inspector.get_unique_constraints("tiers_payant_realisations")
+        assert {"uq_tp_realisation_vente", "uq_tp_realisation_encaissement",
+                "uq_tp_realisation_calcul"} <= {item["name"] for item in realization_uniques}
+        realization_checks = inspector.get_check_constraints("tiers_payant_realisations")
+        assert {"ck_tp_realisation_amounts", "ck_tp_realisation_balance"} <= {
+            item["name"] for item in realization_checks}
+        with engine.connect() as conn:
+            triggers = {row[0] for row in conn.execute(sa.text("SELECT name FROM sqlite_master WHERE type='trigger'"))}
+        assert {"tiers_payant_calculs_vente_update_immutable", "tiers_payant_calculs_vente_delete_immutable"} <= triggers
+        assert {"tiers_payant_realisations_update_immutable",
+                "tiers_payant_realisations_delete_immutable"} <= triggers
+        assert {"montant_ttc_xaf", "montant_organismes_xaf"} <= {
+            column["name"] for column in inspector.get_columns("vente_retours")}
         with engine.connect() as conn:
             assert conn.execute(sa.select(payors.c.nom).where(payors.c.id == payor_id)).scalar_one() == "Organisme historique"
             assert conn.execute(sa.text("SELECT count(*) FROM permissions WHERE code LIKE 'tiers_payant.%'")).scalar_one() == 5

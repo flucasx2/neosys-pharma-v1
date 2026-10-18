@@ -75,6 +75,10 @@ class RetourVenteModel(EntiteVente,Base):
     site_id:Mapped[UUID]=mapped_column(Uuid)
     auteur_id:Mapped[UUID]=mapped_column(Uuid)
     montant:Mapped[Decimal]=mapped_column(MontantXAF())
+    # P5-B.3 : `montant` reste la part remboursable au client. Les valeurs
+    # historiques nulles signifient qu'aucune ventilation tiers n'existait.
+    montant_ttc_xaf:Mapped[int|None]=mapped_column(MontantXAF(),nullable=True)
+    montant_organismes_xaf:Mapped[int|None]=mapped_column(MontantXAF(),nullable=True)
     justification:Mapped[str]=mapped_column(String(2000))
     instantane:Mapped[dict]=mapped_column(JSON)
     date:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)

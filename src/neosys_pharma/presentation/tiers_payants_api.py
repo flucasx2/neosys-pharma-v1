@@ -2,7 +2,7 @@
 from datetime import date, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import Field
 from sqlalchemy import select
 
@@ -11,6 +11,7 @@ from neosys_pharma.infrastructure.tiers_payants_models import (
     AdhesionOrganismeModel, BeneficiaireCouvertureModel, ConventionOrganismeModel,
     ParametragePrioriteTiersPayantModel,
 )
+from neosys_pharma.application.prise_en_charge_persistante_service import PriseEnChargePersistanteService
 from neosys_pharma.presentation import vente_api
 from neosys_pharma.presentation.stock_api import execute
 from neosys_pharma.application.stock_service import serial
@@ -26,6 +27,9 @@ POLICY = {
     "tiers_payants_adhesion_modifier": "tiers_payant.adhesion.gerer",
     "tiers_payants_priorites": ("tiers_payant.consulter", "tiers_payant.priorites.gerer"),
     "tiers_payants_priorites_creer": "tiers_payant.priorites.gerer",
+    "prise_en_charge_simuler": "vente.consulter",
+    "prise_en_charge_confirmer": "vente.transmettre",
+    "prise_en_charge_consulter": "vente.consulter",
 }
 vente_api.POLICY.update(POLICY)
 
@@ -94,6 +98,15 @@ class PrioritesInput(Mutation):
     priorites: list[PrioriteInput] = Field(min_length=1, max_length=100)
 
 
+class CalculPriseEnChargeInput(Input):
+    beneficiaire_id: UUID | None = None
+
+
+class ConfirmationPriseEnChargeInput(Mutation):
+    revision: int = Field(strict=True, ge=1)
+    beneficiaire_id: UUID
+
+
 def service(base=Depends(vente_api.service)):
     return TiersPayantsService(base.stock)
 
@@ -101,6 +114,42 @@ def service(base=Depends(vente_api.service)):
 def mutate(s: TiersPayantsService, data: Mutation, kind: str, action):
     body = data.model_dump(mode="json", exclude={"cle"})
     return execute(lambda: s.stock.operation(data.cle, "P5A:" + kind, body, action))
+
+
+def _vente_access(request, s, vente_id, permissions):
+    sale = execute(lambda: vente_api.vente(s, request, vente_id))
+    try:
+        for permission in permissions:
+            request.state.vente_controle.organisation(permission, s.org, s.site)
+            request.state.vente_controle.verifier(permission, s.site, sale.emplacement_id)
+    except PermissionError as exc:
+        from fastapi import HTTPException
+        raise HTTPException(403, "Permissions Vente et tiers payant requises.") from exc
+    return sale
+
+
+@router.post("/ventes/{vente_id}/prise-en-charge/simuler", name="prise_en_charge_simuler")
+def prise_en_charge_simuler(vente_id: UUID, data: CalculPriseEnChargeInput, request: Request, s=Depends(vente_api.service)):
+    _vente_access(request, s, vente_id, ("vente.consulter", "tiers_payant.consulter"))
+    app_service = PriseEnChargePersistanteService(s.stock, s.site)
+    return execute(lambda: app_service.simuler(vente_id, data.beneficiaire_id))
+
+
+@router.post("/ventes/{vente_id}/prise-en-charge/confirmer", status_code=201, name="prise_en_charge_confirmer")
+def prise_en_charge_confirmer(vente_id: UUID, data: ConfirmationPriseEnChargeInput, request: Request, s=Depends(vente_api.service)):
+    sale = _vente_access(request, s, vente_id, ("vente.transmettre", "tiers_payant.consulter"))
+    body = data.model_dump(mode="json", exclude={"cle"})
+    service = PriseEnChargePersistanteService(s.stock, s.site)
+    return execute(lambda: s.stock.operation(
+        data.cle, "P5B2:CONFIRMER:" + str(vente_id), body,
+        lambda: service.confirmer(vente_id, data.beneficiaire_id, data.revision),
+    ))
+
+
+@router.get("/ventes/{vente_id}/prise-en-charge", name="prise_en_charge_consulter")
+def prise_en_charge_consulter(vente_id: UUID, request: Request, s=Depends(vente_api.service)):
+    _vente_access(request, s, vente_id, ("vente.consulter", "tiers_payant.consulter"))
+    return execute(lambda: PriseEnChargePersistanteService(s.stock, s.site).consulter(vente_id))
 
 
 @router.get("/conventions", name="tiers_payants_conventions")
