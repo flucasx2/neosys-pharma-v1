@@ -104,12 +104,40 @@ class RegularisationService:
         grouped=self.stock.lignes(MouvementCaisseGroupeModel,session_id=session.id)
         extras=self.stock.lignes(MouvementFinancierModel,session_id=session.id)
         modes={mode:str(sum((m.montant_net for m in payments if m.mode==mode),Decimal(0))+sum((m.montant_net for m in grouped if m.mode==mode),Decimal(0))+sum((m.montant for m in extras if m.mode==mode),Decimal(0))) for mode in MODES}
-        return self.cash.session_detail(session)|{'nets_par_mode':modes}
+        identities={}
+        def add(mode,mid,label,value):
+            key=mode+':'+(str(mid) if mid else 'HISTORIQUE')
+            if key not in identities:identities[key]={'mode':mode,'moyen_id':str(mid) if mid else None,'libelle':label or mode,'montant_net':Decimal(0)}
+            identities[key]['montant_net']+=value
+        def confirmed(mode,confirmation_id,value):
+            cf=self.stock.obtenir(ConfirmationReglementModel,confirmation_id) if confirmation_id else None
+            add(mode,cf.moyen_id if cf else None,cf.moyen_libelle if cf else mode,value)
+        for movement in payments:
+            payment=self.stock.obtenir(ReglementModel,movement.reglement_id)
+            confirmed(movement.mode,payment.confirmation_id,movement.montant_net)
+        for movement in grouped:
+            payment=self.stock.obtenir(ReglementGroupeModel,movement.reglement_id)
+            confirmed(movement.mode,payment.confirmation_id,movement.montant_net)
+        for movement in extras:
+            if movement.type=='REMBOURSEMENT':
+                refund=self.stock.obtenir(RemboursementModel,movement.origine)
+                for payment in refund.reglements:
+                    if payment['mode']==movement.mode:add(payment['mode'],payment.get('moyen_id'),payment.get('moyen_libelle'),-Decimal(payment['montant']))
+            elif movement.type=='ACQUIS_RESTITUE':
+                refund=self.stock.obtenir(RemboursementModel,movement.origine)
+                cf=self.stock.obtenir(ConfirmationReglementModel,refund.confirmation_id)
+                confirmed(cf.mode,cf.id,movement.montant)
+            else:add(movement.mode,None,movement.mode,movement.montant)
+        for mode in MODES:
+            if sum((row['montant_net'] for row in identities.values() if row['mode']==mode),Decimal(0))!=Decimal(modes[mode]):
+                raise ConflitStock('Totaux par moyen incompatibles avec les mouvements de caisse.')
+        return self.cash.session_detail(session)|{'nets_par_mode':modes,'nets_par_moyen':{key:{**row,'montant_net':str(row['montant_net'])} for key,row in sorted(identities.items())}}
+
     def cloture_x(self,data):
         session=self.cash.session(data['session_id'],'caisse.cloture.x');self.revision(session,data)
         if self.stock.lignes(SessionClotureeZModel,session_id=session.id):raise ConflitStock('Session déjà incluse dans une clôture Z historique.')
         p=self.cash.periode();key=uuid4();summary=self.session_summary(session)
-        snap,pdf,digest=self.document('ÉTAT X — CAISSE',key,[{'titre':'Session et comptage','colonnes':['Session','État','Fond initial','Espèces attendues','Comptées','Écart'],'lignes':[[str(session.id),session.etat,str(session.fond_initial),summary['especes_attendues'],str(session.comptage_final) if session.comptage_final is not None else 'NON COMPTÉ',summary['ecart_especes'] or 'NON COMPTÉ']]},{'titre':'Mouvements nets par moyen','colonnes':['Moyen','Montant FCFA'],'lignes':list(summary['nets_par_mode'].items())}])
+        snap,pdf,digest=self.document('ÉTAT X — CAISSE',key,[{'titre':'Session et comptage','colonnes':['Session','État','Fond initial','Espèces attendues','Comptées','Écart'],'lignes':[[str(session.id),session.etat,str(session.fond_initial),summary['especes_attendues'],str(session.comptage_final) if session.comptage_final is not None else 'NON COMPTÉ',summary['ecart_especes'] or 'NON COMPTÉ']]},{'titre':'Mouvements nets par moyen','colonnes':['Moyen','Montant FCFA'],'lignes':[[r['libelle']+' / '+r['mode'],r['montant_net']] for r in summary['nets_par_moyen'].values()]}])
         snap['session']=summary
         row=self.stock.ajouter(ClotureModel,id=key,site_id=self.site,session_id=session.id,periode_id=p.id,type='X',auteur_id=self.stock.user,instantane=snap,pdf=pdf,pdf_sha256=digest)
         self.trace('ETAT_X',document_id=row.id);return serial(row)
@@ -159,12 +187,15 @@ class RegularisationService:
             self.vente.invalider_remises(v);before=v.etat;v.etat='ANNULEE';v.revision+=1
             self.vente.evenement(v,'ANNULATION_Z',avant=before,periode_id=p.id,justification=data['justification']);cancelled.append(str(v.id))
         encs=self.stock.lignes(EncaissementModel,periode_id=p.id)
-        totals={m:Decimal(0) for m in MODES}
+        totals={m:Decimal(0) for m in MODES};means={}
         for session in sessions:
             summary=self.session_summary(session)
             for mode,val in summary['nets_par_mode'].items():totals[mode]+=Decimal(val)
-        key=uuid4();snap,pdf,digest=self.document('CLÔTURE Z — SITE',key,[{'titre':'Période Z '+str(p.numero),'colonnes':['Ventes encaissées','Préparations annulées','Sessions fermées'],'lignes':[[len(encs),len(cancelled),len(sessions)]]},{'titre':'Mouvements nets par moyen','colonnes':['Moyen','Montant FCFA'],'lignes':[[m,str(v)] for m,v in totals.items()]},{'titre':'Comptages et écarts conservés','colonnes':['Session','Attendu','Compté','Écart'],'lignes':[[str(s.id),self.cash.session_detail(s)['especes_attendues'],str(s.comptage_final),self.cash.session_detail(s)['ecart_especes']] for s in sessions]}])
-        snap.update(periode_z=p.numero,preparations_annulees=cancelled,sessions=[self.session_summary(s) for s in sessions],justification=data['justification'],etat='EFFECTIVE')
+            for code,detail in summary['nets_par_moyen'].items():
+                if code not in means:means[code]=detail|{'montant_net':Decimal(0)}
+                means[code]['montant_net']+=Decimal(detail['montant_net'])
+        key=uuid4();snap,pdf,digest=self.document('CLÔTURE Z — SITE',key,[{'titre':'Période Z '+str(p.numero),'colonnes':['Ventes encaissées','Préparations annulées','Sessions fermées'],'lignes':[[len(encs),len(cancelled),len(sessions)]]},{'titre':'Mouvements nets par moyen','colonnes':['Moyen','Montant FCFA'],'lignes':[[r['libelle']+' / '+r['mode'],str(r['montant_net'])] for r in means.values()]},{'titre':'Comptages et écarts conservés','colonnes':['Session','Attendu','Compté','Écart'],'lignes':[[str(s.id),self.cash.session_detail(s)['especes_attendues'],str(s.comptage_final),self.cash.session_detail(s)['ecart_especes']] for s in sessions]}])
+        snap.update(nets_par_mode={m:str(v) for m,v in totals.items()},nets_par_moyen={k:{**v,'montant_net':str(v['montant_net'])} for k,v in means.items()},periode_z=p.numero,preparations_annulees=cancelled,sessions=[self.session_summary(s) for s in sessions],justification=data['justification'],etat='EFFECTIVE')
         row=self.stock.ajouter(ClotureModel,id=key,site_id=self.site,session_id=None,periode_id=p.id,type='Z',auteur_id=self.stock.user,instantane=snap,pdf=pdf,pdf_sha256=digest)
         for session in sessions:self.stock.ajouter(SessionClotureeZModel,session_id=session.id,cloture_id=row.id)
         p.etat='CLOTUREE';self.s.flush()
@@ -238,40 +269,62 @@ class RegularisationService:
         else:q.etat='REFUSEE'
         decision=self.stock.ajouter(DecisionQuarantaineModel,quarantaine_id=q.id,auteur_id=self.stock.user,decision=q.etat,controles=checks,justification=data['justification'])
         self.trace('DECISION_SANITAIRE',decision=serial(decision));return serial(q)
+    def budget_reglements(self,enc):
+        """Soldes réservés par identité de moyen, y compris allocations groupées."""
+        paid={}
+        def add(mode,confirmation_id,amount):
+            cf=self.stock.obtenir(ConfirmationReglementModel,confirmation_id) if confirmation_id else None
+            mid=str(cf.moyen_id) if cf and cf.moyen_id else None
+            key=(mode,mid)
+            if key not in paid:paid[key]={'mode':mode,'moyen_id':mid,'libelle':cf.moyen_libelle if cf and cf.moyen_id else mode,'montant':Decimal(0)}
+            paid[key]['montant']+=amount
+        link=self.s.scalar(select(EncaissementGroupeVenteModel).where(EncaissementGroupeVenteModel.organisation_id==self.org,EncaissementGroupeVenteModel.encaissement_id==enc.id))
+        if link:
+            for allocation in self.stock.lignes(AllocationReglementGroupeModel,dossier_id=link.dossier_id,vente_id=link.vente_id):
+                payment=self.stock.obtenir(ReglementGroupeModel,allocation.reglement_id)
+                add(payment.mode,payment.confirmation_id,allocation.montant)
+        else:
+            for payment in self.stock.lignes(ReglementModel,encaissement_id=enc.id):add(payment.mode,payment.confirmation_id,payment.montant-payment.rendu)
+        returnids={r.id for r in self.stock.lignes(RetourVenteModel,encaissement_id=enc.id)}
+        for old in self.stock.lignes(RemboursementModel):
+            if old.retour_id in returnids:
+                for payment in old.reglements:
+                    key=(payment.get('mode_origine',payment['mode']),payment.get('moyen_origine_id'))
+                    if key not in paid:raise ConflitStock('Origine historique de remboursement incohérente.')
+                    paid[key]['montant']-=Decimal(payment['montant'])
+        return paid
+
     def remboursement(self,data):
         session=self.cash.session(data['session_id'],'caisse.remboursement.demander');self.revision(session,data)
         if session.etat!='OUVERTE':raise ConflitStock('Session ouverte requise.')
         if bool(data.get('retour_id'))==bool(data.get('confirmation_id')):raise ValueError('Retour ou paiement acquis unique requis.')
         if data.get('retour_id'):
             ret,enc=self.retour_scope(data['retour_id'],'caisse.remboursement.demander');amount=ret.montant
-            # Reserve original-mode budgets across all requested dossiers, including concurrent requests.
-            group_link=self.s.scalar(select(EncaissementGroupeVenteModel).where(EncaissementGroupeVenteModel.organisation_id==self.org,EncaissementGroupeVenteModel.encaissement_id==enc.id))
-            if group_link:
-                paid={mode:Decimal(0) for mode in MODES}
-                for allocation in self.stock.lignes(AllocationReglementGroupeModel,dossier_id=group_link.dossier_id,vente_id=group_link.vente_id):
-                    grouped_payment=self.stock.obtenir(ReglementGroupeModel,allocation.reglement_id)
-                    paid[grouped_payment.mode]+=allocation.montant
-            else:
-                paid={m:sum((r.montant-r.rendu for r in self.stock.lignes(ReglementModel,encaissement_id=enc.id) if r.mode==m),Decimal(0)) for m in MODES}
-            returnids={r.id for r in self.stock.lignes(RetourVenteModel,encaissement_id=enc.id)}
-            for old in self.stock.lignes(RemboursementModel):
-                if old.retour_id in returnids:
-                    for p in old.reglements:
-                        original=p.get('mode_origine',p['mode']);paid[original]-=Decimal(p['montant'])
+            paid=self.budget_reglements(enc)
         else:
             confirmation=self.stock.obtenir(ConfirmationReglementModel,data['confirmation_id']);self.vente.obtenir(confirmation.vente_id,'caisse.remboursement.demander')
             if (self.stock.lignes(ReglementModel,confirmation_id=confirmation.id)
                     or any(self.stock.obtenir(EncaissementGroupeModel,row.dossier_id).etat=='FINALISE'
                            for row in self.stock.lignes(ReglementGroupeModel,confirmation_id=confirmation.id))):
                 raise ConflitStock('Paiement déjà encaissé : utiliser un retour de vente.')
-            amount=confirmation.montant;paid={m:amount if m==confirmation.mode else Decimal(0) for m in MODES}
+            amount=confirmation.montant;mid=str(confirmation.moyen_id) if confirmation.moyen_id else None
+            paid={(confirmation.mode,mid):{'mode':confirmation.mode,'moyen_id':mid,'libelle':confirmation.moyen_libelle or confirmation.mode,'montant':amount}}
         planned=[]
         for row in data['reglements']:
             mode=row['mode'];original=row.get('mode_origine') or mode;value=francs(row['montant'])
             if mode not in self.cash.config()['modes']:raise ValueError('Moyen de remboursement non activé.')
-            if original!=mode:self.access('caisse.remboursement.substituer',session.emplacement_id)
-            if value>paid[original]:raise ConflitStock('Remboursement supérieur au règlement original disponible.')
-            paid[original]-=value;planned.append({'mode':mode,'mode_origine':original,'montant':str(value)})
+            mid=str(row['moyen_id']) if row.get('moyen_id') else None
+            origin_id=str(row['moyen_origine_id']) if row.get('moyen_origine_id') else None
+            target=self.cash.moyen(mode,mid)
+            if mode=='ESPECES' and mid:raise ValueError('Les espèces ne portent pas de fournisseur.')
+            if not mid and (mode,None) not in paid and any(m['mode']==mode for m in self.cash.config()['moyens']):
+                raise ValueError('Sélection explicite du moyen de remboursement requise.')
+            if (original,origin_id)!=(mode,mid):self.access('caisse.remboursement.substituer',session.emplacement_id)
+            budget=paid.get((original,origin_id))
+            if not budget or value>budget['montant']:raise ConflitStock('Remboursement supérieur au règlement original disponible pour ce moyen.')
+            budget['montant']-=value
+            planned.append({'mode':mode,'mode_origine':original,'montant':str(value),
+                'moyen_id':mid,'moyen_origine_id':origin_id,'moyen_libelle':target.libelle if target else mode,'moyen_origine_libelle':budget['libelle']})
         if sum((Decimal(r['montant']) for r in planned),Decimal(0))!=amount:raise ValueError('Remboursement intégral du retour ou paiement acquis requis ; répartir les moyens.')
         row=self.stock.ajouter(RemboursementModel,site_id=self.site,retour_id=data.get('retour_id'),confirmation_id=data.get('confirmation_id'),session_id=session.id,montant=amount,reglements=planned,demandeur_id=self.stock.user,justification=data['justification'])
         self.trace('REMBOURSEMENT_DEMANDE',dossier=serial(row));return serial(row)
@@ -285,7 +338,7 @@ class RegularisationService:
         row=self.refund_scope(key,permission);self.revision(row,data)
         session=self.cash.session(row.session_id,permission,action=='executer')
         if session.etat!='OUVERTE':raise ConflitStock('Session fermée : remboursement incompatible.')
-        if any(p['mode']!=p['mode_origine'] for p in row.reglements):self.access('caisse.remboursement.substituer',session.emplacement_id)
+        if any((p['mode'],p.get('moyen_id'))!=(p['mode_origine'],p.get('moyen_origine_id')) for p in row.reglements):self.access('caisse.remboursement.substituer',session.emplacement_id)
         row.revision+=1
         if action=='autoriser':
             if row.etat!='DEMANDE':raise ConflitStock('Remboursement déjà autorisé ou exécuté.')
@@ -295,6 +348,7 @@ class RegularisationService:
             proofs=data['preuves']
             if len(proofs)!=len(row.reglements):raise ValueError('Une preuve par règlement de remboursement requise.')
             for payment,proof in zip(row.reglements,proofs,strict=True):
+                self.cash.moyen(payment['mode'],payment.get('moyen_id'))
                 if payment['mode']!='ESPECES' and (not (proof.get('reference') or '').strip() or not (proof.get('preuve') or '').strip()):raise ValueError('Référence et preuve externe obligatoires ; aucun prestataire simulé.')
             for payment,proof in zip(row.reglements,proofs,strict=True):
                 if payment['mode']!='ESPECES':self.stock.ajouter(PreuveRemboursementModel,remboursement_id=row.id,mode=payment['mode'],reference=proof['reference'].strip(),preuve=proof['preuve'].strip())
@@ -314,7 +368,7 @@ class RegularisationService:
                 ret=self.stock.obtenir(RetourVenteModel,row.retour_id);enc=self.stock.obtenir(EncaissementModel,ret.encaissement_id)
                 source=[{'titre':'Vente et retour historiques','colonnes':['Vente originale','Encaissement / période Z','Retour'],'lignes':[[str(enc.vente_id),enc.instantane['numero_encaissement']+' / '+str(enc.instantane['periode_z']),str(ret.id)]]},{'titre':'Produits retournés — montants après remises','colonnes':['Produit / conditionnement','Quantité','HT FCFA','TVA FCFA','TTC FCFA'],'lignes':[[l['designation']+' / '+l['conditionnement'],l['quantite'],l['ht'],l['tva'],l['ttc']] for l in ret.instantane['lignes']]}]
             else:source=[{'titre':'Paiement acquis restitué','colonnes':['Vente','Confirmation originale','Référence'],'lignes':[[str(cf.vente_id),str(cf.id),cf.reference]]}]
-            snap,pdf,digest=self.document('REMBOURSEMENT CONFIRMÉ',row.id,source+[{'titre':'Règlements restitués','colonnes':['Moyen original','Moyen restitué','Montant FCFA','Référence','Preuve'],'lignes':[[p['mode_origine'],p['mode'],p['montant'],proof.get('reference') or 'REMIS EN ESPÈCES',proof.get('preuve') or data['justification']] for p,proof in zip(row.reglements,proofs,strict=True)]}])
+            snap,pdf,digest=self.document('REMBOURSEMENT CONFIRMÉ',row.id,source+[{'titre':'Règlements restitués','colonnes':['Moyen original','Moyen restitué','Montant FCFA','Référence','Preuve'],'lignes':[[p.get('moyen_origine_libelle',p['mode_origine']),p.get('moyen_libelle',p['mode']),p['montant'],proof.get('reference') or 'REMIS EN ESPÈCES',proof.get('preuve') or data['justification']] for p,proof in zip(row.reglements,proofs,strict=True)]}])
             snap.update(dossier=serial(row),preuves=proofs,justification=data['justification'])
             self.stock.ajouter(PieceFinanciereModel,remboursement_id=row.id,auteur_id=self.stock.user,instantane=snap,pdf=pdf,pdf_sha256=digest)
         self.trace('REMBOURSEMENT_'+action.upper(),dossier=serial(row),justification=data['justification']);return serial(row)

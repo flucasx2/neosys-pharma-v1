@@ -45,7 +45,31 @@ class CaisseService:
 
     def config(self):
         row=self.s.scalar(select(ParametrageCaisseModel).filter_by(organisation_id=self.org))
-        return serial(row) if row else {'modes':[],'ticket_appel':False,'revision':0}
+        return (serial(row) if row else {'modes':[],'ticket_appel':False,'revision':0})|{'moyens':[serial(m) for m in self.s.scalars(select(MoyenPaiementModel).where(MoyenPaiementModel.organisation_id==self.org).order_by(MoyenPaiementModel.code))]}
+
+    def moyen(self,mode,key,*,actif=True):
+        if not key:return None
+        row=self.stock.obtenir(MoyenPaiementModel,key)
+        if row.mode!=mode:raise ValueError('Moyen de paiement incompatible avec sa famille.')
+        if actif and not row.actif:raise ConflitStock('Moyen de paiement désactivé : choisir un moyen autorisé.')
+        return row
+
+    def definir_moyen(self,data,key=None):
+        self.stock.access('caisse.parametrer',self.site,None)
+        libelle=data['libelle'].strip()
+        if not libelle or any(ord(c)<32 for c in libelle):raise ValueError('Libellé de moyen invalide.')
+        if key:
+            row=self.stock.obtenir(MoyenPaiementModel,key)
+            if row.revision!=data['revision']:raise ConflitStock('Moyen modifié : actualiser.')
+            before=serial(row);row.libelle=libelle;row.actif=data['actif'];row.revision+=1
+        else:
+            import re
+            code=data['code'].strip().upper()
+            if not re.fullmatch(r'[A-Z0-9][A-Z0-9_-]{0,79}',code):raise ValueError('Code de moyen invalide.')
+            if data['mode'] not in MODES or data['mode']=='ESPECES':raise ValueError('Famille non espèces requise.')
+            before=None;row=self.stock.ajouter(MoyenPaiementModel,code=code,libelle=libelle,mode=data['mode'],actif=data['actif'])
+        self.trace('MOYEN_PAIEMENT_CONFIGURE',avant=before,apres=serial(row))
+        return serial(row)
 
     def configurer(self,data):
         row=self.s.scalar(select(ParametrageCaisseModel).filter_by(organisation_id=self.org))
@@ -196,9 +220,12 @@ class CaisseService:
         if data['source']=='TECHNIQUE_PRESTATAIRE':raise ValueError('Aucun prestataire bancaire intégré : confirmation technique indisponible.')
         if data['mode'] in ('CARTE','MOBILE_MONEY') and data['source']!='MANUEL_TERMINAL':raise ValueError('Confirmation manuelle du terminal indépendant requise.')
         if data['mode'] in ('CHEQUE','VIREMENT') and data['source']!='MANUEL_JUSTIFICATIF':raise ValueError('Confirmation du justificatif requise.')
+        moyen=self.moyen(data['mode'],data.get('moyen_id'))
+        if not moyen and any(m['mode']==data['mode'] for m in self.config()['moyens']):
+            raise ValueError('Sélection explicite du moyen de paiement configuré requise.')
         ref=data['reference'].strip()
         if not ref or not data['preuve'].strip():raise ValueError('Référence vérifiable et preuve de confirmation obligatoires.')
-        row=self.stock.ajouter(ConfirmationReglementModel,vente_id=v.id,session_id=session.id,revision_vente=v.revision,mode=data['mode'],montant=francs(data['montant']),reference=ref,source=data['source'],preuve=data['preuve'],auteur_id=self.stock.user)
+        row=self.stock.ajouter(ConfirmationReglementModel,vente_id=v.id,session_id=session.id,revision_vente=v.revision,mode=data['mode'],moyen_id=moyen.id if moyen else None,moyen_libelle=moyen.libelle if moyen else None,montant=francs(data['montant']),reference=ref,source=data['source'],preuve=data['preuve'],auteur_id=self.stock.user)
         self.trace('PAIEMENT_CONFIRME',confirmation=serial(row));return serial(row)
 
     def rapprocher(self,key,confirmation_id,data):
@@ -352,6 +379,7 @@ class CaisseService:
             if row['mode']!='ESPECES':
                 if not row.get('confirmation_id'):raise ValueError('Confirmation indépendante obligatoire avant encaissement.')
                 confirmation=self.stock.obtenir(ConfirmationReglementModel,row['confirmation_id'])
+                self.moyen(confirmation.mode,confirmation.moyen_id)
                 if confirmation.id in used:raise ValueError('Confirmation utilisée plusieurs fois.')
                 used.add(confirmation.id)
                 if not self.rapprochement_compatible(confirmation,v,session) or confirmation.mode!=row['mode'] or confirmation.montant!=montant:raise ConflitStock('Confirmation incompatible ou préparation modifiée : rapprocher le paiement.')

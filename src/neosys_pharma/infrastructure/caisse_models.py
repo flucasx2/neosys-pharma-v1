@@ -52,9 +52,25 @@ class ParametrageCaisseModel(EntiteVente,Base):
     ticket_appel:Mapped[bool]=mapped_column(default=False)
     revision:Mapped[int]=mapped_column(default=1)
 
+class MoyenPaiementModel(EntiteVente,Base):
+    """Identité organisationnelle stable, distincte de sa famille financière."""
+    __tablename__='caisse_moyens_paiement'
+    __table_args__=scoped('moyen_paiement',
+        UniqueConstraint('organisation_id','code',name='uq_moyen_code_org'),
+        UniqueConstraint('id','organisation_id','mode',name='uq_moyen_mode_org'),
+        CheckConstraint("mode IN ('CARTE','MOBILE_MONEY','CHEQUE','VIREMENT')",name='ck_moyen_mode'),
+        CheckConstraint('revision > 0 AND length(trim(code)) > 0 AND length(trim(libelle)) > 0',name='ck_moyen_valeurs'))
+    code:Mapped[str]=mapped_column(String(80))
+    libelle:Mapped[str]=mapped_column(String(200))
+    mode:Mapped[str]=mapped_column(String(30))
+    actif:Mapped[bool]=mapped_column(default=True)
+    revision:Mapped[int]=mapped_column(default=1)
+
 class ConfirmationReglementModel(EntiteVente,Base):
     __tablename__='caisse_confirmations'
-    __table_args__=scoped('confirmation',org_fk('vente_id','ventes'),org_fk('session_id','caisse_sessions'),org_fk('auteur_id','utilisateurs','id_utilisateur'),UniqueConstraint('organisation_id','mode','reference'),CheckConstraint('montant > 0'),CheckConstraint("mode IN ('CARTE','MOBILE_MONEY','CHEQUE','VIREMENT')"),CheckConstraint("source IN ('MANUEL_TERMINAL','MANUEL_JUSTIFICATIF','TECHNIQUE_PRESTATAIRE')"))
+    __table_args__=scoped('confirmation',ForeignKeyConstraint(['moyen_id','organisation_id','mode'],['caisse_moyens_paiement.id','caisse_moyens_paiement.organisation_id','caisse_moyens_paiement.mode'],name='fk_confirmation_moyen_org_mode'),CheckConstraint('(moyen_id IS NULL AND moyen_libelle IS NULL) OR (moyen_id IS NOT NULL AND moyen_libelle IS NOT NULL)',name='ck_confirmation_moyen_libelle'),org_fk('vente_id','ventes'),org_fk('session_id','caisse_sessions'),org_fk('auteur_id','utilisateurs','id_utilisateur'),UniqueConstraint('organisation_id','mode','reference'),CheckConstraint('montant > 0'),CheckConstraint("mode IN ('CARTE','MOBILE_MONEY','CHEQUE','VIREMENT')"),CheckConstraint("source IN ('MANUEL_TERMINAL','MANUEL_JUSTIFICATIF','TECHNIQUE_PRESTATAIRE')"))
+    moyen_id:Mapped[UUID|None]=mapped_column(Uuid)
+    moyen_libelle:Mapped[str|None]=mapped_column(String(200))
     vente_id:Mapped[UUID]=mapped_column(Uuid)
     session_id:Mapped[UUID]=mapped_column(Uuid)
     revision_vente:Mapped[int]=mapped_column()

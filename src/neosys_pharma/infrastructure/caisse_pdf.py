@@ -42,7 +42,7 @@ def recu_pdf(data):
         story.append(p('Net réglé TTC : '+str(data['totaux']['ttc'])+' XAF'))
     story.extend([Spacer(1,12),Paragraph('Règlements acquis',styles['Heading2'])])
     for x in data['reglements']:
-        c=x.get('confirmation');label=x['mode']+' : '+str(x['montant'])+' XAF · rendu '+str(x['rendu'])+' XAF'
+        c=x.get('confirmation');label=((c or {}).get('moyen_libelle') or x['mode'])+' : '+str(x['montant'])+' XAF · rendu '+str(x['rendu'])+' XAF'
         if c:label+=' · Réf. '+c['reference']+' · '+c['source']
         story.append(p(label))
     if data.get('fidelite'):story.extend([Spacer(1,12),p('Fidélité : '+str(data['fidelite'].get('points_acquis',data['fidelite'].get('points',0)))+' point(s) acquis. Aucun point utilisé.')])
@@ -75,7 +75,7 @@ def recu_groupe_pdf(data):
     payments=[[p(x) for x in ('Moyen','Montant présenté','Rendu','Net encaissé','Référence')]]
     for payment in data['reglements']:
         confirmation=payment.get('confirmation') or {}
-        payments.append([p(payment['mode']),p(payment['montant']),p(payment['rendu']),p(payment['net']),p(confirmation.get('reference','—'))])
+        payments.append([p(confirmation.get('moyen_libelle') or payment['mode']),p(payment['montant']),p(payment['rendu']),p(payment['net']),p(confirmation.get('reference','—'))])
     table=LongTable(payments,colWidths=[90,95,65,95,150],repeatRows=1,hAlign='LEFT')
     table.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#e8f1f2')),('VALIGN',(0,0),(-1,-1),'TOP'),('BOTTOMPADDING',(0,0),(-1,-1),7),('LINEBELOW',(0,0),(-1,0),.5,colors.grey),('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.white,colors.HexColor('#f6f8f9')])]))
     story.extend([table,Spacer(1,12),Paragraph('Total du groupe : '+escape(str(data['total_xaf']))+' XAF',styles['Heading2'])])

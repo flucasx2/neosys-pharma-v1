@@ -136,3 +136,7 @@ Branche locale work/p4-p5-consolidation, premier commit ed208094e65594528c0039ce
 Poursuivre les travaux indépendants par incréments sans nouvelle recette humaine intermédiaire. Le cahier unique est docs/RECETTE_CONSOLIDEE_P4_P5.md. Les plafonds consommables exigent les décisions de docs/ARBITRAGES_PLAFONDS_P5.md avant tout compteur. Les interfaces P5-C doivent réutiliser les réalisations/snapshots et leurs versions, pas les convertir en créances définitives avant traitement transactionnel.
 
 Les contrôles locaux récents sont SQLite/DOM uniquement. scripts/recette_p4p5_postgresql.ps1 prépare une base neuve marquée et 9 tests ; il ne valide pas les migrations Alembic, qui ont leur lanceur P5-CONF.1b séparé. Aucune base conservée à réutiliser ; pas de lancement PostgreSQL/Chromium attesté. Ne pas activer la finalisation groupée.
+
+## Suite après consolidation 03
+
+Moyens configurables et fournisseurs distincts implémentés : rapport docs/RESULTATS_P4_P5_03.md. Migration courante 20261019_02 après 20261019_01, non exécutée sur base conservée. Ne pas réintroduire des valeurs Airtel/Moov dans MODES : les fournisseurs sont des identités de catalogue, la famille reste MOBILE_MONEY. Les règlements retrouvent l'identité immuable via leur confirmation ; le remboursement explicite source/cible. Limite de références identiques entre fournisseurs conservée volontairement. La validation native/Chromium reste ouverte ; ne pas activer le groupe.

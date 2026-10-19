@@ -2,7 +2,7 @@
 const fs=require('node:fs'),path=require('node:path');
 const web=path.resolve(__dirname,'../src/neosys_pharma/presentation/web');
 const html=fs.readFileSync(path.join(web,'index.html'),'utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'');
-const source=fs.readFileSync(path.join(web,'encaissement_groupe.js'),'utf8');
+const source=fs.readFileSync(path.join(web,'caisse.js'),'utf8').split('\n').find(l=>l.startsWith('function cashPaymentChoices('))+'\n'+fs.readFileSync(path.join(web,'encaissement_groupe.js'),'utf8');
 async function scenario(w,source){
  const d=w.document;let checks=0;const assert=(v,msg)=>{if(!v)throw Error(msg);checks++;};
  w.$=id=>d.getElementById(id);w.authState={me:{organisation:{id_organisation:'qa'}},site:'site'};w.cashState={session:{id:'session',etat:'OUVERTE'},context:{configuration:{modes:['ESPECES','CARTE']}},key:'qa'};

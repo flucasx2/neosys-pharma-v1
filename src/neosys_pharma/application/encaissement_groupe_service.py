@@ -128,7 +128,7 @@ class EncaissementGroupeService:
         return {
             "dossier": serial(dossier),
             "ventes": [serial(row) for row in sales],
-            "reglements": [serial(row) for row in payments],
+            "reglements": [serial(row)|{"confirmation":serial(self.stock.obtenir(ConfirmationReglementModel,row.confirmation_id)) if row.confirmation_id else None} for row in payments],
             "allocations": [serial(row) for row in allocations],
             "totaux": {
                 "du_xaf": str(total_due),
@@ -319,6 +319,7 @@ class EncaissementGroupeService:
                     raise ValueError("Une confirmation ne peut couvrir deux règlements.")
                 confirmation_ids.add(confirmation_id)
                 confirmation = self.stock.obtenir(ConfirmationReglementModel, confirmation_id)
+                self.caisse.moyen(confirmation.mode,confirmation.moyen_id)
                 if confirmation.session_id != dossier.session_id or confirmation.mode != item["mode"]:
                     raise ConflitStock("Confirmation liée à une autre session ou à un autre moyen.")
                 if confirmation.montant != francs(item["montant"]):
@@ -582,6 +583,7 @@ class EncaissementGroupeService:
                 confirmation = confirmations.get(row.confirmation_id)
                 if confirmation is None:
                     raise ConflitStock("Confirmation absente ou hors de l'organisation.")
+                self.caisse.moyen(confirmation.mode,confirmation.moyen_id)
                 if (confirmation.session_id != session.id or confirmation.mode != row.mode
                         or confirmation.montant != francs(row.montant)):
                     raise ConflitStock("Confirmation de paiement incompatible avec la session, le mode ou le montant.")

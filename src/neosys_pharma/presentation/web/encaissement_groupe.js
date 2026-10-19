@@ -365,7 +365,7 @@ function cgRenderDraft() {
   // Un brouillon abandonné ne doit pas réhydrater les règlements du serveur
   // dans le formulaire éditable. Conserver les données historiques côté dossier.
   if (d.dossier.etat === "ABANDONNE") cashGroupState.payments = [];
-  else if (!cashGroupState.payments.length && d.reglements.length) cashGroupState.payments = d.reglements.map(row => ({ mode: row.mode, montant: String(row.montant), rendu: String(row.rendu), confirmation_id: row.confirmation_id }));
+  else if (!cashGroupState.payments.length && d.reglements.length) cashGroupState.payments = d.reglements.map(row => ({ mode: row.mode, montant: String(row.montant), rendu: String(row.rendu), confirmation_id: row.confirmation_id, moyen_id:row.confirmation?.moyen_id||null }));
   cashGroupState.allocations = d.allocations;
   cg("resume-id").value = d.dossier.id;
   cgRememberDraft(d.dossier.id);
@@ -452,10 +452,10 @@ function cgCanFinalize() {
       return sale && authHas("caisse.encaisser", sale.emplacement_id) && loyalty && loyalty.status !== "loading" && loyalty.status !== "error";
     }));
 }
-function cgConfirmationOptions(mode, amount) {
+function cgConfirmationOptions(mode, amount, moyenId=null) {
   const choices = [];
   for (const [saleId, sale] of cashGroupState.saleDetails) for (const confirmation of sale.confirmations || []) {
-    if (confirmation.mode === mode && Number(confirmation.montant) === amount) {
+    if (confirmation.mode === mode && (confirmation.moyen_id||null) === moyenId && Number(confirmation.montant) === amount) {
       choices.push({ id: confirmation.id, label: `${saleId.slice(0, 8)} · ${confirmation.reference} · ${cgMoney(confirmation.montant)}` });
     }
   }
@@ -468,8 +468,9 @@ function cgRenderPayments() {
     const fieldset = document.createElement("fieldset"); fieldset.className = "cash-group-payment";
     const legend = document.createElement("legend"); legend.textContent = `Règlement ${index + 1}`; fieldset.append(legend);
     const mode = document.createElement("select"); mode.disabled = cashGroupState.draft?.dossier?.etat !== "BROUILLON"; mode.setAttribute("aria-label", `Mode règlement ${index + 1}`);
-    for (const code of modes) mode.add(new Option(code.replaceAll("_", " "), code));
-    if (payment.mode && modes.includes(payment.mode)) mode.value = payment.mode;
+    for (const choice of cashPaymentChoices(cashState.context.configuration,true)) mode.add(new Option(choice.libelle,choice.key));
+    const current=payment.mode+(payment.moyen_id?":"+payment.moyen_id:"");if(payment.mode&&![...mode.options].some(o=>o.value===current))mode.add(new Option("Moyen historique / indisponible",current));
+    if (payment.mode && modes.includes(payment.mode)) mode.value = payment.mode+(payment.moyen_id?":"+payment.moyen_id:"");
     const amountLabel = document.createElement("label"); amountLabel.textContent = payment.mode === "ESPECES" ? "Espèces reçues (XAF)" : "Montant confirmé (XAF)";
     const amount = document.createElement("input"); amount.disabled = cashGroupState.draft?.dossier?.etat !== "BROUILLON"; amount.type = "number"; amount.min = "0"; amount.step = "1"; amount.value = payment.montant ?? ""; amount.setAttribute("aria-label", `Montant règlement ${index + 1}`); amountLabel.append(amount);
     fieldset.append(mode, amountLabel);
@@ -478,7 +479,7 @@ function cgRenderPayments() {
     const confirmationLabel = document.createElement("label"); confirmationLabel.textContent = "Confirmation du paiement";
     const confirmation = document.createElement("select"); confirmation.disabled = payment.mode === "ESPECES" || cashGroupState.draft?.dossier?.etat !== "BROUILLON"; confirmation.setAttribute("aria-label", `Confirmation règlement ${index + 1}`);
     confirmation.add(new Option(payment.mode === "ESPECES" ? "Sans confirmation espèces" : "Choisir une confirmation existante", ""));
-    for (const choice of cgConfirmationOptions(payment.mode, cgInt(payment.montant))) confirmation.add(new Option(choice.label, choice.id));
+    for (const choice of cgConfirmationOptions(payment.mode, cgInt(payment.montant),payment.moyen_id||null)) confirmation.add(new Option(choice.label, choice.id));
     confirmation.value = payment.confirmation_id || "";
     confirmationLabel.append(confirmation); fieldset.append(confirmationLabel);
     const remove = document.createElement("button"); remove.type = "button"; remove.className = "secondary"; remove.textContent = "Supprimer cette ligne";
@@ -486,10 +487,10 @@ function cgRenderPayments() {
     const updateConfirmationChoices = () => {
       const previous = confirmation.value; confirmation.replaceChildren();
       confirmation.add(new Option(payment.mode === "ESPECES" ? "Sans confirmation espèces" : "Choisir une confirmation existante", ""));
-      for (const choice of cgConfirmationOptions(payment.mode, cgInt(payment.montant))) confirmation.add(new Option(choice.label, choice.id));
+      for (const choice of cgConfirmationOptions(payment.mode, cgInt(payment.montant),payment.moyen_id||null)) confirmation.add(new Option(choice.label, choice.id));
       if ([...confirmation.options].some(option => option.value === previous)) confirmation.value = previous;
     };
-    mode.addEventListener("change", () => { payment.mode = mode.value; payment.confirmation_id = null; payment.rendu = "0"; cgRenderPayments(); });
+    mode.addEventListener("change", () => { const choice=cashPaymentChoices(cashState.context.configuration,true).find(c=>c.key===mode.value);payment.mode=choice.mode;payment.moyen_id=choice.moyen_id; payment.confirmation_id = null; payment.rendu = "0"; cgRenderPayments(); });
     amount.addEventListener("input", () => { payment.montant = amount.value; payment.confirmation_id = null; updateConfirmationChoices(); cgRenderReview(); });
     change.addEventListener("input", () => { payment.rendu = change.value; cgRenderReview(); });
     confirmation.addEventListener("change", () => { payment.confirmation_id = confirmation.value || null; cgRenderReview(); });
@@ -709,7 +710,7 @@ cg("create").addEventListener("click", () => cgCreateDraft().catch(cgFailure));
 cg("add-selected").addEventListener("click", () => cgAddSelected().catch(cgFailure));
 cg("resume").addEventListener("click", () => cgResume());
 cg("reload").addEventListener("click", () => cgReload());
-cg("add-payment").addEventListener("click", () => { cashGroupState.payments.push({ mode: (cashState.context?.configuration?.modes || ["ESPECES"])[0], montant: "", rendu: "0", confirmation_id: null }); cgRenderPayments(); });
+cg("add-payment").addEventListener("click", () => { cashGroupState.payments.push({ mode: cashPaymentChoices(cashState.context.configuration,true)[0]?.mode||'ESPECES', moyen_id:cashPaymentChoices(cashState.context.configuration,true)[0]?.moyen_id||null, montant: "", rendu: "0", confirmation_id: null }); cgRenderPayments(); });
 cg("calculate-change").addEventListener("click",()=>{try{cgCalculateChange();}catch(e){cgFailure(e);}});
 cg("save-payments").addEventListener("click", () => cgSavePayments().catch(cgFailure));
 cg("auto").addEventListener("click", () => cgAutoAllocate().catch(cgFailure));

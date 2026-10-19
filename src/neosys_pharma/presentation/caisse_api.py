@@ -16,7 +16,7 @@ from neosys_pharma.infrastructure.organisation_models import EmplacementModel,Ca
 from neosys_pharma.infrastructure.catalogue_models import CategorieProduitModel
 POLICY.update({
  'caisse_contexte':('caisse.consulter','caisse.encaisser','caisse.session.gerer','caisse.parametrer','fidelite.parametrer','fidelite.gerer'),
- 'caisse_renommer':'caisse.parametrer','caisse_config':'caisse.parametrer','caisse_sessions':'caisse.consulter','caisse_ouvrir':'caisse.session.gerer','caisse_fermer':'caisse.session.gerer',
+ 'caisse_moyen_creer':'caisse.parametrer','caisse_moyen_modifier':'caisse.parametrer','caisse_renommer':'caisse.parametrer','caisse_config':'caisse.parametrer','caisse_sessions':'caisse.consulter','caisse_ouvrir':'caisse.session.gerer','caisse_fermer':'caisse.session.gerer',
  'caisse_attente':'caisse.consulter','caisse_vente':'caisse.consulter','caisse_confirmer':'caisse.paiement.confirmer','caisse_rapprocher':'caisse.paiement.confirmer','caisse_finaliser':'caisse.encaisser',
  'caisse_recus':'caisse.consulter','caisse_recu':'caisse.consulter','caisse_recu_pdf':'caisse.consulter','caisse_appel_pdf':'vente.consulter','caisse_mouvements':'caisse.consulter',
  'fidelite_recherche':'fidelite.consulter','fidelite_detail':'fidelite.consulter','fidelite_journal':'fidelite.consulter','fidelite_ventes':'fidelite.consulter','fidelite_creer':'fidelite.gerer','fidelite_carte':'fidelite.gerer','fidelite_opposer':'fidelite.gerer',
@@ -36,6 +36,7 @@ class Fermeture(Revision):
     comptage_final:Decimal=Field(ge=0,max_digits=18,decimal_places=0)
     justification:str=Field(min_length=1,max_length=2000)
 class Confirmation(Revision):
+    moyen_id:UUID|None=None
     session_id:UUID
     mode:Mode
     montant:Decimal=Field(gt=0,max_digits=18,decimal_places=0)
@@ -224,3 +225,21 @@ class NomCaisse(Mutation):
 def caisse_renommer(key:UUID,d:NomCaisse,s=Depends(service)):
     execute(lambda:s.caisse(key,'caisse.parametrer'))
     return mutation(s,d,'RENOMMER_CAISSE:'+str(key),lambda:s.renommer_caisse(key,d.model_dump()))
+
+
+class CreationMoyen(Mutation):
+    code:str=Field(min_length=1,max_length=80)
+    libelle:str=Field(min_length=1,max_length=200)
+    mode:Literal['CARTE','MOBILE_MONEY','CHEQUE','VIREMENT']
+    actif:bool=True
+class ModificationMoyen(Revision):
+    libelle:str=Field(min_length=1,max_length=200)
+    actif:bool
+
+@router.post('/moyens',status_code=201)
+def caisse_moyen_creer(d:CreationMoyen,s=Depends(service)):
+    return mutation(s,d,'MOYEN_CREER',lambda:s.definir_moyen(d.model_dump()))
+
+@router.put('/moyens/{key}')
+def caisse_moyen_modifier(key:UUID,d:ModificationMoyen,s=Depends(service)):
+    return mutation(s,d,'MOYEN_MODIFIER:'+str(key),lambda:s.definir_moyen(d.model_dump(),key))

@@ -30,7 +30,7 @@ try {
     $env:DATABASE_URL = $env:TEST_DATABASE_URL
     # Fixtures destructrices admises uniquement après le garde-fou autouse cible_isolee.
     # Elles vérifient la base neuve, son commentaire et son nom avant create_all/drop_all.
-    & $Python -m pytest -q -s tests/test_p4p5_groupe_organismes.py tests/test_p4_finitions.py
+    & $Python -m pytest -q -s tests/test_p4p5_groupe_organismes.py tests/test_p4_finitions.py tests/test_moyens_paiement.py
     if ($LASTEXITCODE -ne 0) { throw 'Contrôle PostgreSQL en échec. Conserver les logs et la base ; aucune suppression automatique.' }
     Write-Output "Recette native exécutée ; base $DatabaseName conservée pour inspection."
 } finally {

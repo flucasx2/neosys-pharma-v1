@@ -68,3 +68,11 @@ Les autres observations catalogue, caisse, encaissement groupé et fidélité re
 | CAP-P5-01 | Consommation périodique/individuelle | Non implémentée, décisions nécessaires consignées dans ARBITRAGES_PLAFONDS_P5.md |
 
 Les limites d'environnement CONF-ENV-02/03 subsistent. Les tests natifs préparés ne sont pas des résultats réussis. Les imports, sélecteurs volumineux et P5-C restent ouverts. La recette unique est préparée progressivement, sans demande d'acceptation intermédiaire.
+
+## Consolidation 03 — moyens de paiement
+
+- OBS-CAI-01 : implémenté avec catalogue organisationnel, fournisseurs distincts et confirmations figées ; tests API/DOM réussis, natif et navigateur ouverts.
+- PAY-03-01 : lecteur du solde d'un retour ignorait les allocations groupées ; même budget partagé avec le service et test groupe réussis.
+- PAY-UI-03 : valeur de restitution perdue au clonage de formulaire ; reproduit en DOM, defaultSelected corrigé, origines distinctes conservées.
+- PAY-MIG-03 : CHECK historiques anonymes risquant d'être omis par batch SQLite ; expressions conservées et test de migration dédié.
+- PAY-LIM-03 : références externes identiques refusées entre fournisseurs d'une même famille par contrainte historique ; aucun affaiblissement. Pas de connecteur de paiement.

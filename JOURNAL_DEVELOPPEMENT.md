@@ -104,3 +104,7 @@ Recettes humaines intermédiaires suspendues ; développement par incréments et
 - Lanceur PostgreSQL neuf et marqué préparé, non exécuté. Aucun effacement de base automatique, aucune modification distante ou Windows.
 - Cahier unique docs/RECETTE_CONSOLIDEE_P4_P5.md en cours. Plafonds consommables non codés ; questions contractuelles dans docs/ARBITRAGES_PLAFONDS_P5.md, à trancher avant leurs compteurs.
 - P4/P5 non clos. Restent fournisseurs électroniques distincts, cartes physiques numéro/code-barres, imports, sélecteurs volumineux, plafonds et P5-C. Pas d'activation ni d'acceptation humaine présumée.
+
+## 19 octobre 2026 — consolidation 03, moyens configurables
+
+Base ef1256bf et ZIP/bundle revérifiés sans appliquer de patch. Catalogue organisationnel de moyens, identités de fournisseurs figées sur confirmations, UI Caisse/Régularisations/groupe, reçus et X/Z par fournisseur. Remboursements plafonnés par origine ; substitution entre deux fournisseurs sous permission. Migration additive 20261019_02 ; aucune base conservée. Défauts reproduits : solde de retour sans allocations groupées, sélection de restitution perdue au clonage, CHECK anonymes à préserver dans le batch SQLite. Corrections et preuves : docs/RESULTATS_P4_P5_03.md. 12 tests ciblés réussis ; migration 1 réussi/1 natif ignoré ; 36 assertions DOM. PostgreSQL/Chromium non exécutés. Règle historique d'unicité des références par famille conservée et limite explicitée. Poursuite autonome des tâches indépendantes, aucune recette humaine intermédiaire.
