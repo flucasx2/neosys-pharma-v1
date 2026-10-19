@@ -19,7 +19,7 @@ def cycle(url,monkeypatch):
         with Session(engine) as s:
             s.add(OrganisationModel(id_organisation=org,nom_commercial='Fictive',raison_sociale='Fictive',actif=True));s.flush()
             s.add(OrganismePriseEnChargeModel(id=payer,organisation_id=org,code='P4B',nom='Historique fictif',actif=True,revision=1));s.commit()
-        command.upgrade(cfg,'20261019_05');command.check(cfg)
+        command.upgrade(cfg,'20261019_05');command.upgrade(cfg,'head');command.check(cfg)
         # Alembic utilise son propre moteur ; relire le schéma avec une connexion neuve.
         engine.dispose()
         i=sa.inspect(engine)

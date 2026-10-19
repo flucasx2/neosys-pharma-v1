@@ -107,3 +107,12 @@ P5C_PERMISSIONS = (
  ('tiers_payant.creance.verifier','Contrôler les dossiers avant facturation'),
 )
 PERMISSIONS += P5C_PERMISSIONS
+
+P5C2_PERMISSIONS = (
+ ('tiers_payant.document.consulter','Consulter les préparations et documents organismes autorisés'),
+ ('tiers_payant.document.preparer','Préparer et abandonner les bordereaux et factures organismes'),
+ ('tiers_payant.document.valider','Contrôler les préparations de documents organismes'),
+ ('tiers_payant.document.emettre','Émettre des documents organismes en recette autorisée'),
+ ('tiers_payant.document.regrouper','Regrouper les factures émises et leurs récapitulatifs'),
+)
+PERMISSIONS += P5C2_PERMISSIONS

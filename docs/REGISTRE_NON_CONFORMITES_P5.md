@@ -113,3 +113,19 @@ OBS-CAT-01 partiellement ouverte : faux succès de fin de lots reproduit et corr
 - CONTINUITE-C1 — Worktree initial disparu ; base exacte récupérée par les bundles et ajouts repris dans une copie isolée. Bundle complet et patch de cette livraison exportés pour récupération.
 
 L'incident réel PharmaGabon reste ouvert faute de reproduction avec son fichier réel. CAP-P5-01 (plafonds consommables) reste ouvert ; aucune règle de période, consommation ou restitution inventée. Les réserves antérieures P4/P5 ne sont pas levées par les seuls tests SQLite/DOM de cet incrément.
+
+## P5-C.2 — 19/10/2026
+
+| ID | Constat / cause | État et preuve |
+|---|---|---|
+| C2-ENV-01 | PostgreSQL natif, conteneurs et binaires serveur indisponibles | Ouvert bloquant pour garanties natives ; 2 courses C2 + migration protégées préparées. Aucun test ignoré compté réussi |
+| C2-ENV-02 | Playwright sans binaire Chromium | Ouvert ; lancement échoué, 27 assertions DOM avec HTTP simulé réussies ; pas d'E2E financier navigateur |
+| C2-FISC-01 | Politique définitive de numérotation et mentions fiscales non définies | Ouvert bloquant production ; émission réservée à CI/native jetable, références manuelles uniques et marquage non fiscal |
+| C2-CONTRAT-01 | Période et regroupements multiconventions/intersites insuffisamment spécifiés | Restriction conservatrice à un site/version de convention, période UTC explicite ; à arbitrer avant généralisation |
+| C2-JSON-01 | UUID bruts dans le snapshot de récapitulatif non sérialisables | Corrigé par encodage JSON explicite ; nominal facture/récap/lot réussi |
+| C2-RETOUR-01 | Retour post-facture laissait créer un récapitulatif | Reproduit 201 au lieu de 409 ; contrôle des retours propagé au récapitulatif et au lot, deux tests verts et PDF initial inchangé |
+| C2-TOTAL-01 | Total multi-créances pouvait dépasser INTEGER 32 bits | BIGINT + somme exacte bornée ; test 3 milliards et contrôle Alembic réussis sous SQLite, natif ouvert |
+| C1-REG-01 | Compensations de créances, avoirs, annulations documentaires/rejets | Toujours ouvert ; tous les engagements affectés sont bloqués sans réécrire les sources financières |
+| C2-TEST-01 | Fixture de migration réinstallait un catalogue déjà migré | Correction limitée au test ; aucune permission automatique ni règle métier retirée |
+
+OBS-CAT-01 (incident réel PharmaGabon) et CAP-P5-01 (plafonds consommables non arbitrés) restent ouverts. Les contrôles C2 ne lèvent aucune réserve historique non couverte. Aucun push, migration conservée, déploiement ou activation de l'encaissement groupé.

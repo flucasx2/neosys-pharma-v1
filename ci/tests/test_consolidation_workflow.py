@@ -24,7 +24,8 @@ class ConsolidationWorkflowTest(unittest.TestCase):
             ('neosys_p4p5_ci','NEOSYS_P4P5_DISPOSABLE','P4P5_CONFIRM_DATABASE'),
             ('neosys_consolidation_migrations_ci','NEOSYS_CONSOLIDATION_MIGRATIONS_DISPOSABLE','CONSOLIDATION_CONFIRM_DATABASE'),
             ('neosys_p5conf1b_ci','NEOSYS_P5CONF1B_DISPOSABLE_CI','P5CONF1B_CONFIRM_DATABASE'),
-            ('neosys_p5c_migrations_ci','NEOSYS_P5C_DISPOSABLE','P5C_CONFIRM_DATABASE')):
+            ('neosys_p5c_migrations_ci','NEOSYS_P5C_DISPOSABLE','P5C_CONFIRM_DATABASE'),
+            ('neosys_p5c2_migrations_ci','NEOSYS_P5C2_DISPOSABLE','P5C2_CONFIRM_DATABASE')):
             self.assertIn(f'/{name}',self.postgres)
             self.assertIn(f"COMMENT ON DATABASE {name} IS '{marker}'",self.postgres)
             self.assertIn(f'{confirmation}: {name}',self.postgres)
@@ -42,6 +43,7 @@ class ConsolidationWorkflowTest(unittest.TestCase):
         browser=self.workflow.split('\n  browser:\n',1)[1].split('\n  result:\n',1)[0]
         self.assertIn('HTTP simulated, no financial evidence',browser)
         self.assertIn('node tests/creances_ui.cjs --chromium',browser)
+        self.assertIn('node tests/facturation_organisme_ui.cjs --chromium',browser)
         self.assertIn('python .ci-control/ci/browser.py',browser)
         self.assertIn("GROUPED_ENCASHMENT_ENABLED: 'true'",browser)
         self.assertIn('POSTGRES_DB: neosys_browser',browser)

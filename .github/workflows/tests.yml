@@ -119,6 +119,8 @@ jobs:
               c.execute("COMMENT ON DATABASE neosys_consolidation_migrations_ci IS 'NEOSYS_CONSOLIDATION_MIGRATIONS_DISPOSABLE'")
               c.execute('CREATE DATABASE neosys_p5conf1b_ci')
               c.execute("COMMENT ON DATABASE neosys_p5conf1b_ci IS 'NEOSYS_P5CONF1B_DISPOSABLE_CI'")
+              c.execute('CREATE DATABASE neosys_p5c2_migrations_ci')
+              c.execute("COMMENT ON DATABASE neosys_p5c2_migrations_ci IS 'NEOSYS_P5C2_DISPOSABLE'")
               c.execute('CREATE DATABASE neosys_p5c_migrations_ci')
               c.execute("COMMENT ON DATABASE neosys_p5c_migrations_ci IS 'NEOSYS_P5C_DISPOSABLE'")
               c.execute('CREATE DATABASE neosys_migration')
@@ -134,6 +136,8 @@ jobs:
           TEST_P5CONF1B_DATABASE_URL: postgresql+psycopg://neosys_test:isolated_ci_only@localhost:5432/neosys_p5conf1b_ci
           P5CONF1B_CONFIRM_DATABASE: neosys_p5conf1b_ci
           P5CONF1B_MARKER: NEOSYS_P5CONF1B_DISPOSABLE_CI
+          TEST_P5C2_MIGRATION_URL: postgresql+psycopg://neosys_test:isolated_ci_only@localhost:5432/neosys_p5c2_migrations_ci
+          P5C2_CONFIRM_DATABASE: neosys_p5c2_migrations_ci
           TEST_P5C_MIGRATION_URL: postgresql+psycopg://neosys_test:isolated_ci_only@localhost:5432/neosys_p5c_migrations_ci
           P5C_CONFIRM_DATABASE: neosys_p5c_migrations_ci
           TEST_MIGRATION_DATABASE_URL: postgresql+psycopg://neosys_test:isolated_ci_only@localhost:5432/neosys_migration
@@ -187,6 +191,8 @@ jobs:
           node tests/import_beneficiaires_ui.cjs
           node tests/creances_ui.cjs
           node tests/creances_ui.cjs --chromium
+          node tests/facturation_organisme_ui.cjs
+          node tests/facturation_organisme_ui.cjs --chromium
           node tests/conventions_ui.cjs --chromium
           node tests/groupe_organismes_ui.cjs --chromium
           node tests/moyens_paiement_ui.cjs --chromium
