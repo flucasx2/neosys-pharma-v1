@@ -18,9 +18,12 @@ w.cashRequest=async(route,method,body)=>{calls.push({route,method,body});return 
  w.eval('cashState.account={id:"account",revision:1,cartes:[]};clientsState.loyalty={id:"account",revision:1}');
  for(const open of [()=>w.cashCard(),()=>w.clientsCard({id:'client'})]){
   open();check(entry.form.elements.code.required,'Carte physique sans identifiant obligatoire');
+  check(!entry.form.elements.code_barres.disabled,'Code-barres physique indisponible');
+  entry.form.elements.code.value='VISIBLE-007';entry.form.elements.code_barres.value='SCAN-00007';
+  await saver(values(),{cle:'physical'},entry);check(calls.at(-1).body.code==='VISIBLE-007'&&calls.at(-1).body.code_barres==='SCAN-00007','Numéro et code-barres physique fusionnés');
   entry.form.elements.type.value='VIRTUELLE';entry.form.elements.type.dispatchEvent(new w.Event('change'));
   check(entry.form.elements.code.disabled&&!entry.form.elements.code.required,'Initialisation après clonage incorrecte');
-  await saver(values(),{cle:'key'},entry);check(!Object.hasOwn(calls.at(-1).body,'code'),'Code virtuel envoyé par le navigateur');
+  await saver(values(),{cle:'key'},entry);check(!Object.hasOwn(calls.at(-1).body,'code')&&!Object.hasOwn(calls.at(-1).body,'code_barres'),'Identifiant physique envoyé pour une carte virtuelle');check(entry.form.elements.code_barres.disabled,'Code-barres laissé actif pour une carte virtuelle');
  }
  w.eval('cashState.sale={id:"sale",revision:1,totaux:{ttc:1000},confirmations:[]};cashState.session={id:"session",revision:1};cashState.account=null');
  w.cashPay();entry.form.elements.especes.value='1200';entry.form.elements.confirme.checked=true;
@@ -31,5 +34,6 @@ w.cashRequest=async(route,method,body)=>{calls.push({route,method,body});return 
  check(entry.form.elements.nom.value==='Nom original','Nom courant absent après clonage');entry.form.elements.nom.value='Nouveau nom';
  await saver(values(),{cle:'rename'},entry);
  check(calls.at(-1).route==='/caisses/till/libelle'&&calls.at(-1).body.nom_attendu==='Nom original','Conflit de nom non contrôlé');
+ w.cashPrintCard({id:'card',code:'VISIBLE-007',code_barres:'SCAN-00007'});check(entry.form.textContent.includes('SCAN-00007'),'Récapitulatif d’impression absent');
  console.log(checks,'assertions DOM formulaires, HTTP et hôte modale simulés');
  }finally{dom.window.close();}})().catch(error=>{console.error(error);process.exitCode=1;});

@@ -19,7 +19,7 @@ POLICY.update({
  'caisse_moyen_creer':'caisse.parametrer','caisse_moyen_modifier':'caisse.parametrer','caisse_renommer':'caisse.parametrer','caisse_config':'caisse.parametrer','caisse_sessions':'caisse.consulter','caisse_ouvrir':'caisse.session.gerer','caisse_fermer':'caisse.session.gerer',
  'caisse_attente':'caisse.consulter','caisse_vente':'caisse.consulter','caisse_confirmer':'caisse.paiement.confirmer','caisse_rapprocher':'caisse.paiement.confirmer','caisse_finaliser':'caisse.encaisser',
  'caisse_recus':'caisse.consulter','caisse_recu':'caisse.consulter','caisse_recu_pdf':'caisse.consulter','caisse_appel_pdf':'vente.consulter','caisse_mouvements':'caisse.consulter',
- 'fidelite_recherche':'fidelite.consulter','fidelite_detail':'fidelite.consulter','fidelite_journal':'fidelite.consulter','fidelite_ventes':'fidelite.consulter','fidelite_creer':'fidelite.gerer','fidelite_carte':'fidelite.gerer','fidelite_opposer':'fidelite.gerer',
+ 'fidelite_recherche':'fidelite.consulter','fidelite_detail':'fidelite.consulter','fidelite_journal':'fidelite.consulter','fidelite_ventes':'fidelite.consulter','fidelite_creer':'fidelite.gerer','fidelite_carte':'fidelite.gerer','fidelite_code_barres':'fidelite.gerer','fidelite_impression':'fidelite.gerer','fidelite_carte_pdf':'fidelite.gerer','fidelite_opposer':'fidelite.gerer',
  'fidelite_baremes':'fidelite.parametrer','fidelite_bareme':'fidelite.parametrer','fidelite_clore':'fidelite.parametrer'})
 router=APIRouter(prefix='/api/caisses/organisations/{organisation_id}',tags=['Encaissement et fidélité'],dependencies=[Depends(contexte)])
 def service(v=Depends(vente_service)):return CaisseService(v)
@@ -62,6 +62,7 @@ class Client(Mutation):
     nom:str=Field(min_length=1,max_length=200)
     telephone:str|None=Field(default=None,max_length=80)
 class Carte(Revision):
+    code_barres:str|None=Field(default=None,min_length=1,max_length=80)
     code:str|None=Field(default=None,min_length=1,max_length=200)
     type:Literal['PHYSIQUE','VIRTUELLE']
     remplace_id:UUID|None=None
@@ -167,7 +168,7 @@ def caisse_mouvements(session_id:UUID,page_:int=Query(1,alias='page',ge=1),page_
 @router.get('/fidelite')
 def fidelite_recherche(q:str=Query('',min_length=3,max_length=200),page_:int=Query(1,alias='page',ge=1),page_size:int=Query(20,ge=1,le=100),s=Depends(service)):
     term=s.stock.repo.terme(q);phone=re.sub(r'[\s().-]','',q)
-    cards=select(CarteFideliteModel.compte_id).where(CarteFideliteModel.organisation_id==s.org,CarteFideliteModel.code==q,CarteFideliteModel.etat=='ACTIVE')
+    cards=select(CarteFideliteModel.compte_id).where(CarteFideliteModel.organisation_id==s.org,CarteFideliteModel.id.in_(select(IdentifiantCarteFideliteModel.carte_id).where(IdentifiantCarteFideliteModel.organisation_id==s.org,IdentifiantCarteFideliteModel.valeur==q)),CarteFideliteModel.etat=='ACTIVE')
     query=select(CompteFideliteModel).join(ClientFideliteModel,ClientFideliteModel.id==CompteFideliteModel.client_id).where(CompteFideliteModel.organisation_id==s.org,(s.stock.repo.upper(ClientFideliteModel.nom).contains(term,autoescape=True))|(ClientFideliteModel.telephone==phone)|(CompteFideliteModel.id.in_(cards))).order_by(ClientFideliteModel.nom,CompteFideliteModel.id)
     return page(s,query,page_,page_size,lambda r:s.compte(r.id))
 @router.post('/fidelite',status_code=201)
@@ -243,3 +244,24 @@ def caisse_moyen_creer(d:CreationMoyen,s=Depends(service)):
 @router.put('/moyens/{key}')
 def caisse_moyen_modifier(key:UUID,d:ModificationMoyen,s=Depends(service)):
     return mutation(s,d,'MOYEN_MODIFIER:'+str(key),lambda:s.definir_moyen(d.model_dump(),key))
+
+
+class CodeBarresCarte(Revision):
+    code_barres:str=Field(min_length=1,max_length=80)
+
+@router.post('/fidelite/cartes/{key}/code-barres')
+def fidelite_code_barres(key:UUID,d:CodeBarresCarte,s=Depends(service)):
+    return mutation(s,d,'CARTE_BARRES:'+str(key),lambda:s.associer_code_barres(key,d.model_dump()))
+
+@router.post('/fidelite/cartes/{key}/impressions')
+def fidelite_impression(key:UUID,d:Mutation,s=Depends(service)):
+    return mutation(s,d,'CARTE_DOCUMENT:'+str(key),lambda:s.imprimer_carte(key))
+
+@router.get('/fidelite/cartes/{key}/pdf')
+def fidelite_carte_pdf(key:UUID,s=Depends(service)):
+    def get():
+        card=s.stock.obtenir(CarteFideliteModel,key);s.compte(card.compte_id,'fidelite.gerer')
+        rows=s.stock.lignes(DocumentCarteFideliteModel,carte_id=card.id)
+        if not rows:raise LookupError('Préparer le document de carte avant consultation.')
+        return Response(rows[0].pdf,media_type='application/pdf',headers={'Content-Disposition':'inline; filename="carte-fidelite.pdf"'})
+    return execute(get)

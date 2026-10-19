@@ -76,3 +76,9 @@ Les limites d'environnement CONF-ENV-02/03 subsistent. Les tests natifs prépar�
 - PAY-UI-03 : valeur de restitution perdue au clonage de formulaire ; reproduit en DOM, defaultSelected corrigé, origines distinctes conservées.
 - PAY-MIG-03 : CHECK historiques anonymes risquant d'être omis par batch SQLite ; expressions conservées et test de migration dédié.
 - PAY-LIM-03 : références externes identiques refusées entre fournisseurs d'une même famille par contrainte historique ; aucun affaiblissement. Pas de connecteur de paiement.
+
+## Consolidation 04 — cartes
+
+- OBS-FID-02 : numéro visible/code-barres indépendants, registre commun unique et reprise des anciennes cartes ; recherche/scan et document PDF figé/réimpression sous fidelite.gerer implémentés, tests API/SQLite/DOM réussis. Validation native/navigateur et matérielle ouverte.
+- CARD-04-01 : les collisions croisées numéro↔barcode sont protégées par le même index unique en base, pas par deux contraintes indépendantes insuffisantes.
+- CARD-LIM-04 : PDF technique A4 paysage Code 128 ; vieux numéros non imprimables restent consultables et peuvent recevoir un code-barres avant première émission. Le scan matériel ne fait pas partie des preuves Work.

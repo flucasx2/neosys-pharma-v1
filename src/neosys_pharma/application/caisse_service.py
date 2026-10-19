@@ -282,8 +282,40 @@ class CaisseService:
         if code is None and data['type']=='VIRTUELLE':code='V-'+uuid4().hex.upper()
         if not isinstance(code,str) or not code.strip() or len(code)>200 or any(ord(c)<32 for c in code):
             raise ValueError('Un identifiant physique valide est obligatoire ; les cartes virtuelles peuvent recevoir un identifiant automatique.')
-        card=self.stock.ajouter(CarteFideliteModel,compte_id=row.id,code=code.strip(),type=data['type'],remplace_id=old.id if old else None)
+        barcode=self.valider_code_barres(data.get('code_barres'),data['type'])
+        card=self.stock.ajouter(CarteFideliteModel,compte_id=row.id,code=code.strip(),code_barres=barcode,type=data['type'],remplace_id=old.id if old else None)
         row.revision+=1;self.trace('CARTE_CREEE',carte=serial(card));return self.compte(row.id,'fidelite.gerer')
+
+    @staticmethod
+    def valider_code_barres(value,kind='PHYSIQUE'):
+        if value is None:return None
+        if kind!='PHYSIQUE' or not value or value!=value.strip() or len(value)>80 or any(ord(c)<32 or ord(c)>126 for c in value):
+            raise ValueError('Code-barres physique ASCII de 1 à 80 caractères, sans espaces de bord, requis.')
+        return value
+
+    def associer_code_barres(self,key,data):
+        card=self.stock.obtenir(CarteFideliteModel,key);account=self.stock.obtenir(CompteFideliteModel,card.compte_id)
+        self.compte(account.id,'fidelite.gerer')
+        if account.revision!=data['revision']:raise ConflitStock('Compte modifié : actualiser.')
+        if card.type!='PHYSIQUE' or card.etat!='ACTIVE' or card.code_barres is not None or self.stock.lignes(DocumentCarteFideliteModel,carte_id=card.id):
+            raise ConflitStock('Associer le code-barres avant impression, à une carte physique active sans code-barres.')
+        card.code_barres=self.valider_code_barres(data['code_barres']);account.revision+=1;self.s.flush()
+        self.trace('CARTE_CODE_BARRES_ASSOCIE',carte=serial(card))
+        return self.compte(account.id,'fidelite.gerer')
+
+    def imprimer_carte(self,key):
+        card=self.stock.obtenir(CarteFideliteModel,key);account=self.compte(card.compte_id,'fidelite.gerer')
+        if card.etat!='ACTIVE':raise ConflitStock('Carte opposée ou remplacée : nouvelle impression refusée.')
+        rows=self.stock.lignes(DocumentCarteFideliteModel,carte_id=card.id)
+        document=rows[0] if rows else None
+        if document is None:
+            snapshot={'carte_id':str(card.id),'compte_id':str(card.compte_id),'code':card.code,'code_barres':card.code_barres,
+                'titulaire':account['client']['nom'],'organisation':self.s.get(OrganisationModel,self.org).nom_commercial}
+            from neosys_pharma.infrastructure.caisse_pdf import carte_fidelite_pdf
+            pdf=carte_fidelite_pdf(snapshot)
+            document=self.stock.ajouter(DocumentCarteFideliteModel,carte_id=card.id,auteur_id=self.stock.user,instantane=snapshot,pdf=pdf,pdf_sha256=hashlib.sha256(pdf).hexdigest())
+        self.trace('CARTE_DOCUMENT_DEMANDE',carte_id=card.id,document_id=document.id,pdf_sha256=document.pdf_sha256)
+        return serial(document)
 
     def opposer(self,key,data):
         card=self.stock.obtenir(CarteFideliteModel,key);row=self.stock.obtenir(CompteFideliteModel,card.compte_id)

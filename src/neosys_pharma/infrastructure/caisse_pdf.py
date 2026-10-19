@@ -96,3 +96,23 @@ def appel_pdf(org,site,vente,appel):
         story.append(Paragraph('Vente '+escape(str(vente.id)),styles['Normal']));story.append(Paragraph('Document de préparation - ne vaut pas reçu de paiement.',styles['Normal']))
     SimpleDocTemplate(out,pagesize=A4,title='Ticket appel '+appel['affichage']).build(story)
     return out.getvalue()
+
+
+def carte_fidelite_pdf(data):
+    """Document de carte figé au premier tirage ; Code 128 encode la valeur exacte."""
+    from reportlab.graphics.barcode.code128 import Code128
+    from reportlab.lib.pagesizes import landscape
+    from reportlab.pdfgen.canvas import Canvas
+    value=data['code_barres'] or data['code']
+    if not value or len(value)>80 or any(ord(c)<32 or ord(c)>126 for c in value):
+        raise ValueError('Impression Code 128 : identifiant ASCII de 1 à 80 caractères requis. Associer un code-barres imprimable avant le premier tirage.')
+    out=BytesIO();canvas=Canvas(out,pagesize=landscape(A4),invariant=1)
+    canvas.setTitle('Carte de fidélité '+data['code'])
+    canvas.setFont('Helvetica-Bold',18);canvas.drawString(40,530,'CARTE DE FIDÉLITÉ')
+    canvas.setFont('Helvetica',12);canvas.drawString(40,500,data['organisation'][:100]);canvas.drawString(40,475,data['titulaire'][:100])
+    canvas.drawString(40,450,'Numéro : '+data['code'][:100]);canvas.drawString(40,425,'Identifiant scanné : '+value)
+    barcode=Code128(value,barWidth=.7,barHeight=65,humanReadable=True)
+    if barcode.width>760:raise ValueError('Code-barres trop large pour une impression lisible sur ce format.')
+    barcode.drawOn(canvas,40,310)
+    canvas.setFont('Helvetica',9);canvas.drawString(40,260,'Carte '+data['carte_id']+' — vérifier son état dans l’application.')
+    canvas.showPage();canvas.save();return out.getvalue()

@@ -140,3 +140,7 @@ Les contrôles locaux récents sont SQLite/DOM uniquement. scripts/recette_p4p5_
 ## Suite après consolidation 03
 
 Moyens configurables et fournisseurs distincts implémentés : rapport docs/RESULTATS_P4_P5_03.md. Migration courante 20261019_02 après 20261019_01, non exécutée sur base conservée. Ne pas réintroduire des valeurs Airtel/Moov dans MODES : les fournisseurs sont des identités de catalogue, la famille reste MOBILE_MONEY. Les règlements retrouvent l'identité immuable via leur confirmation ; le remboursement explicite source/cible. Limite de références identiques entre fournisseurs conservée volontairement. La validation native/Chromium reste ouverte ; ne pas activer le groupe.
+
+## Suite après consolidation 04
+
+Migration courante 20261019_03 : cartes physiques et registre partagé numéro/code-barres, documents immuables. Le numéro historique n'est ni renommé ni supprimé. On peut associer une fois un code-barres avant le premier document, puis remplacer la carte selon P4 si nécessaire ; ne pas réécrire les identifiants historiques. Rapports docs/RESULTATS_P4_P5_03.md et 04.md ; recette unique toujours différée. Prochaines tâches indépendantes : reproduction PharmaGabon et import bénéficiaires ; les plafonds attendent les arbitrages documentés avant leurs compteurs. Groupe fermé, pas de base conservée.
