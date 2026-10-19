@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from neosys_pharma.domain.stock import ConflitStock
 
-from neosys_pharma.domain.tiers_payants import EntreePriorite, RolePriorite, verifier_periode, verifier_priorites
+from neosys_pharma.domain.tiers_payants import EntreePriorite, RolePriorite, verifier_periode, verifier_priorites, normaliser_identite_organisme
 from neosys_pharma.infrastructure.client_models import ClientModel, OrganismePriseEnChargeModel
 from neosys_pharma.infrastructure.organisation_models import OrganisationModel
 from neosys_pharma.infrastructure.securite_models import UtilisateurModel
@@ -46,6 +46,30 @@ class TiersPayantsService:
         if row is None or row.organisation_id != self.organisation_id:
             raise LookupError("Organisme de prise en charge introuvable.")
         return row
+
+    def creer_organisme(self, code: str, nom: str) -> dict:
+        self._organisation_verrouillee()
+        code, nom = normaliser_identite_organisme(code, nom)
+        row = self.stock.ajouter(OrganismePriseEnChargeModel, code=code, nom=nom)
+        self.session.flush()
+        self._audit("ORGANISME", row.id, "ORGANISME_CREE", {"apres": serial(row)})
+        return serial(row)
+
+    def modifier_organisme(self, organisme_id: UUID, revision: int,
+                           code: str, nom: str, actif: bool) -> dict:
+        self._organisation_verrouillee()
+        row = self._organisme(organisme_id)
+        if row.revision != revision:
+            raise ConflitStock("Organisme modifié par une autre opération : rechargez sa fiche.")
+        code, nom = normaliser_identite_organisme(code, nom)
+        if type(actif) is not bool:
+            raise ValueError("Le statut actif doit être explicite.")
+        before = serial(row)
+        row.code, row.nom, row.actif = code, nom, actif
+        row.revision += 1
+        self.session.flush()
+        self._audit("ORGANISME", row.id, "ORGANISME_MODIFIE", {"avant": before, "apres": serial(row)})
+        return serial(row)
 
     def creer_convention(self, data: dict) -> dict:
         self._organisation_verrouillee()

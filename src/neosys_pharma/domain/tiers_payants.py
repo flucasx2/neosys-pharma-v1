@@ -44,3 +44,15 @@ def verifier_priorites(entrees: list[EntreePriorite]) -> None:
         raise ValueError("Une configuration ne peut contenir qu'un organisme principal au maximum.")
     if principals and principals[0].rang != 1:
         raise ValueError("L'organisme principal, lorsqu'il est défini, doit être au premier rang.")
+
+
+def normaliser_identite_organisme(code: str, nom: str) -> tuple[str, str]:
+    """Identité générique du référentiel, indépendante des clients."""
+    if not isinstance(code, str) or not isinstance(nom, str):
+        raise ValueError("Le code et le nom de l'organisme sont obligatoires.")
+    code, nom = code.strip().upper(), nom.strip()
+    if not code or len(code) > 80 or not nom or len(nom) > 200:
+        raise ValueError("Code (1 à 80 caractères) et nom (1 à 200 caractères) requis.")
+    if any(ord(c) < 32 or ord(c) == 127 for c in code + nom):
+        raise ValueError("Les caractères de contrôle ne sont pas autorisés.")
+    return code, nom

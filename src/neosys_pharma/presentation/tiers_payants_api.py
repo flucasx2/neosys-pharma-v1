@@ -4,9 +4,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from neosys_pharma.application.tiers_payants_service import TiersPayantsService
+from neosys_pharma.infrastructure.client_models import OrganismePriseEnChargeModel
 from neosys_pharma.infrastructure.tiers_payants_models import (
     AdhesionOrganismeModel, BeneficiaireCouvertureModel, ConventionOrganismeModel,
     ParametragePrioriteTiersPayantModel,
@@ -18,6 +19,10 @@ from neosys_pharma.application.stock_service import serial
 
 
 POLICY = {
+    "tiers_payants_organismes": ("tiers_payant.consulter", "tiers_payant.organisme.gerer"),
+    "tiers_payants_organisme_detail": ("tiers_payant.consulter", "tiers_payant.organisme.gerer"),
+    "tiers_payants_organisme_creer": "tiers_payant.organisme.gerer",
+    "tiers_payants_organisme_modifier": "tiers_payant.organisme.gerer",
     "tiers_payants_conventions": ("tiers_payant.consulter", "tiers_payant.convention.gerer"),
     "tiers_payants_convention_creer": "tiers_payant.convention.gerer",
     "tiers_payants_beneficiaires": "tiers_payant.adhesion.consulter",
@@ -41,6 +46,16 @@ router = APIRouter(
 
 Input = vente_api.Input
 Mutation = vente_api.Mutation
+
+
+class OrganismeInput(Mutation):
+    code: str = Field(min_length=1, max_length=80)
+    nom: str = Field(min_length=1, max_length=200)
+
+
+class OrganismeModification(OrganismeInput):
+    revision: int = Field(strict=True, ge=1)
+    actif: bool = Field(strict=True)
 
 
 class ConventionInput(Mutation):
@@ -210,3 +225,36 @@ def priorites(page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=10
 def priorites_creer(data: PrioritesInput, s=Depends(service)):
     payload = data.model_dump(exclude={"cle"})
     return mutate(s, data, "PRIORITES", lambda: s.creer_priorites(payload))
+
+
+@router.get("/organismes", name="tiers_payants_organismes")
+def organismes(q: str = Query("", max_length=200), actif: bool | None = None,
+               page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100),
+               s=Depends(service)):
+    query = select(OrganismePriseEnChargeModel).where(
+        OrganismePriseEnChargeModel.organisation_id == s.organisation_id)
+    if actif is not None:
+        query = query.where(OrganismePriseEnChargeModel.actif == actif)
+    if q.strip():
+        term = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        query = query.where(or_(OrganismePriseEnChargeModel.code.ilike("%" + term + "%", escape="\\"),
+                               OrganismePriseEnChargeModel.nom.ilike("%" + term + "%", escape="\\")))
+    total, rows = s.stock.repo.paginer(query.order_by(
+        OrganismePriseEnChargeModel.nom, OrganismePriseEnChargeModel.id), page, page_size)
+    return {"items": [serial(row) for row in rows], "total": total, "page": page, "page_size": page_size}
+
+
+@router.get("/organismes/{organisme_id}", name="tiers_payants_organisme_detail")
+def organisme_detail(organisme_id: UUID, s=Depends(service)):
+    return execute(lambda: serial(s._organisme(organisme_id)))
+
+
+@router.post("/organismes", status_code=201, name="tiers_payants_organisme_creer")
+def organisme_creer(data: OrganismeInput, s=Depends(service)):
+    return mutate(s, data, "ORGANISME_CREE", lambda: s.creer_organisme(data.code, data.nom))
+
+
+@router.put("/organismes/{organisme_id}", name="tiers_payants_organisme_modifier")
+def organisme_modifier(organisme_id: UUID, data: OrganismeModification, s=Depends(service)):
+    return mutate(s, data, "ORGANISME_MODIFIE:" + str(organisme_id),
+                  lambda: s.modifier_organisme(organisme_id, data.revision, data.code, data.nom, data.actif))
