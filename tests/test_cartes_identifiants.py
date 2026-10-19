@@ -70,3 +70,11 @@ def test_premier_document_bloque_association_tardive_et_alias_forge(raw_client,a
         with pytest.raises(DBAPIError):s.commit()
         s.rollback()
     finally:gen.close()
+
+
+def test_document_ne_tronque_pas_numero_visible_long():
+    from neosys_pharma.infrastructure.caisse_pdf import carte_fidelite_pdf
+    number='V'*180
+    pdf=carte_fidelite_pdf({'code':number,'code_barres':'SCAN-COURT','organisation':'Fictive','titulaire':'Fictif','carte_id':str(uuid4())})
+    extracted=''.join(p.extract_text() for p in PdfReader(BytesIO(pdf)).pages)
+    assert number in ''.join(extracted.split())

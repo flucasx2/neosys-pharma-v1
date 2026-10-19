@@ -94,3 +94,10 @@ OBS-CAT-01 partiellement ouverte : faux succès de fin de lots reproduit et corr
 - IMP-06-02 : une ligne invalide ou un échec après la première création annule tout l'import ; tests de rollback réussis sous SQLite, pas de preuve native.
 - ENV : PostgreSQL natif, Chromium et matériel non exécutés. La sélection intégrée se termine par 19 réussis et 4 ignorés, qui ne lèvent pas les réserves natives.
 - CAP-P5-01 : arbitrages toujours attendus, aucune consommation de plafonds codée. P5-C demeure autorisé pour la suite et non livré dans 03–06.
+
+## Consolidation 07 — contrôles de compatibilité
+
+- COMPAT-07-01 : sélecteurs Chromium historiques name=mode, montant_ESPECES et mode_CARTE conservés pour les moyens génériques ; 9 assertions DOM fournisseurs, navigateur réel non exécuté.
+- CI-07-01 : cible native générique incompatible avec garde-fous nouveaux ; CI 17/18 sur bases explicitement marquées préparée, sans supprimer de tests, vérifiée localement (48 tests de politique) mais non exécutée à distance.
+- MIG-07-01 : ancien command.check sur révision intermédiaire échouait réellement ; montée jusqu'au head avant check et cycle de préservation maintenu, test repassé.
+- CARD-07-01 : numéro visible long tronqué sur PDF, test rouge puis correctif de retour à la ligne, 4 tests cartes réussis. Matériel non vérifié.

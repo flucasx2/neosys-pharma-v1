@@ -36,14 +36,14 @@ def preparer_migration(url, monkeypatch):
         s.add(OrganisationModel(id_organisation=org,nom_commercial='QA',raison_sociale='QA',actif=True));s.flush()
         s.add(UtilisateurModel(id_utilisateur=user,organisation_id=org,identifiant='qa',nom='QA',actif=True))
         s.add(OrganismePriseEnChargeModel(id=payer,organisation_id=org,code='P4B-QA',nom='Historique fictif',revision=1,actif=True));s.commit()
-    command.upgrade(cfg,'20261019_01');command.check(cfg)
+    command.upgrade(cfg,'20261019_01');command.upgrade(cfg,'head');command.check(cfg)
     with Session(engine) as s:
         assert s.get(OrganismePriseEnChargeModel,payer).nom=='Historique fictif'
     inspector=sa.inspect(engine)
     fks=inspector.get_foreign_keys('tiers_payant_verifications_convention')
     assert {'fk_tp_verif_configuration_scope','fk_tp_verif_adhesion_org','fk_tp_verif_vente_site_org','fk_tp_verif_lien_beneficiaire'} <= {x['name'] for x in fks}
     # Le downgrade est possible avant saisie, sans supprimer le référentiel historique.
-    command.downgrade(cfg,'20261018_01');command.upgrade(cfg,'20261019_01')
+    command.downgrade(cfg,'20261018_01');command.upgrade(cfg,'head')
     return engine,cfg,org,user,payer
 
 

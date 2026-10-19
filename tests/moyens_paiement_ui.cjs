@@ -13,7 +13,7 @@ async function scenario(w,sources){
  function modal(title,p,build,saver){const source=d.createElement('form'),init=build(source);entry={form:source.cloneNode(true),submit:d.createElement('button')};d.body.append(entry.form);if(init)init(entry);save=saver;}
  w.cashModal=modal;w.financeModal=modal;w.cashRequest=async(route,method,body)=>{calls.push({route,method,body});return {};};
  w.eval('cashState.sale={id:"sale",revision:2,totaux:{ttc:500},confirmations:[]};cashState.session={id:"session",revision:1};cashState.context={configuration:'+JSON.stringify(config)+'};');
- w.cashConfirm();entry.form.elements.choix_moyen.value='MOBILE_MONEY:moov';entry.form.elements.montant.value='100';entry.form.elements.reference.value='REF';entry.form.elements.preuve.value='Ticket';await save(Object.fromEntries(new w.FormData(entry.form)),{cle:'test'});
+ w.cashConfirm();entry.form.elements.mode.value='MOBILE_MONEY:moov';entry.form.elements.montant.value='100';entry.form.elements.reference.value='REF';entry.form.elements.preuve.value='Ticket';await save(Object.fromEntries(new w.FormData(entry.form)),{cle:'test'});
  assert(calls[0].body.mode==='MOBILE_MONEY'&&calls[0].body.moyen_id==='moov','Identité fournisseur non transmise');
  w.eval('cashGroupState.draft={dossier:{id:"group",etat:"BROUILLON",session_id:"session"},ventes:[],reglements:[],totaux:{du_xaf:500}};cashGroupState.payments=[{mode:"MOBILE_MONEY",moyen_id:"air",montant:"100",rendu:"0",confirmation_id:"cf-air"}];cashGroupState.saleDetails.set("sale",{confirmations:[{id:"cf-air",mode:"MOBILE_MONEY",moyen_id:"air",reference:"AIR",montant:100},{id:"cf-moov",mode:"MOBILE_MONEY",moyen_id:"moov",reference:"MOOV",montant:100}]});');
  w.cgRenderPayments();const choice=d.querySelector('[aria-label="Mode règlement 1"]'),confirmation=d.querySelector('[aria-label="Confirmation règlement 1"]');
@@ -25,6 +25,10 @@ async function scenario(w,sources){
  await w.financeRefund({id:'retour'});assert(entry.form.elements.montant_0&&entry.form.elements.montant_1,'Deux origines de même famille fusionnées');
  entry.form.elements.justification.value='Restitution';await save(Object.fromEntries(new w.FormData(entry.form)),{cle:'refund'});
  assert(calls.at(-1).body.reglements[0].moyen_origine_id==='air'&&calls.at(-1).body.reglements[0].moyen_id==='air','Origine du remboursement perdue');
+ assert(entry.form.elements.mode_0&&entry.form.elements.mode_1,'Contrôles de fournisseurs non indépendants');
+ w.financeRequest=async()=>({montant:'100',disponible_par_moyen:[{mode:'ESPECES',moyen_id:null,libelle:'ESPECES',montant:'100'},{mode:'CARTE',moyen_id:null,libelle:'CARTE',montant:'100'}]});
+ w.eval('financeState.context.modes=["ESPECES","CARTE"];financeState.context.moyens=[]');
+ await w.financeRefund({id:'legacy'});assert(entry.form.elements.montant_ESPECES&&entry.form.elements.mode_CARTE.value==='CARTE','Sélecteurs Chromium historiques modifiés');
  return checks;
 }
 (async()=>{if(process.argv.includes('--chromium')){const {chromium}=require('playwright');const b=await chromium.launch({headless:true});try{const page=await b.newPage();await page.route('http://localhost:8765/**',r=>r.fulfill({contentType:'text/html',body:html}));await page.goto('http://localhost:8765/');console.log(await page.evaluate(async({sources,fn})=>(0,eval)(`(${fn})`)(window,sources),{sources,fn:scenario.toString()}),'assertions Chromium, HTTP simulé');}finally{await b.close();}}else{const {JSDOM}=require('jsdom');const dom=new JSDOM(html,{runScripts:'dangerously',url:'https://qa.example.test'});try{console.log(await scenario(dom.window,sources),'assertions DOM fournisseurs, HTTP simulé');}finally{dom.window.close();}}})().catch(e=>{console.error(e);process.exitCode=1;});

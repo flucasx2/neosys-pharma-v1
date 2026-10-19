@@ -109,10 +109,13 @@ def carte_fidelite_pdf(data):
     out=BytesIO();canvas=Canvas(out,pagesize=landscape(A4),invariant=1)
     canvas.setTitle('Carte de fidélité '+data['code'])
     canvas.setFont('Helvetica-Bold',18);canvas.drawString(40,530,'CARTE DE FIDÉLITÉ')
-    canvas.setFont('Helvetica',12);canvas.drawString(40,500,data['organisation'][:100]);canvas.drawString(40,475,data['titulaire'][:100])
-    canvas.drawString(40,450,'Numéro : '+data['code'][:100]);canvas.drawString(40,425,'Identifiant scanné : '+value)
+    style=ParagraphStyle('CarteIdentite',fontName='Helvetica',fontSize=12,leading=16,wordWrap='CJK')
+    y=500
+    for text in (data['organisation'],data['titulaire'],'Numéro : '+data['code'],'Identifiant scanné : '+value):
+        paragraph=Paragraph(escape(text),style);_,height=paragraph.wrap(750,250)
+        paragraph.drawOn(canvas,40,y-height);y-=height+10
     barcode=Code128(value,barWidth=.7,barHeight=65,humanReadable=True)
     if barcode.width>760:raise ValueError('Code-barres trop large pour une impression lisible sur ce format.')
-    barcode.drawOn(canvas,40,310)
-    canvas.setFont('Helvetica',9);canvas.drawString(40,260,'Carte '+data['carte_id']+' — vérifier son état dans l’application.')
+    barcode.drawOn(canvas,40,y-90)
+    canvas.setFont('Helvetica',9);canvas.drawString(40,y-135,'Carte '+data['carte_id']+' — vérifier son état dans l’application.')
     canvas.showPage();canvas.save();return out.getvalue()
