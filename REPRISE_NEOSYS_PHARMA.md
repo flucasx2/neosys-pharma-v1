@@ -146,3 +146,11 @@ Moyens configurables et fournisseurs distincts implémentés : rapport docs/RESU
 Migration courante 20261019_03 : cartes physiques et registre partagé numéro/code-barres, documents immuables. Le numéro historique n'est ni renommé ni supprimé. On peut associer une fois un code-barres avant le premier document, puis remplacer la carte selon P4 si nécessaire ; ne pas réécrire les identifiants historiques. Rapports docs/RESULTATS_P4_P5_03.md et 04.md ; recette unique toujours différée. Prochaines tâches indépendantes : reproduction PharmaGabon et import bénéficiaires ; les plafonds attendent les arbitrages documentés avant leurs compteurs. Groupe fermé, pas de base conservée.
 
 Consolidation 05 : bilan de l'import catalogue corrigé sans migration ; voir docs/RESULTATS_P4_P5_05.md. Ne pas confondre termine (fin de parcours des lots) avec IMPORTE (création/enrichissement effectif). Ne pas prétendre avoir réparé l'import réel sans son rapport/CSV. Poursuivre les imports de bénéficiaires sous identité de source explicite, sans création automatique de droits.
+
+## Reprise après les incréments 03–06
+
+Base conservée ef1256bf, branche work/p4-p5-consolidation. Trois commits déjà créés : 0af2686 moyens, ac4010c cartes, 84405ed bilan catalogue ; import bénéficiaires décrit dans docs/RESULTATS_P4_P5_06.md. Migration courante 20261019_04 (02 moyens, 03 cartes, 04 import). Recette native et Chromium toujours non exécutée ; ne pas activer le groupe. Rapports par incrément et recette unique mis à jour.
+
+L'import de personnes ne crée pas d'adhésion ou de droits ; poursuivre les liens de couverture existants explicitement. Import modifié sur une référence connue = revue contrôlée, pas d'écrasement. XLSX nécessite les dépendances pyproject mises à jour. Les bases Windows et recettes conservées restent protégées.
+
+La mission courante autorise ensuite P5-C : les anciennes consignes « ne pas commencer P5-C » des sous-lots antérieurs ne sont plus une interdiction générale. Il n'est pas encore livré ici. Réutiliser les réalisations/snapshots confirmés et les documents P5-FAC-01 ; ne pas fabriquer de facture ou créance à partir d'une simulation. Les arbitrages de compteurs plafonds restent préalables à leur implémentation uniquement, pas une raison de reconstruire P4 ni de bloquer les tâches indépendantes. Ne demander aucune recette humaine intermédiaire.

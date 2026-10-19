@@ -86,3 +86,11 @@ Les limites d'environnement CONF-ENV-02/03 subsistent. Les tests natifs prépar�
 ## Consolidation 05 — catalogue
 
 OBS-CAT-01 partiellement ouverte : faux succès de fin de lots reproduit et corrigé ; recherche CIP/nom prouvée sur données fictives après reprise. L'incident réel n'est pas reproduit faute du rapport et CSV Windows. Aucune correction arbitraire du stock, de la normalisation ou des prix.
+
+## Consolidation 06 — import de bénéficiaires
+
+- NC-P5-03/04 : import CSV/XLSX de personnes ajouté, rattachement explicite aux personnes existantes, provenance et reimport ; API/SQLite/DOM réussis. Les adhésions/droits restent des étapes distinctes. L'édition de masse et les modifications de données déjà importées restent contrôlées/non automatiques.
+- IMP-06-01 : références Excel numériques refusées, zéros non reconstruits ; formules/colonnes de droits interdites, feuilles multiples explicites, limites de ressources et XML protégé.
+- IMP-06-02 : une ligne invalide ou un échec après la première création annule tout l'import ; tests de rollback réussis sous SQLite, pas de preuve native.
+- ENV : PostgreSQL natif, Chromium et matériel non exécutés. La sélection intégrée se termine par 19 réussis et 4 ignorés, qui ne lèvent pas les réserves natives.
+- CAP-P5-01 : arbitrages toujours attendus, aucune consommation de plafonds codée. P5-C demeure autorisé pour la suite et non livré dans 03–06.

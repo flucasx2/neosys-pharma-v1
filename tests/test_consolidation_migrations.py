@@ -54,6 +54,7 @@ def test_migration_moyens_postgresql_natif(monkeypatch):
     finally:engine.dispose()
     cycle(url,monkeypatch)
     cycle_cartes(url,monkeypatch)
+    cycle_import(url,monkeypatch)
 
 
 def test_migration_cartes_reprise_numeros_et_registre(tmp_path,monkeypatch):
@@ -72,7 +73,7 @@ def cycle_cartes(url,monkeypatch):
             s.add(CompteFideliteModel(id=account,organisation_id=org,client_id=client,points=4,dette=0,revision=1));s.flush()
             s.execute(CarteFideliteModel.__table__.insert().values(id=card,organisation_id=org,compte_id=account,code='00000123',type='PHYSIQUE',etat='ACTIVE'));s.commit()
         before={r['sqltext'] for r in sa.inspect(engine).get_check_constraints('fidelite_cartes')}
-        command.upgrade(cfg,'20261019_03');command.check(cfg)
+        command.upgrade(cfg,'20261019_03');command.upgrade(cfg,'head');command.check(cfg)
         assert before <= {r['sqltext'] for r in sa.inspect(engine).get_check_constraints('fidelite_cartes')}
         with Session(engine) as s:
             assert s.get(CarteFideliteModel,card).code=='00000123'
@@ -82,4 +83,30 @@ def cycle_cartes(url,monkeypatch):
         with Session(engine) as s:
             row=s.get(CarteFideliteModel,card);row.code_barres='SCAN-001';s.commit()
         with pytest.raises(RuntimeError,match='conserver'):command.downgrade(cfg,'20261019_02')
+    finally:engine.dispose();get_settings.cache_clear()
+
+
+def test_migration_import_additive_et_immutable(tmp_path,monkeypatch):
+    cycle_import('sqlite+pysqlite:///'+str(tmp_path/'import.db'),monkeypatch)
+
+
+def cycle_import(url,monkeypatch):
+    from neosys_pharma.infrastructure.securite_models import UtilisateurModel
+    from neosys_pharma.infrastructure.tiers_payants_models import BeneficiaireCouvertureModel,OrigineImportBeneficiaireModel
+    monkeypatch.setenv('DATABASE_URL',url);get_settings.cache_clear();cfg=Config('alembic.ini');engine=sa.create_engine(url)
+    try:
+        command.upgrade(cfg,'20261019_04');command.check(cfg)
+        command.downgrade(cfg,'20261019_03');command.upgrade(cfg,'20261019_04')
+        org,user,payer,bene=uuid4(),uuid4(),uuid4(),uuid4()
+        with Session(engine) as s:
+            s.add(OrganisationModel(id_organisation=org,nom_commercial='QA import',raison_sociale='QA import',actif=True));s.flush()
+            s.add(UtilisateurModel(id_utilisateur=user,organisation_id=org,identifiant='qa-import',nom='QA',actif=True));s.flush()
+            s.add(OrganismePriseEnChargeModel(id=payer,organisation_id=org,code='SOURCE',nom='Fictif',actif=True,revision=1));s.flush()
+            s.add(BeneficiaireCouvertureModel(id=bene,organisation_id=org,nom='Fictif',actif=True,revision=1,auteur_id=user));s.flush()
+            s.add(OrigineImportBeneficiaireModel(organisation_id=org,organisme_id=payer,beneficiaire_id=bene,reference_externe='00001',empreinte_ligne='0'*64,empreinte_fichier='1'*64,nom_fichier='qa.csv',donnees={},auteur_id=user));s.commit()
+        for statement in ("UPDATE tiers_payant_origines_import_beneficiaires SET reference_externe='CHANGE'",'DELETE FROM tiers_payant_origines_import_beneficiaires'):
+            with engine.connect() as c:
+                with pytest.raises(sa.exc.DBAPIError):c.execute(sa.text(statement));c.commit()
+                c.rollback()
+        with pytest.raises(RuntimeError,match='conserver'):command.downgrade(cfg,'20261019_03')
     finally:engine.dispose();get_settings.cache_clear()

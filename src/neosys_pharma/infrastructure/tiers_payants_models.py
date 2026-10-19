@@ -218,7 +218,26 @@ class VerificationConventionModel(EntiteVente, Base):
     auteur_id: Mapped[UUID] = mapped_column(Uuid)
     cree_le: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
-for _model in (ConventionOrganismeModel, PrioriteOrganismeModel, EvenementTiersPayantModel, ConfigurationConventionModel, VerificationConventionModel):
+class OrigineImportBeneficiaireModel(EntiteVente,Base):
+    """Identité de liste par organisme ; aucun droit ou rapprochement implicite."""
+    __tablename__='tiers_payant_origines_import_beneficiaires'
+    __table_args__=(UniqueConstraint('id','organisation_id',name='uq_tp_import_benef_org'),
+        UniqueConstraint('organisation_id','organisme_id','reference_externe',name='uq_tp_import_benef_source'),
+        ForeignKeyConstraint(['organisme_id','organisation_id'],['organismes_prise_en_charge.id','organismes_prise_en_charge.organisation_id'],name='fk_tp_import_benef_organisme'),
+        ForeignKeyConstraint(['beneficiaire_id','organisation_id'],['tiers_payant_beneficiaires.id','tiers_payant_beneficiaires.organisation_id'],name='fk_tp_import_benef_personne'),
+        ForeignKeyConstraint(['auteur_id','organisation_id'],['utilisateurs.id_utilisateur','utilisateurs.organisation_id'],name='fk_tp_import_benef_auteur'),
+        CheckConstraint('length(empreinte_ligne)=64 AND length(empreinte_fichier)=64',name='ck_tp_import_benef_hash'))
+    organisme_id:Mapped[UUID]=mapped_column(Uuid)
+    beneficiaire_id:Mapped[UUID]=mapped_column(Uuid,index=True)
+    reference_externe:Mapped[str]=mapped_column(String(200))
+    empreinte_ligne:Mapped[str]=mapped_column(String(64))
+    empreinte_fichier:Mapped[str]=mapped_column(String(64))
+    nom_fichier:Mapped[str]=mapped_column(String(200))
+    donnees:Mapped[dict]=mapped_column(JSON)
+    auteur_id:Mapped[UUID]=mapped_column(Uuid)
+    cree_le:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
+
+for _model in (ConventionOrganismeModel, PrioriteOrganismeModel, EvenementTiersPayantModel, ConfigurationConventionModel, VerificationConventionModel, OrigineImportBeneficiaireModel):
     _table = _model.__tablename__
     for action in ("UPDATE", "DELETE"):
         event.listen(

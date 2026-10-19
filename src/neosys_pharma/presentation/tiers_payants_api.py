@@ -1,6 +1,7 @@
 """API P5-A : référentiel, conventions, adhésions et ordre contractuel."""
 from datetime import date, datetime
 from uuid import UUID
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import Field
@@ -20,6 +21,8 @@ from neosys_pharma.application.stock_service import serial
 
 
 POLICY = {
+    "beneficiaires_import_prevoir":"tiers_payant.adhesion.gerer",
+    "beneficiaires_import_confirmer":"tiers_payant.adhesion.gerer",
     "conventions_configurees_creer": "tiers_payant.convention.gerer",
     "conventions_configurees_detail": ("tiers_payant.consulter", "tiers_payant.convention.gerer"),
     "conventions_preuve_creer": "tiers_payant.adhesion.gerer",
@@ -324,3 +327,24 @@ def convention_preuves_lire(vente_id: UUID, request: Request, page: int = Query(
         VerificationConventionModel.vente_id == vente_id,
         VerificationConventionModel.site_id == s.site).order_by(VerificationConventionModel.cree_le.desc(), VerificationConventionModel.id), page, page_size)
     return {"items": [serial(row) for row in rows], "total": total, "page": page, "page_size": page_size}
+
+
+class ImportBeneficiaires(Mutation):
+    organisme_id:UUID
+    nom_fichier:str=Field(min_length=1,max_length=200)
+    format:Literal['CSV','XLSX']
+    contenu_base64:str=Field(min_length=1,max_length=5_400_000)
+    feuille:str|None=Field(default=None,max_length=200)
+class ImportBeneficiairesConfirmer(ImportBeneficiaires):
+    empreinte_attendue:str=Field(pattern=r'^[a-f0-9]{64}$')
+    confirmer:bool=Field(strict=True)
+
+@router.post('/imports/beneficiaires/previsualiser',name='beneficiaires_import_prevoir')
+def beneficiaires_import_prevoir(data:ImportBeneficiaires,s=Depends(service)):
+    from neosys_pharma.application.import_beneficiaires_service import ImportBeneficiairesService
+    return execute(lambda:ImportBeneficiairesService(s).analyser(data.model_dump()))
+
+@router.post('/imports/beneficiaires/confirmer',name='beneficiaires_import_confirmer')
+def beneficiaires_import_confirmer(data:ImportBeneficiairesConfirmer,s=Depends(service)):
+    from neosys_pharma.application.import_beneficiaires_service import ImportBeneficiairesService
+    return mutate(s,data,'IMPORT_BENEFICIAIRES',lambda:ImportBeneficiairesService(s).confirmer(data.model_dump()))

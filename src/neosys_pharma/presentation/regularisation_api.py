@@ -176,6 +176,6 @@ def finance_ventes(request:Request,q:str=Query('',max_length=200),page_:int=Quer
 @router.get('/retours/{key}/solde')
 def finance_solde(key:UUID,s=Depends(service)):
     ret,enc=execute(lambda:s.retour_scope(key,'caisse.remboursement.demander'))
-    paid=s.budget_reglements(enc)
+    paid=execute(lambda:s.budget_reglements(enc))
     modes={mode:str(sum((row['montant'] for row in paid.values() if row['mode']==mode),Decimal(0))) for mode in ('ESPECES','CARTE','MOBILE_MONEY','CHEQUE','VIREMENT')}
     return {'montant':str(ret.montant),'disponible_par_mode':modes,'disponible_par_moyen':[{**row,'montant':str(row['montant'])} for row in paid.values()],'deja_demande':bool(s.stock.lignes(RemboursementModel,retour_id=ret.id))}
