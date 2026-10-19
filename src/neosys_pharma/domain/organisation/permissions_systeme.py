@@ -99,3 +99,11 @@ REGULARISATION_PERMISSIONS = (
     ('stock.quarantaine.decider','Décider la remise en vente ou le refus sanitaire'),
 )
 PERMISSIONS += REGULARISATION_PERMISSIONS
+
+P5C_PERMISSIONS = (
+ ('tiers_payant.creance.consulter','Consulter les créances et dossiers administratifs autorisés'),
+ ('tiers_payant.creance.constituer','Constituer les créances depuis les réalisations confirmées'),
+ ('tiers_payant.creance.completer','Compléter les versions administratives des créances'),
+ ('tiers_payant.creance.verifier','Contrôler les dossiers avant facturation'),
+)
+PERMISSIONS += P5C_PERMISSIONS

@@ -1,3 +1,4 @@
+from neosys_pharma.presentation import creance_api
 from neosys_pharma.presentation import tarification_api, import_catalogue_api, stock_api, vente_api, proforma_api, caisse_api, regularisation_api, client_api, encaissement_groupe_api, tiers_payants_api
 from fastapi import FastAPI, Depends, Request
 from fastapi.exceptions import RequestValidationError
@@ -35,6 +36,7 @@ def create_app() -> FastAPI:
     app.include_router(regularisation_api.router)
     app.include_router(client_api.router)
     app.include_router(tiers_payants_api.router)
+    app.include_router(creance_api.router)
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, exc):
         # Never echo password input in validation responses.

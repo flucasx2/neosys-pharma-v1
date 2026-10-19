@@ -101,3 +101,15 @@ OBS-CAT-01 partiellement ouverte : faux succès de fin de lots reproduit et corr
 - CI-07-01 : cible native générique incompatible avec garde-fous nouveaux ; CI 17/18 sur bases explicitement marquées préparée, sans supprimer de tests, vérifiée localement (48 tests de politique) mais non exécutée à distance.
 - MIG-07-01 : ancien command.check sur révision intermédiaire échouait réellement ; montée jusqu'au head avant check et cycle de préservation maintenu, test repassé.
 - CARD-07-01 : numéro visible long tronqué sur PDF, test rouge puis correctif de retour à la ligne, 4 tests cartes réussis. Matériel non vérifié.
+
+## P5-C.1 / P5-FAC-02 — 19/10/2026
+
+- C1-ENV-01 — Ouvert : PostgreSQL natif non exécuté dans cette reprise ; courses et migration protégées préparées, aucun ignoré présenté comme réussi.
+- C1-ENV-02 — Ouvert : Chromium absent ; installation échouée (ZIP tronqué), 23 assertions DOM Créances et 38 Conventions avec HTTP simulé seulement. Recette finale consolidée maintenue.
+- C1-REG-01 — Ouvert : registres compensatoires de créances après retour à livrer avec l'incrément de régularisation ; engagement bloqué dès un retour de la vente, montant source inchangé. Aucun avoir artificiel.
+- C1-LEG-01 — Ouvert : réalisation historique sans exigences documentaires figées non facturable ; reprise administrative à définir explicitement, sans prendre des clauses courantes pour historiques.
+- C1-FAC-02 — Implémenté localement : champs/pièces FACTURATION facultatifs au comptoir, droits/finance toujours obligatoires ; compléments versionnés et contrôle distinct avant engagement. Facturation effective reste hors P5-C.1 et devra appeler le garde transactionnel.
+- C1-MIG-01 — Corrigé dans le test : inspection SQLite périmée après migration externe ; connexion d'inspection renouvelée, assertions conservées.
+- CONTINUITE-C1 — Worktree initial disparu ; base exacte récupérée par les bundles et ajouts repris dans une copie isolée. Bundle complet et patch de cette livraison exportés pour récupération.
+
+L'incident réel PharmaGabon reste ouvert faute de reproduction avec son fichier réel. CAP-P5-01 (plafonds consommables) reste ouvert ; aucune règle de période, consommation ou restitution inventée. Les réserves antérieures P4/P5 ne sont pas levées par les seuls tests SQLite/DOM de cet incrément.

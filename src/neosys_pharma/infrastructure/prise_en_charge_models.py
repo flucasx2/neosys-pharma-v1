@@ -130,6 +130,7 @@ class RealisationPriseEnChargeModel(Base):
     __tablename__ = "tiers_payant_realisations"
     __table_args__ = (
         UniqueConstraint("id", "organisation_id", name="uq_tp_realisation_org"),
+        UniqueConstraint("id", "vente_id", "organisation_id", "site_id", name="uq_tp_realisation_source_scope"),
         UniqueConstraint("vente_id", name="uq_tp_realisation_vente"),
         UniqueConstraint("encaissement_id", name="uq_tp_realisation_encaissement"),
         UniqueConstraint("calcul_id", name="uq_tp_realisation_calcul"),

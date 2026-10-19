@@ -21,3 +21,21 @@ Une seule branche candidate et une instance isolée seront préparées après st
 | INT-13 | Plafonds consommables et P5-C. | Scénarios à compléter après implémentation et arbitrages ; aucun résultat présumé. | Non livré |
 
 Réutiliser également les scénarios historiques de sessions, X/Z, retours successifs, accès multisite et fidélité dans RECETTE_HUMAINE_P5_B.md et les documents P4. Préparer ultérieurement un inventaire unique de données, rôles, conventions, états attendus et procès-verbal, sans effacer les réserves antérieures.
+
+## Ajout P5-C.1 / P5-FAC-02 — campagne finale seulement
+
+Préparer trois organismes fictifs, des conventions à périodes valides avec droits confirmés, un champ d'identification FINANCIERE obligatoire et une référence/pièce FACTURATION obligatoire. Donner séparément les quatre permissions Créances à des profils fictifs, sans modifier les utilisateurs réels.
+
+| ID | Opérations dans l'application | Attendu |
+|---|---|---|
+| C1-01 | Vendre avec droits valides, référence/pièce de facturation encore absente ; confirmer puis encaisser la part client | Vente autorisée, contrôle financier maintenu ; pas de créance depuis la seule simulation |
+| C1-02 | Créances → Réalisations à constituer → constituer puis recommencer | Une créance positive par organisme, références exactes ; aucun doublon |
+| C1-03 | Consulter la créance puis tenter une validation sans complément | A_COMPLETER ; refus serveur de validation/engagement ; montants inchangés |
+| C1-04 | Compléter la référence et la pièce, indiquer le contrôle et le motif, enregistrer | A_CONTROLER ; nouvelle version signée par l'auteur ; preuve financière non éditable |
+| C1-05 | Agent habilité → Valider pour facturation | VALIDE_POUR_FACTURATION ; aucune facture créée ; génération future encore hors module |
+| C1-06 | Corriger un complément, consulter l'historique, essayer une révision périmée | Versions précédentes intactes, nouveau contrôle requis ; conflit explicite |
+| C1-07 | Retourner partiellement la vente et consulter chaque créance | EN_ANOMALIE effectif, retour lié ; engagement bloqué jusqu'à régularisation, aucune réduction silencieuse |
+| C1-08 | Essayer sans permission, depuis autre site/emplacement, double clic et réponse réseau perdue | Refus de périmètre ; aucune double écriture ; même clé pour rejeu identique |
+| C1-09 | Consulter une réalisation historique sans exigences documentaires figées | Créance suivie, non facturable ; aucune reconstitution arbitraire des clauses |
+
+Ces scénarios restent **non exécutés humainement**. Les états proposés pour la facturation, présentations et règlements devront être vérifiés lors de leurs incréments dédiés. L'ancien INT-13 demeure historique ; P5-C.1 est désormais livré localement avec les réserves natives de RESULTATS_P5_C_1.md.

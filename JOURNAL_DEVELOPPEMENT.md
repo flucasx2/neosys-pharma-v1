@@ -124,3 +124,7 @@ Import CSV/XLSX réel, prévisualisation et confirmation explicite atomique, ré
 ## 19 octobre 2026 — consolidation 07, compatibilité et CI préparée
 
 Noms de champs historiques de confirmation/remboursement conservés, assertions DOM supplémentaires. Ancien test migration P5-CONF.1b réellement en échec sur le jalon dépassé : passage au head avant command.check, cycle et assertions conservés, test repassé. Troncature du numéro de carte long reproduite puis corrigée sans perte d'identifiant ; 4 tests cartes réussis. CI locale préparée : PostgreSQL 17/18, bases marquées séparées, tests natifs non exclus et synthèse conservatrice ; 48 tests du contrôleur réussis. Aucun run distant, aucune preuve native/Chromium réelle. État global et suite autorisée : docs/ETAT_P4_P5_03_07.md. P5-C reste à développer ; aucune recette humaine intermédiaire requise.
+
+## 19/10/2026 — P5-C.1, créances et P5-FAC-02
+
+Base exacte ba570569 récupérée par bundles dans une copie isolée après disparition du worktree initial. Constitution par organisme depuis les réalisations confirmées, journal financier immuable, versions administratives, permissions, écran intégré et garde d'engagement avant facturation. Migration additive 20261019_05. Résultats et limites : docs/RESULTATS_P5_C_1.md. Aucune publication ni migration conservée ; pas d'activation du groupe ; pas de recette humaine intermédiaire. Les régularisations de créances et modules de facturation ne sont pas simulés.

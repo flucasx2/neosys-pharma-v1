@@ -32,14 +32,14 @@ def configuration_validee(data):
         if not isinstance(data[key], list) or len(data[key]) > 100:
             raise ValueError(f'{key} : liste bornée requise.')
     for item in data['champs']:
-        structure(item, {'code', 'libelle', 'type', 'obligatoire', 'format'}, 'Champ', {'code', 'libelle', 'type', 'obligatoire', 'format'})
+        structure(item, {'code', 'libelle', 'type', 'obligatoire', 'format', 'finalite'}, 'Champ', {'code', 'libelle', 'type', 'obligatoire', 'format'})
         if item['type'] not in ('TEXTE', 'ENTIER', 'DATE') or type(item['obligatoire']) is not bool:
             raise ValueError('Type ou obligation du champ invalide.')
         if item['format'] not in (None, 'CHIFFRES', 'ALPHANUMERIQUE') or (item['format'] is not None and item['type'] != 'TEXTE'):
             raise ValueError('Format du champ non pris en charge.')
         fields.append(dict(item, code=texte(item['code'], 'Code champ', 80).upper(), libelle=texte(item['libelle'], 'Libellé champ')))
     for item in data['justificatifs']:
-        structure(item, {'code', 'libelle', 'obligatoire', 'groupe_alternative'}, 'Justificatif', {'code', 'libelle', 'obligatoire', 'groupe_alternative'})
+        structure(item, {'code', 'libelle', 'obligatoire', 'groupe_alternative', 'finalite'}, 'Justificatif', {'code', 'libelle', 'obligatoire', 'groupe_alternative'})
         if type(item['obligatoire']) is not bool:
             raise ValueError('Obligation documentaire explicite requise.')
         group = item['groupe_alternative']
@@ -48,6 +48,12 @@ def configuration_validee(data):
             if not item['obligatoire']:
                 raise ValueError('Un groupe alternatif appartient aux justificatifs obligatoires.')
         documents.append(dict(item, code=texte(item['code'], 'Code justificatif', 80).upper(), libelle=texte(item['libelle'], 'Libellé justificatif'), groupe_alternative=group))
+    for item in fields + documents:
+        if item.get('finalite', 'FINANCIERE') not in ('FINANCIERE', 'FACTURATION'):
+            raise ValueError('Finalité documentaire inconnue.')
+    for group in {d['groupe_alternative'] for d in documents if d['groupe_alternative']}:
+        if len({d.get('finalite', 'FINANCIERE') for d in documents if d['groupe_alternative'] == group}) != 1:
+            raise ValueError('Un groupe alternatif ne peut pas mélanger les finalités.')
     for items in (fields, documents):
         if any(not re.fullmatch(r'[A-Z0-9][A-Z0-9_-]*', x['code']) for x in items):
             raise ValueError('Codes de champs et justificatifs : lettres, chiffres, tiret et soulignement uniquement.')
@@ -56,13 +62,15 @@ def configuration_validee(data):
     return dict(regime=regime, mode_verification=mode, types_beneficiaires=types, champs=fields, justificatifs=documents)
 
 
-def verifier_preuve(config, valeurs, documents, source, reference_source):
+def verifier_preuve(config, valeurs, documents, source, reference_source, *, phase='FINANCIERE'):
+    if phase not in ('FINANCIERE', 'FACTURATION'):
+        raise ValueError('Phase de contrôle inconnue.')
     if not isinstance(valeurs, dict) or set(valeurs) - {f['code'] for f in config['champs']}:
         raise ValueError('Champs de vérification inconnus.')
     for field in config['champs']:
         value = valeurs.get(field['code'])
         if value is None or value == '':
-            if field['obligatoire']:
+            if field['obligatoire'] and (phase == 'FACTURATION' or field.get('finalite', 'FINANCIERE') == 'FINANCIERE'):
                 raise ValueError(f"Champ obligatoire manquant : {field['libelle']}.")
             continue
         if field['type'] == 'ENTIER':
@@ -89,7 +97,7 @@ def verifier_preuve(config, valeurs, documents, source, reference_source):
         seen.add(doc['code'])
     groups = {}
     for doc in config['justificatifs']:
-        if not doc['obligatoire']:
+        if not doc['obligatoire'] or (phase == 'FINANCIERE' and doc.get('finalite', 'FINANCIERE') == 'FACTURATION'):
             continue
         group = doc['groupe_alternative']
         if group:
