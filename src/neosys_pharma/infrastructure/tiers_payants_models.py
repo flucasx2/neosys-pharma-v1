@@ -66,6 +66,7 @@ class AdhesionOrganismeModel(EntiteVente, Base):
     __tablename__ = "tiers_payant_adhesions"
     __table_args__ = (
         UniqueConstraint("id", "organisation_id", name="uq_tp_adhesion_org"),
+        UniqueConstraint("id", "organisation_id", "convention_id", name="uq_tp_adhesion_convention_scope"),
         UniqueConstraint("organisation_id", "reference_adhesion", "date_debut", name="uq_tp_adhesion_reference_debut"),
         ForeignKeyConstraint(["convention_id", "organisation_id"], ["tiers_payant_conventions.id", "tiers_payant_conventions.organisation_id"], name="fk_tp_adhesion_convention_org"),
         ForeignKeyConstraint(["titulaire_id", "organisation_id"], ["tiers_payant_beneficiaires.id", "tiers_payant_beneficiaires.organisation_id"], name="fk_tp_adhesion_titulaire_org"),
@@ -166,7 +167,58 @@ class EvenementTiersPayantModel(EntiteVente, Base):
     date: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
-for _model in (ConventionOrganismeModel, PrioriteOrganismeModel, EvenementTiersPayantModel):
+
+class ConfigurationConventionModel(EntiteVente, Base):
+    """Une configuration immuable par version de convention, créée atomiquement."""
+    __tablename__ = "tiers_payant_configurations_convention"
+    __table_args__ = (
+        UniqueConstraint("convention_id", "organisation_id", name="uq_tp_conf_convention"),
+        UniqueConstraint("id", "organisation_id", "convention_id", name="uq_tp_conf_scope"),
+        ForeignKeyConstraint(["convention_id", "organisation_id"], ["tiers_payant_conventions.id", "tiers_payant_conventions.organisation_id"], name="fk_tp_conf_convention_org"),
+        ForeignKeyConstraint(["auteur_id", "organisation_id"], ["utilisateurs.id_utilisateur", "utilisateurs.organisation_id"], name="fk_tp_conf_auteur_org"),
+        CheckConstraint("schema_version = 1", name="ck_tp_conf_schema"),
+    )
+    convention_id: Mapped[UUID] = mapped_column(Uuid)
+    schema_version: Mapped[int] = mapped_column(default=1)
+    definition: Mapped[dict] = mapped_column(JSON)
+    auteur_id: Mapped[UUID] = mapped_column(Uuid)
+    cree_le: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class VerificationConventionModel(EntiteVente, Base):
+    __tablename__ = "tiers_payant_verifications_convention"
+    __table_args__ = (
+        ForeignKeyConstraint(["configuration_id", "organisation_id", "convention_id"], ["tiers_payant_configurations_convention.id", "tiers_payant_configurations_convention.organisation_id", "tiers_payant_configurations_convention.convention_id"], name="fk_tp_verif_configuration_scope"),
+        ForeignKeyConstraint(["adhesion_id", "organisation_id", "convention_id"], ["tiers_payant_adhesions.id", "tiers_payant_adhesions.organisation_id", "tiers_payant_adhesions.convention_id"], name="fk_tp_verif_adhesion_org"),
+        ForeignKeyConstraint(["adhesion_id", "beneficiaire_id"], ["tiers_payant_adhesion_beneficiaires.adhesion_id", "tiers_payant_adhesion_beneficiaires.beneficiaire_id"], name="fk_tp_verif_lien_beneficiaire"),
+        ForeignKeyConstraint(["vente_id", "organisation_id", "site_id"], ["ventes.id", "ventes.organisation_id", "ventes.site_id"], name="fk_tp_verif_vente_site_org"),
+        ForeignKeyConstraint(["beneficiaire_id", "organisation_id"], ["tiers_payant_beneficiaires.id", "tiers_payant_beneficiaires.organisation_id"], name="fk_tp_verif_benef_org"),
+        ForeignKeyConstraint(["auteur_id", "organisation_id"], ["utilisateurs.id_utilisateur", "utilisateurs.organisation_id"], name="fk_tp_verif_auteur_org"),
+        CheckConstraint("revision_adhesion > 0", name="ck_tp_verif_revision"),
+        CheckConstraint("resultat IN ('CONFIRME','REFUSE')", name="ck_tp_verif_resultat"),
+        CheckConstraint("source IN ('LISTE','IDENTIFICATION','EXTERNE')", name="ck_tp_verif_source"),
+        CheckConstraint("date_fin >= date_verification", name="ck_tp_verif_periode"),
+        Index("ix_tp_verif_benef_adhesion", "organisation_id", "beneficiaire_id", "adhesion_id", "cree_le"),
+    )
+    vente_id: Mapped[UUID] = mapped_column(Uuid)
+    site_id: Mapped[UUID] = mapped_column(Uuid)
+    configuration_id: Mapped[UUID] = mapped_column(Uuid)
+    convention_id: Mapped[UUID] = mapped_column(Uuid)
+    adhesion_id: Mapped[UUID] = mapped_column(Uuid)
+    beneficiaire_id: Mapped[UUID] = mapped_column(Uuid)
+    revision_adhesion: Mapped[int] = mapped_column()
+    source: Mapped[str] = mapped_column(String(20))
+    reference: Mapped[str] = mapped_column(String(200))
+    resultat: Mapped[str] = mapped_column(String(20))
+    motif: Mapped[str] = mapped_column(String(1000))
+    date_verification: Mapped[date] = mapped_column(Date)
+    date_fin: Mapped[date] = mapped_column(Date)
+    valeurs: Mapped[dict] = mapped_column(JSON)
+    documents: Mapped[list] = mapped_column(JSON)
+    auteur_id: Mapped[UUID] = mapped_column(Uuid)
+    cree_le: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+for _model in (ConventionOrganismeModel, PrioriteOrganismeModel, EvenementTiersPayantModel, ConfigurationConventionModel, VerificationConventionModel):
     _table = _model.__tablename__
     for action in ("UPDATE", "DELETE"):
         event.listen(

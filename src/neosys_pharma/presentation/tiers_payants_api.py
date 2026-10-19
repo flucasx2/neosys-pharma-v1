@@ -6,11 +6,12 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import Field
 from sqlalchemy import or_, select
 
+from neosys_pharma.application.configuration_convention_service import ConfigurationConventionService
 from neosys_pharma.application.tiers_payants_service import TiersPayantsService
 from neosys_pharma.infrastructure.client_models import OrganismePriseEnChargeModel
 from neosys_pharma.infrastructure.tiers_payants_models import (
     AdhesionOrganismeModel, BeneficiaireCouvertureModel, ConventionOrganismeModel,
-    ParametragePrioriteTiersPayantModel,
+    ParametragePrioriteTiersPayantModel, VerificationConventionModel,
 )
 from neosys_pharma.application.prise_en_charge_persistante_service import PriseEnChargePersistanteService
 from neosys_pharma.presentation import vente_api
@@ -19,6 +20,10 @@ from neosys_pharma.application.stock_service import serial
 
 
 POLICY = {
+    "conventions_configurees_creer": "tiers_payant.convention.gerer",
+    "conventions_configurees_detail": ("tiers_payant.consulter", "tiers_payant.convention.gerer"),
+    "conventions_preuve_creer": "tiers_payant.adhesion.gerer",
+    "conventions_preuves_lire": "tiers_payant.adhesion.consulter",
     "tiers_payants_organismes": ("tiers_payant.consulter", "tiers_payant.organisme.gerer"),
     "tiers_payants_organisme_detail": ("tiers_payant.consulter", "tiers_payant.organisme.gerer"),
     "tiers_payants_organisme_creer": "tiers_payant.organisme.gerer",
@@ -182,8 +187,11 @@ def convention_creer(data: ConventionInput, s=Depends(service)):
 
 
 @router.get("/beneficiaires", name="tiers_payants_beneficiaires")
-def beneficiaires(page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), client_id: UUID | None = None, s=Depends(service)):
+def beneficiaires(page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), client_id: UUID | None = None, q: str = Query("", max_length=200), s=Depends(service)):
     query = select(BeneficiaireCouvertureModel).where(BeneficiaireCouvertureModel.organisation_id == s.organisation_id)
+    if q.strip():
+        term = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        query = query.where(or_(BeneficiaireCouvertureModel.nom.ilike("%"+term+"%", escape="\\"), BeneficiaireCouvertureModel.reference_externe.ilike("%"+term+"%", escape="\\")))
     if client_id:
         query = query.where(BeneficiaireCouvertureModel.client_id == client_id)
     total, rows = s.stock.repo.paginer(query.order_by(BeneficiaireCouvertureModel.nom, BeneficiaireCouvertureModel.id), page, page_size)
@@ -196,8 +204,13 @@ def beneficiaire_creer(data: BeneficiaireInput, s=Depends(service)):
 
 
 @router.get("/adhesions", name="tiers_payants_adhesions")
-def adhesions(page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), titulaire_id: UUID | None = None, s=Depends(service)):
+def adhesions(page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), titulaire_id: UUID | None = None, convention_id: UUID | None = None, q: str = Query("", max_length=200), s=Depends(service)):
     query = select(AdhesionOrganismeModel).where(AdhesionOrganismeModel.organisation_id == s.organisation_id)
+    if convention_id:
+        query = query.where(AdhesionOrganismeModel.convention_id == convention_id)
+    if q.strip():
+        term = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        query = query.where(AdhesionOrganismeModel.reference_adhesion.ilike("%"+term+"%", escape="\\"))
     if titulaire_id:
         query = query.where(AdhesionOrganismeModel.titulaire_id == titulaire_id)
     total, rows = s.stock.repo.paginer(query.order_by(AdhesionOrganismeModel.date_debut.desc(), AdhesionOrganismeModel.id), page, page_size)
@@ -258,3 +271,56 @@ def organisme_creer(data: OrganismeInput, s=Depends(service)):
 def organisme_modifier(organisme_id: UUID, data: OrganismeModification, s=Depends(service)):
     return mutate(s, data, "ORGANISME_MODIFIE:" + str(organisme_id),
                   lambda: s.modifier_organisme(organisme_id, data.revision, data.code, data.nom, data.actif))
+
+
+class ConventionConfigureeInput(ConventionInput):
+    revision_organisme: int = Field(strict=True, ge=1)
+    version_attendue: int = Field(strict=True, ge=0)
+    configuration: dict
+    conditions: dict = Field(default_factory=lambda: {"schema_version": 1})
+
+
+class VerificationConventionInput(Mutation):
+    adhesion_id: UUID
+    beneficiaire_id: UUID
+    revision_adhesion: int = Field(strict=True, ge=1)
+    source: str = Field(pattern="^(LISTE|IDENTIFICATION|EXTERNE)$")
+    reference: str = Field(min_length=1, max_length=200)
+    resultat: str = Field(pattern="^(CONFIRME|REFUSE)$")
+    motif: str = Field(min_length=1, max_length=1000)
+    date_verification: date
+    date_fin: date
+    valeurs: dict = Field(default_factory=dict)
+    documents: list[dict] = Field(default_factory=list, max_length=100)
+
+
+@router.post("/conventions-configurees", status_code=201, name="conventions_configurees_creer")
+def convention_configuree_creer(data: ConventionConfigureeInput, s=Depends(service)):
+    if data.conditions != {"schema_version": 1} or type(data.conditions.get("schema_version")) is not int:
+        from fastapi import HTTPException
+        raise HTTPException(422, "Conditions non prises en charge; aucun champ contractuel ne peut être ignoré.")
+    return mutate(s, data, "CONVENTION_CONFIGUREE", lambda: ConfigurationConventionService(s).creer(data.model_dump(exclude={"cle"})))
+
+
+@router.get("/conventions/{convention_id}", name="conventions_configurees_detail")
+def convention_configuree_detail(convention_id: UUID, s=Depends(service)):
+    return execute(lambda: ConfigurationConventionService(s).detail(convention_id))
+
+
+@router.post("/ventes/{vente_id}/verifications", status_code=201, name="conventions_preuve_creer")
+def convention_preuve_creer(vente_id: UUID, data: VerificationConventionInput, request: Request, s=Depends(vente_api.service)):
+    sale = _vente_access(request, s, vente_id, ("vente.consulter", "tiers_payant.adhesion.gerer"))
+    body = data.model_dump(mode="json", exclude={"cle"})
+    config_service = ConfigurationConventionService(TiersPayantsService(s.stock))
+    return execute(lambda: s.stock.operation(data.cle, "P5CONF:PREUVE:"+str(vente_id), body,
+        lambda: config_service.verifier(sale, data.adhesion_id, data.model_dump(exclude={"cle", "adhesion_id"}))))
+
+
+@router.get("/ventes/{vente_id}/verifications", name="conventions_preuves_lire")
+def convention_preuves_lire(vente_id: UUID, request: Request, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), s=Depends(vente_api.service)):
+    _vente_access(request, s, vente_id, ("vente.consulter", "tiers_payant.adhesion.consulter"))
+    total, rows = s.stock.repo.paginer(select(VerificationConventionModel).where(
+        VerificationConventionModel.organisation_id == s.org,
+        VerificationConventionModel.vente_id == vente_id,
+        VerificationConventionModel.site_id == s.site).order_by(VerificationConventionModel.cree_le.desc(), VerificationConventionModel.id), page, page_size)
+    return {"items": [serial(row) for row in rows], "total": total, "page": page, "page_size": page_size}

@@ -165,6 +165,7 @@ class EvaluationDroits:
     reference_verification: str | None = None
     droits_verifies_le: datetime | None = None
     motif: str | None = None
+    dossier_documentaire_json: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -334,6 +335,8 @@ def _stage_zero(priority: PrioriteCalcul, line: LigneVenteCalcul, remaining: int
         ("reference_verification", rights.reference_verification),
         ("droits_verifies_le", rights.droits_verifies_le), ("motif", rights.motif),
     )
+    if rights and rights.dossier_documentaire_json is not None:
+        rights_snapshot += (("dossier_documentaire_json", rights.dossier_documentaire_json),)
     return EtapeCalcul(
         priority.rang, priority.organisme_id, priority.role,
         convention.convention_id if convention else None,

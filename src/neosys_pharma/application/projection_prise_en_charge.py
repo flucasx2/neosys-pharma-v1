@@ -5,6 +5,10 @@ pris en charge est versionné ici; toute clé inconnue arrête la projection.
 """
 from __future__ import annotations
 
+from dataclasses import replace
+import json
+from fastapi.encoders import jsonable_encoder
+from neosys_pharma.application.stock_service import serial
 from datetime import date
 from uuid import UUID
 from decimal import Decimal
@@ -16,11 +20,12 @@ from neosys_pharma.domain.prise_en_charge import (
     EvaluationDroits, LigneVenteCalcul, ModeArrondi, ParametragePrioriteCalcul,
     PrioriteCalcul, RegleCouverture,
 )
+from neosys_pharma.infrastructure.client_models import OrganismePriseEnChargeModel
 from neosys_pharma.infrastructure.catalogue_models import ProduitModel
 from neosys_pharma.infrastructure.tiers_payants_models import (
     AdhesionBeneficiaireModel, AdhesionOrganismeModel, BeneficiaireCouvertureModel,
     ConventionOrganismeModel, ParametragePrioriteTiersPayantModel,
-    PrioriteOrganismeModel,
+    PrioriteOrganismeModel, ConfigurationConventionModel, VerificationConventionModel,
 )
 from neosys_pharma.infrastructure.vente_models import LigneVenteModel, VenteModel
 
@@ -184,6 +189,39 @@ def construire_demande(session, vente_id: UUID, organisation_id: UUID, site_id: 
                     adhesion.reference_verification_droits, adhesion.droits_verifies_le,
                     "Droits vérifiés P5-A" if decision != DecisionDroits.A_VERIFIER else "Droits à vérifier.",
                 )
+        configuration = session.scalar(select(ConfigurationConventionModel).where(
+            ConfigurationConventionModel.convention_id == priority.convention_id,
+            ConfigurationConventionModel.organisation_id == organisation_id))
+        if configuration is not None and beneficiary is not None and rights is not None:
+            # Une preuve s'applique à une vente et un bénéficiaire, jamais au groupe entier.
+            proof = session.scalar(select(VerificationConventionModel).where(
+                VerificationConventionModel.configuration_id == configuration.id,
+                VerificationConventionModel.organisation_id == organisation_id,
+                VerificationConventionModel.vente_id == sale.id,
+                VerificationConventionModel.site_id == site_id,
+                VerificationConventionModel.adhesion_id == rights.adhesion_id,
+                VerificationConventionModel.beneficiaire_id == beneficiary.id,
+            ).order_by(VerificationConventionModel.cree_le.desc(), VerificationConventionModel.id.desc()))
+            organisme_actif = session.get(OrganismePriseEnChargeModel, priority.organisme_id).actif
+            valid = (organisme_actif and proof is not None and proof.revision_adhesion == rights.revision
+                     and proof.date_verification <= date_calcul <= proof.date_fin)
+            if not valid:
+                rights = replace(rights, decision=DecisionDroits.A_VERIFIER,
+                                 motif="Organisme inactif ou justificatifs de cette vente absents, expirés ou adhésion modifiée.")
+            else:
+                dossier = {"configuration": serial(configuration), "verification": serial(proof),
+                           "beneficiaire": {"id": str(beneficiary.id), "nom": beneficiary.nom,
+                                            "client_id": str(beneficiary.client_id) if beneficiary.client_id else None},
+                           "vente": {"id": str(sale.id), "site_id": str(sale.site_id), "revision": sale.revision},
+                           "lignes_vente": [{"ligne_id": str(line.id), "produit_id": str(line.produit_id),
+                               "designation": line.designation,
+                               "conditionnement_id": str(line.conditionnement_id), "quantite": line.quantite,
+                               "montants_pre_arrondi": line.montants,
+                               "net_xaf": next(item.net_xaf for item in lines if item.ligne_id == line.id)} for line in line_rows]}
+                rights = replace(rights, dossier_documentaire_json=json.dumps(jsonable_encoder(dossier), ensure_ascii=False, sort_keys=True))
+                if proof.resultat == "REFUSE":
+                    rights = replace(rights, decision=DecisionDroits.REFUSES, motif=proof.motif,
+                        reference_verification=proof.reference)
         priorities.append(PrioriteCalcul(priority.organisme_id, organisation_id, priority.rang, priority.role, convention, rights))
     return DemandeCalculPriseEnCharge(
         sale.id, organisation_id, site_id, beneficiary.id if beneficiary else None,

@@ -147,6 +147,8 @@ class TiersPayantsService:
         holder = self.session.get(BeneficiaireCouvertureModel, data["titulaire_id"])
         if convention is None or convention.organisation_id != self.organisation_id:
             raise LookupError("Convention introuvable dans cette organisation.")
+        if not self._organisme(convention.organisme_id).actif:
+            raise ValueError('Un organisme inactif ne peut recevoir une nouvelle adhésion.')
         if holder is None or holder.organisation_id != self.organisation_id:
             raise LookupError("Titulaire de couverture introuvable dans cette organisation.")
         if not holder.actif:
@@ -205,7 +207,7 @@ class TiersPayantsService:
             AdhesionBeneficiaireModel.organisation_id == self.organisation_id,
             AdhesionBeneficiaireModel.adhesion_id == row.id,
         ).order_by(AdhesionBeneficiaireModel.id)).all()
-        return serial(row) | {"beneficiaires": [serial(link) for link in links]}
+        return serial(row) | {"beneficiaires": [serial(link) | {"beneficiaire_nom": self.session.get(BeneficiaireCouvertureModel, link.beneficiaire_id).nom} for link in links]}
 
     def modifier_adhesion(self, adhesion_id: UUID, data: dict) -> dict:
         self._organisation_verrouillee()

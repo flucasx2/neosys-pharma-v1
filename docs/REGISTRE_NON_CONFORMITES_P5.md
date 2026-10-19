@@ -22,3 +22,28 @@ Date : 18 octobre 2026. Base locale 5ad489c. Les observations de la mission sont
 | OBS-FAC-01 | P5-C / haute | Informations de facturation par organisme | À traiter avec NC-P5-06; ne pas développer la facturation dans ce sous-lot. |
 
 Les priorités sont un ordre de traitement technique proposé, pas une nouvelle règle métier. Aucune observation hors périmètre n'a été corrigée sans reproduction. La suspension de la recette humaine générale du 18/10 reste effective; la recette ciblée ci-jointe est une procédure à exécuter après préparation autorisée de l'environnement.
+
+
+## Mise à jour du 19 octobre 2026 — P5-CONF.1b
+
+Les lignes précédentes décrivent la livraison du 18/10. La mission actuelle confirme l'acceptation P5-CONF.1a, réserve ergonomique maintenue. Les résultats Windows sont rapportés par le responsable ; ils ne sont pas présentés comme exécutés dans Work.
+
+| ID | Reproduction / cause | Gravité / module | État, correction et preuve |
+|---|---|---|---|
+| NC-P5-01 | Administration autonome reçue et acceptée en recette précédente | Haute / organismes | Accepté avec réserve OBS-P5-UI-01 selon décision du 19/10. Code accepté réutilisé |
+| OBS-P5-UI-01 | Messages de confirmation redondants ou persistants pendant la recette | Normale / UI | Ouvert, non bloquant, pas de correction de l'écran accepté dans ce lot |
+| NC-P5-02 | API de conventions sans administration complète | Haute / conventions | Conventions/régimes embarqués/barèmes par ligne administrables ; tests ciblés. Plafonds périodiques, majorations et montants fixes ouverts ; recette réelle non exécutée |
+| NC-P5-03 | Champs et modes de vérification non raccordés | Haute / droits | Schéma strict et preuves manuelles LISTE/IDENTIFICATION/EXTERNE/MIXTE implémentés et testés ; imports non livrés |
+| NC-P5-04 | Bénéficiaires/adhésions sans écrans ni plafonds individuels | Haute / adhésions | Recherche/création/adhésion/décision sur droits réutilisent P5-A ; plafonds consommables et édition d'identité restent ouverts |
+| NC-P5-05 | Pièces absentes ou preuve d'une autre vente pourraient être réutilisées | Haute / vérification | Preuve par vente/bénéficiaire/révision, champs/alternatives/périodes contrôlés, refus explicites ; tests API et DOM. Native/recette humaine requises avant clôture |
+| P5-FAC-01 / NC-P5-06 | Continuité documentaire vers P5-C | Haute / snapshots | Métadonnées, identité/régime, pièces/références/auteur et données historiques de lignes figées dans le snapshot ; aucun document binaire ni facture. Couverture partielle, non clos globalement |
+| CONF-INT-01 | Enrichissement du snapshot utilisait un attribut `ProduitModel.designation` absent : test de simulation en erreur | Bloquante / projection nouvelle | Corrigé par `LigneVenteModel.designation`, valeur historique ; test de confirmation avec dossier documentaire |
+| CONF-UI-01 | Recherche catalogue utilisait `designation` au lieu du contrat réel `nom` | Haute / sélecteurs | Corrigé ; assertion DOM sur le nom de produit reçu de l'API |
+| CONF-UI-02 | Choix du bénéficiaire non explicitement renseigné dans le nouveau formulaire | Haute / preuve | Option initiale vide obligatoire, résultat également explicite ; tests DOM et validation UUID serveur |
+| CONF-INT-02 | La création P5-A d'adhésion ne vérifiait pas le statut de l'organisme | Haute / adhésions | Contrôle serveur ajouté et test dédié ; historiques préservés |
+| CONF-ENV-01 | Binaire Python 3.14 préexistant termine par Bus error avant tests | Environnement / Work | Installation séparée de CPython 3.14.8 fonctionnelle ; aucun fichier applicatif modifié pour contourner |
+| CONF-ENV-02 | Binaires PostgreSQL 16.2 exécutables, mais création d'un cluster sous utilisateur non privilégié impossible : chown invalide et runuser cannot set groups | Bloquante pour preuve native / environnement | Aucun serveur ni base de tests PostgreSQL démarré ; script Windows gardé et test natif fournis, non exécutés. PostgreSQL 18.6 cible non vérifié |
+| CONF-ENV-03 | Téléchargement Chromium : archive tronquée, puis exécutable absent | Bloquante pour navigateur / environnement | Test préparé sur origine localhost sécurisée ; aucun scénario Chromium exécuté |
+| CONF-LIM-01 | Certains sélecteurs limités aux 100 premières références ; preuve demandant identifiant de vente | Normale / ergonomie | Ouvert avant généralisation aux gros référentiels ; listes principales paginées ; limites signalées dans la documentation |
+
+Les autres observations catalogue, caisse, encaissement groupé et fidélité restent ouvertes comme précédemment. Aucun succès DOM ou SQLite n'est une clôture métier ou une preuve de concurrence PostgreSQL.

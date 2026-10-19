@@ -1,3 +1,5 @@
+> Reprise courante au 19 octobre 2026 : P5-CONF.1a accepté avec réserve ; livraison locale partielle P5-CONF.1b. Voir la dernière section et `docs/RESULTATS_P5_CONF_1B.md`. Les sections historiques restent conservées.
+
 # NeoSys Pharma V1 — Dossier de continuité
 
 > Actualisation du 18 octobre 2026 : la section 8 complète et remplace les instructions de prochaine action des sections 6 et 7. Les informations historiques ci-dessous sont conservées; elles ne constituent pas une preuve d'accès à Windows depuis Work.
@@ -106,3 +108,16 @@ Sous-lot P5-CONF.1a : Administration → Organismes de prise en charge, réutili
 Preuves Work : 24 tests ciblés réussis, 1 test natif ignoré, 20 assertions DOM avec HTTP simulé. PostgreSQL natif et Chromium ne sont pas validés dans Work. Les rapports, les limites du patch préparatoire et la recette ciblée sont dans `docs/RESULTATS_P5_CONF_1A.md`, `docs/REGISTRE_NON_CONFORMITES_P5.md` et `docs/RECETTE_P5_CONF_1A.md`.
 
 Prochaine action : revue et intégration du sous-lot dans une copie isolée, tests natifs et recette du nouvel écran sur base neuve explicitement jetable. Ne pas migrer les deux bases Windows citées en section 4. Après validation, poursuivre les configurations/documentations et leur raccordement aux ventes; ne pas assimiler cet écran à la clôture de P5 ou au démarrage de P5-C.
+
+
+## Reprise au 19 octobre 2026 — après l'incrément P5-CONF.1b
+
+Base exacte fournie : branche `recette/p5-conf-1a`, HEAD `40c8fb27cca0c9b532d2536e8bb542930dab4452`, parent applicatif `3186bdf`. Développement dans Work sur `feat/p5-conf-1b-conventions-baremes`, sans modification Windows ou distante.
+
+Le lot local ajoute les conventions configurées, leurs régimes descriptifs et barèmes calculés par P5-B, les écrans de bénéficiaires/adhésions/droits/priorités, les preuves documentaires par vente et leur snapshot immuable. Migration `20261019_01` après `20261018_01`. Le patch préparatoire initial n'a pas été appliqué automatiquement.
+
+Prochaine action : intégrer dans un nouveau worktree et une nouvelle instance PostgreSQL jetable selon `docs/RECETTE_P5_CONF_1B.md`, exécuter le contrôle natif et Chromium puis la recette humaine ciblée. Ne pas reconstruire les versions acceptées. Les travaux restants et arbitrages figurent dans `docs/P5_CONF_1B.md`. L'absence de preuve native/Chromium reste bloquante pour l'acceptation.
+
+Protections supplémentaires : `D:\Projets_Python\NeoSys_P5_CONF_1A` et `neosys_p5conf1a_recette_temp` sont conservés ; pas de migration, suppression, réinitialisation ou réutilisation destructive sans nouvelle autorisation. Bases P5-B, `neosys_pharma_v1` et `neosys_p46_recette_20261012` également protégées. Le script natif refuse toute base préexistante.
+
+P5-CONF.1a est accepté selon la mission du responsable, avec OBS-P5-UI-01 ouverte. La recette générale demeure distincte de la recette ciblée de cette nouvelle livraison ; P5-B complet et P5-C ne sont pas déclarés validés. Aucune publication ou poursuite automatique après cette livraison.
