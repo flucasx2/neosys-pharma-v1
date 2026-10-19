@@ -82,3 +82,7 @@ Les limites d'environnement CONF-ENV-02/03 subsistent. Les tests natifs prépar�
 - OBS-FID-02 : numéro visible/code-barres indépendants, registre commun unique et reprise des anciennes cartes ; recherche/scan et document PDF figé/réimpression sous fidelite.gerer implémentés, tests API/SQLite/DOM réussis. Validation native/navigateur et matérielle ouverte.
 - CARD-04-01 : les collisions croisées numéro↔barcode sont protégées par le même index unique en base, pas par deux contraintes indépendantes insuffisantes.
 - CARD-LIM-04 : PDF technique A4 paysage Code 128 ; vieux numéros non imprimables restent consultables et peuvent recevoir un code-barres avant première émission. Le scan matériel ne fait pas partie des preuves Work.
+
+## Consolidation 05 — catalogue
+
+OBS-CAT-01 partiellement ouverte : faux succès de fin de lots reproduit et corrigé ; recherche CIP/nom prouvée sur données fictives après reprise. L'incident réel n'est pas reproduit faute du rapport et CSV Windows. Aucune correction arbitraire du stock, de la normalisation ou des prix.

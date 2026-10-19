@@ -112,3 +112,7 @@ Base ef1256bf et ZIP/bundle revérifiés sans appliquer de patch. Catalogue orga
 ## 19 octobre 2026 — consolidation 04, cartes physiques
 
 Numéro/code-barres indépendants, registre d'identifiants unique en base avec reprise des anciens numéros, association contrôlée avant premier document, recherche/scan, PDF figé et réimpression autorisée/auditée. Migration additive 20261019_03 après 20261019_02 ; aucune base conservée touchée. 8 tests ciblés réussis, 1 natif ignoré, 56 désélectionnés ; 17 assertions DOM formulaires, 7 fournisseurs et 19 groupe. Détails et limites techniques d'impression dans docs/RESULTATS_P4_P5_04.md. PostgreSQL/Chromium/matériel non exécutés ; pas de clôture ni d'acceptation humaine présumée.
+
+## 19 octobre 2026 — consolidation 05, bilan import catalogue
+
+Faux message « Import terminé » reproduit sur un inconnu non créé (catégorie/conditionnement manquants) ; fin de pagination confondue avec réussite. Bilan final relit les compteurs serveur, distingue lignes bloquées/ignorées et produits réellement importés. Aucun changement aux prix/stock. Tests : API fictive 1 réussi, régressions import 2 réussies/26 désélectionnées, 6 assertions DOM ; ancien p2.js fait échouer le test, correctif le fait passer. CSV et base réels indisponibles : cause exacte Windows non démontrée, OBS-CAT-01 reste partiellement ouverte. Détails docs/RESULTATS_P4_P5_05.md.

@@ -144,3 +144,5 @@ Moyens configurables et fournisseurs distincts implémentés : rapport docs/RESU
 ## Suite après consolidation 04
 
 Migration courante 20261019_03 : cartes physiques et registre partagé numéro/code-barres, documents immuables. Le numéro historique n'est ni renommé ni supprimé. On peut associer une fois un code-barres avant le premier document, puis remplacer la carte selon P4 si nécessaire ; ne pas réécrire les identifiants historiques. Rapports docs/RESULTATS_P4_P5_03.md et 04.md ; recette unique toujours différée. Prochaines tâches indépendantes : reproduction PharmaGabon et import bénéficiaires ; les plafonds attendent les arbitrages documentés avant leurs compteurs. Groupe fermé, pas de base conservée.
+
+Consolidation 05 : bilan de l'import catalogue corrigé sans migration ; voir docs/RESULTATS_P4_P5_05.md. Ne pas confondre termine (fin de parcours des lots) avec IMPORTE (création/enrichissement effectif). Ne pas prétendre avoir réparé l'import réel sans son rapport/CSV. Poursuivre les imports de bénéficiaires sous identité de source explicite, sans création automatique de droits.
