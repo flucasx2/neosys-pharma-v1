@@ -7,7 +7,7 @@ const source=fs.readFileSync(path.join(root,'organismes.js'),'utf8');
 async function scenarios(w,source){
  const d=w.document, el=id=>d.getElementById(id), calls=[], saved=new Map();let checks=0;
  const assert=(condition,message)=>{if(!condition)throw Error(message);checks++;};
- const wait=async fn=>{for(let i=0;i<200;i++){if(fn())return;await new Promise(r=>w.setTimeout(r,5));}throw Error('Attente UI dépassée');};
+ const wait=async fn=>{for(let i=0;i<200;i++){if(fn())return;await new Promise(r=>w.setTimeout(r,5));}throw Error('Attente UI dÃ©passÃ©e');};
  const submit=id=>el(id).dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));
  let permissions=new Set(['tiers_payant.organisme.gerer']), nextId=1, failOnce=false, conflict=false, hold=null;
  let rows=[{id:'initial',code:'INITIAL',nom:'Initial QA',actif:true,revision:1}];
@@ -24,7 +24,7 @@ async function scenarios(w,source){
    if(failOnce){failOnce=false;throw Error('Connexion interrompue');}return response(row,201);
   }
   if(options.method==='PUT'){
-   if(conflict)return response({detail:'Révision dépassée'},409);
+   if(conflict)return response({detail:'RÃ©vision dÃ©passÃ©e'},409);
    const id=url.split('/').pop();const row=rows.find(x=>x.id===id);Object.assign(row,body,{revision:row.revision+1});return response(row);
   }
   if(url.includes('?'))return response({items:rows,total:rows.length,page:1,page_size:25});
@@ -38,47 +38,54 @@ async function scenarios(w,source){
  submit('organismes-form');submit('organismes-form');
  assert(el('organismes-save').disabled,'Protection double clic absente');
  await wait(()=>!el('organismes-save').disabled);
- assert(calls.filter(x=>x.method==='POST').length===1,'Double création');
- assert(el('organismes-title').textContent==='Assureur QA','Résultat création non affiché');
+ assert(calls.filter(x=>x.method==='POST').length===1,'Double crÃ©ation');
+ assert(el('organismes-title').textContent==='Assureur QA','RÃ©sultat crÃ©ation non affichÃ©');
  form.elements.nom.value='<img src=x onerror=alert(1)>';form.elements.actif.value='false';submit('organismes-form');
  await wait(()=>!el('organismes-save').disabled);
- assert(el('organismes-title').textContent.includes('<img'),'Libellé perdu');
+ assert(el('organismes-title').textContent.includes('<img'),'LibellÃ© perdu');
  assert(!el('organismes-detail').querySelector('img'),'Injection HTML');
- assert(form.elements.actif.value==='false','Désactivation perdue');
- assert(calls.find(x=>x.method==='PUT').body.revision===1,'Révision non transmise');
+ assert(form.elements.actif.value==='false','DÃ©sactivation perdue');
+ assert(calls.find(x=>x.method==='PUT').body.revision===1,'RÃ©vision non transmise');
  conflict=true;form.elements.nom.value='Tentative concurrente';submit('organismes-form');
  await wait(()=>!el('organismes-save').disabled);
  assert(el('organismes-message').textContent.includes('Rechargez'),'Conflit non explicite');
- assert(form.elements.nom.value==='Tentative concurrente','Saisie silencieusement écrasée');
+ assert(form.elements.nom.value==='Tentative concurrente','Saisie silencieusement Ã©crasÃ©e');
  conflict=false;el('organismes-reload').click();await wait(()=>form.elements.nom.value!=='Tentative concurrente');
  el('organismes-new').click();form.elements.code.value='RETRY';form.elements.nom.value='Reprise QA';failOnce=true;submit('organismes-form');
  await wait(()=>!el('organismes-save').disabled);
- assert(el('organismes-message').textContent==='Connexion interrompue','Erreur réseau masquée');
+ assert(el('organismes-message').textContent==='Connexion interrompue','Erreur rÃ©seau masquÃ©e');
  submit('organismes-form');await wait(()=>!el('organismes-save').disabled);
  const retry=calls.filter(x=>x.method==='POST'&&x.body.code==='RETRY');
- assert(retry.length===2&&retry[0].body.cle===retry[1].body.cle,'Clé de rejeu non conservée');
- assert(rows.filter(x=>x.code==='RETRY').length===1,'Création doublée après panne réseau');
+ assert(retry.length===2&&retry[0].body.cle===retry[1].body.cle,'ClÃ© de rejeu non conservÃ©e');
+ assert(rows.filter(x=>x.code==='RETRY').length===1,'CrÃ©ation doublÃ©e aprÃ¨s panne rÃ©seau');
  permissions=new Set(['tiers_payant.consulter']);w.shellSync();
- assert(el('organismes-save').hidden&&el('organismes-fields').disabled,'Révocation du droit non reflétée immédiatement');
+ assert(el('organismes-save').hidden&&el('organismes-fields').disabled,'RÃ©vocation du droit non reflÃ©tÃ©e immÃ©diatement');
  await w.organismesOpen('initial');
  assert(el('organismes-new').hidden&&el('organismes-save').hidden&&el('organismes-fields').disabled,'Lecture seule contournable');
  const count=calls.length;submit('organismes-form');assert(calls.length===count,'Mutation en lecture seule');
  hold={};const pending=w.organismesLoad();await wait(()=>hold.resolve);
  w.authState.site='autre-site';w.shellSync();hold.resolve();await pending;hold=null;
- assert(el('organismes-rows').children.length===0&&el('organismes-detail').hidden,'Réponse périmètre précédent affichée');
- assert(calls.every(x=>x.url.startsWith('/api/tiers-payants/')),'Dépendance à une fiche client');
- w.authReset();assert(el('organismes-rows').children.length===0,'Données persistantes après déconnexion');
+ assert(el('organismes-rows').children.length===0&&el('organismes-detail').hidden,'RÃ©ponse pÃ©rimÃ¨tre prÃ©cÃ©dent affichÃ©e');
+ assert(calls.every(x=>x.url.startsWith('/api/tiers-payants/')),'DÃ©pendance Ã  une fiche client');
+ w.authReset();assert(el('organismes-rows').children.length===0,'DonnÃ©es persistantes aprÃ¨s dÃ©connexion');
  return checks;
 }
 (async()=>{
  if(process.argv.includes('--chromium')){
   const {chromium}=require('playwright');const browser=await chromium.launch({headless:true});
-  try {const page=await browser.newPage();await page.route('**/*',route=>route.abort());await page.setContent(html);
+  try {const page=await browser.newPage();await page.route('**/*',route=>route.abort());await page.route("http://localhost:8765/**", route =>
+  route.fulfill({
+    status: 200,
+    contentType: "text/html",
+    body: html
+  })
+);
+await page.goto("http://localhost:8765/");
    const result=await page.evaluate(async({fn,source})=>await (0,eval)(`(${fn})`)(window,source),{fn:scenarios.toString(),source});
-   console.log(`${result} assertions Chromium réussies (HTTP simulé)`);
+   console.log(`${result} assertions Chromium rÃ©ussies (HTTP simulÃ©)`);
   }finally{await browser.close();}
  }else{
   const {JSDOM}=require('jsdom');const dom=new JSDOM(html,{runScripts:'dangerously',url:'https://qa.example.test'});
-  try{const result=await scenarios(dom.window,source);console.log(`${result} assertions DOM réussies (HTTP simulé)`);}finally{dom.window.close();}
+  try{const result=await scenarios(dom.window,source);console.log(`${result} assertions DOM rÃ©ussies (HTTP simulÃ©)`);}finally{dom.window.close();}
  }
 })().catch(error=>{console.error(error);process.exitCode=1;});
