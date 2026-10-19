@@ -21,6 +21,19 @@ async function scenario(w,source){
  assert(d.getElementById('cash-group-selected-total').textContent.includes('1500'),'Total sélection non affiché');
  w.eval('cashGroupState.selected.delete("sale-a")');assert(w.cgSelectedTotal()===1000,'Retrait sans recalcul');
  assert(sale.totaux.ttc===2000&&sale.prise_en_charge.total_organismes_xaf===1500,'Historique financier modifié côté navigateur');
+ const payments=[{mode:'CARTE',montant:'300',rendu:'0'},{mode:'ESPECES',montant:'1000',rendu:'0'}];
+ const computed=w.cgCashChange(1100,payments);assert(computed[1].rendu==='200'&&computed[0].rendu==='0','Rendu non exclusivement espèces');assert(payments[1].rendu==='0','Saisie initiale modifiée silencieusement');
+ for(const rows of [[{mode:'CARTE',montant:1101,rendu:0}],[{mode:'CARTE',montant:100,rendu:1}],[{mode:'ESPECES',montant:'9007199254740993',rendu:0}]]){let refused=false;try{w.cgCashChange(1100,rows);}catch(_){refused=true;}assert(refused,'Excédent électronique, rendu électronique ou entier imprécis accepté');}
+ // Un récapitulatif modifié ne doit jamais finaliser les anciennes écritures serveur.
+ w.eval('cashGroupState.draft={dossier:{id:"draft",etat:"BROUILLON",session_id:"session"},totaux:{du_xaf:1500,reste_xaf:0,net_regle_xaf:1500,allocation_valide:true},ventes:[{vente_id:"sale-a"},{vente_id:"sale-b"}],reglements:[{mode:"ESPECES",montant:"1500",rendu:"0",confirmation_id:null}]};cashGroupState.finalisationEnabled=true;cashGroupState.payments=[{mode:"ESPECES",montant:"1500",rendu:"0",confirmation_id:null}];cashGroupState.saleDetails.set("sale-a",'+JSON.stringify(sale)+');cashGroupState.saleDetails.set("sale-b",'+JSON.stringify(cash)+');cashGroupState.loyalty.set("sale-a",{status:"none"});cashGroupState.loyalty.set("sale-b",{status:"none"});');
+ assert(w.cgCanFinalize(),'Brouillon serveur valide refusé');
+ w.eval('cashGroupState.payments[0].montant="1700"');assert(!w.cgCanFinalize(),'Règlement non enregistré accepté pour finaliser');
+ let calls=0;w.authFetch=async()=>{calls++;throw Error('Finalisation interdite');};
+ let blocked=false;try{await w.cgFinalize();}catch(_){blocked=true;}assert(blocked&&calls===0,'Une modification non enregistrée déclenche une requête financière');
+ w.cgRenderReview();assert(d.getElementById('cash-group-finalise').disabled,'Bouton de finalisation non désactivé');
+ w.eval('cashGroupState.payments[0].montant="1500"');
+ const edited=d.createElement('input');edited.dataset.edited='true';d.getElementById('cash-group-allocation-body').append(edited);
+ assert(!w.cgCanFinalize(),'Ventilation manuelle non enregistrée acceptée');edited.remove();
  w.cgReset();assert(w.cgSelectedTotal()===0,'Sélection résiduelle après réinitialisation');
  return checks;
 }

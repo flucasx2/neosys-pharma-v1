@@ -16,7 +16,7 @@ from neosys_pharma.infrastructure.organisation_models import EmplacementModel,Ca
 from neosys_pharma.infrastructure.catalogue_models import CategorieProduitModel
 POLICY.update({
  'caisse_contexte':('caisse.consulter','caisse.encaisser','caisse.session.gerer','caisse.parametrer','fidelite.parametrer','fidelite.gerer'),
- 'caisse_config':'caisse.parametrer','caisse_sessions':'caisse.consulter','caisse_ouvrir':'caisse.session.gerer','caisse_fermer':'caisse.session.gerer',
+ 'caisse_renommer':'caisse.parametrer','caisse_config':'caisse.parametrer','caisse_sessions':'caisse.consulter','caisse_ouvrir':'caisse.session.gerer','caisse_fermer':'caisse.session.gerer',
  'caisse_attente':'caisse.consulter','caisse_vente':'caisse.consulter','caisse_confirmer':'caisse.paiement.confirmer','caisse_rapprocher':'caisse.paiement.confirmer','caisse_finaliser':'caisse.encaisser',
  'caisse_recus':'caisse.consulter','caisse_recu':'caisse.consulter','caisse_recu_pdf':'caisse.consulter','caisse_appel_pdf':'vente.consulter','caisse_mouvements':'caisse.consulter',
  'fidelite_recherche':'fidelite.consulter','fidelite_detail':'fidelite.consulter','fidelite_journal':'fidelite.consulter','fidelite_ventes':'fidelite.consulter','fidelite_creer':'fidelite.gerer','fidelite_carte':'fidelite.gerer','fidelite_opposer':'fidelite.gerer',
@@ -61,7 +61,7 @@ class Client(Mutation):
     nom:str=Field(min_length=1,max_length=200)
     telephone:str|None=Field(default=None,max_length=80)
 class Carte(Revision):
-    code:str=Field(min_length=1,max_length=200)
+    code:str|None=Field(default=None,min_length=1,max_length=200)
     type:Literal['PHYSIQUE','VIRTUELLE']
     remplace_id:UUID|None=None
 class Opposition(Revision):justification:str=Field(min_length=1,max_length=2000)
@@ -213,3 +213,14 @@ def fidelite_bareme(d:Bareme,s=Depends(service)):return mutation(s,d,'BAREME',la
 def fidelite_clore(key:UUID,d:Cloture,s=Depends(service)):
     execute(lambda:s.stock.obtenir(BaremeFideliteModel,key))
     return mutation(s,d,'BAREME_CLORE:'+str(key),lambda:s.clore_bareme(key,d.model_dump()))
+
+
+class NomCaisse(Mutation):
+    nom_attendu: str = Field(min_length=1, max_length=200)
+    nom: str = Field(min_length=1, max_length=200)
+
+
+@router.put('/caisses/{key}/libelle')
+def caisse_renommer(key:UUID,d:NomCaisse,s=Depends(service)):
+    execute(lambda:s.caisse(key,'caisse.parametrer'))
+    return mutation(s,d,'RENOMMER_CAISSE:'+str(key),lambda:s.renommer_caisse(key,d.model_dump()))

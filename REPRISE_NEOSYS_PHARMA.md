@@ -128,3 +128,11 @@ P5-CONF.1a est accepté selon la mission du responsable, avec OBS-P5-UI-01 ouver
 ## Suite autorisée — consolidation P4/P5
 
 Branche Work `work/p4-p5-consolidation` depuis `1cc86cee`. P5-CONF.1b présent et sauvegardé ; aucun accès Windows. Priorité à P4 puis P5-CONF/B puis P5-C. Lot 01 : encaissement groupé avec parts clients et organismes, tests ciblés détaillés dans docs/RESULTATS_P4_P5_01.md. Garder le flag fermé et les bases conservées intactes. Les plafonds périodiques exigent un arbitrage avant consommation ; la recette humaine finale est reportée, pas supprimée.
+
+## Reprise après consolidation 02
+
+Branche locale work/p4-p5-consolidation, premier commit ed208094e65594528c0039ce3c91893fa0b3a107 ; deuxième incrément décrit dans docs/RESULTATS_P4_P5_02.md. La branche part de P5-CONF.1b déjà présent, aucun patch ancien à réappliquer.
+
+Poursuivre les travaux indépendants par incréments sans nouvelle recette humaine intermédiaire. Le cahier unique est docs/RECETTE_CONSOLIDEE_P4_P5.md. Les plafonds consommables exigent les décisions de docs/ARBITRAGES_PLAFONDS_P5.md avant tout compteur. Les interfaces P5-C doivent réutiliser les réalisations/snapshots et leurs versions, pas les convertir en créances définitives avant traitement transactionnel.
+
+Les contrôles locaux récents sont SQLite/DOM uniquement. scripts/recette_p4p5_postgresql.ps1 prépare une base neuve marquée et 9 tests ; il ne valide pas les migrations Alembic, qui ont leur lanceur P5-CONF.1b séparé. Aucune base conservée à réutiliser ; pas de lancement PostgreSQL/Chromium attesté. Ne pas activer la finalisation groupée.

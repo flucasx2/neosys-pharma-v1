@@ -2,7 +2,7 @@
 import hashlib,re
 from datetime import date
 from decimal import Decimal
-from uuid import UUID
+from uuid import UUID, uuid4
 from sqlalchemy import select,func
 from fastapi.encoders import jsonable_encoder
 from neosys_pharma.application.stock_service import ident
@@ -55,6 +55,17 @@ class CaisseService:
         if row:row.modes=data['modes'];row.ticket_appel=data['ticket_appel'];row.revision+=1
         else:row=self.stock.ajouter(ParametrageCaisseModel,modes=data['modes'],ticket_appel=data['ticket_appel'])
         self.trace('PARAMETRAGE',avant=before,apres=serial(row));return serial(row)
+
+    def renommer_caisse(self,key,data):
+        row,_=self.caisse(key,'caisse.parametrer')
+        if row.nom!=data['nom_attendu']:
+            raise ConflitStock('Le nom de cette caisse a changé : rechargez les données.')
+        nom=data['nom'].strip()
+        if not nom or len(nom)>200 or any(ord(c)<32 for c in nom):
+            raise ValueError('Nom de caisse invalide.')
+        avant=row.nom;row.nom=nom
+        self.trace('CAISSE_RENOMMEE',caisse_id=str(row.id_caisse),avant=avant,apres=nom)
+        return {'id':str(row.id_caisse),'nom':row.nom,'emplacement_id':str(row.emplacement_id)}
 
     def caisse(self,key,permission):
         row=self.s.get(CaisseModel,ident(key))
@@ -240,7 +251,11 @@ class CaisseService:
             if old.compte_id!=row.id:raise PermissionError('Carte d’un autre compte.')
             if old.etat=='REMPLACEE':raise ConflitStock('Carte déjà remplacée.')
             old.etat='REMPLACEE'
-        card=self.stock.ajouter(CarteFideliteModel,compte_id=row.id,code=data['code'].strip(),type=data['type'],remplace_id=old.id if old else None)
+        code=data.get('code')
+        if code is None and data['type']=='VIRTUELLE':code='V-'+uuid4().hex.upper()
+        if not isinstance(code,str) or not code.strip() or len(code)>200 or any(ord(c)<32 for c in code):
+            raise ValueError('Un identifiant physique valide est obligatoire ; les cartes virtuelles peuvent recevoir un identifiant automatique.')
+        card=self.stock.ajouter(CarteFideliteModel,compte_id=row.id,code=code.strip(),type=data['type'],remplace_id=old.id if old else None)
         row.revision+=1;self.trace('CARTE_CREEE',carte=serial(card));return self.compte(row.id,'fidelite.gerer')
 
     def opposer(self,key,data):

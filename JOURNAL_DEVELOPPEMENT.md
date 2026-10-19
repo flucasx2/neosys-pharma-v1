@@ -94,3 +94,13 @@ Tests automatiques sur bases jetables, puis recette humaine réelle et validatio
 ## 19 octobre 2026 — nouvelle méthode et consolidation P4/P5 01
 
 Recettes humaines intermédiaires suspendues ; développement par incréments et recette consolidée finale autorisés. Base P5-CONF.1b vérifiée, pas de reconstruction. Groupe avec organismes : part client seulement, réalisations et fidélité par vente, allocations et remboursements conservés, reçus reliés. Résultats : docs/RESULTATS_P4_P5_01.md. PostgreSQL/Chromium restent non validés ; aucune activation, publication ou base conservée touchée.
+
+## 19 octobre 2026 — consolidation P4/P5 02
+
+- Rendu individuel : la borne HTML empêchait la remise d'espèces supérieure au dû ; correction et test des mouvements nets. Brouillon groupé : proposition explicite du rendu exclusivement espèces, sans toucher à la ventilation manuelle.
+- Défaut reproduit en DOM : modifications locales de règlement/ventilation pouvaient laisser la finalisation autorisée sur l'ancien état enregistré. Blocage, message et absence d'appel financier testés avant/après correction.
+- Renommage contrôlé de caisse, audit et conflit de libellé, PDF historiques conservés ; identifiant automatique des cartes virtuelles et compatibilité des cartes physiques existantes.
+- Résultats : 13 tests Python réussis / 71 désélectionnés ; 19 assertions DOM groupe et 10 formulaires. PostgreSQL/Chromium non exécutés. Détails docs/RESULTATS_P4_P5_02.md.
+- Lanceur PostgreSQL neuf et marqué préparé, non exécuté. Aucun effacement de base automatique, aucune modification distante ou Windows.
+- Cahier unique docs/RECETTE_CONSOLIDEE_P4_P5.md en cours. Plafonds consommables non codés ; questions contractuelles dans docs/ARBITRAGES_PLAFONDS_P5.md, à trancher avant leurs compteurs.
+- P4/P5 non clos. Restent fournisseurs électroniques distincts, cartes physiques numéro/code-barres, imports, sélecteurs volumineux, plafonds et P5-C. Pas d'activation ni d'acceptation humaine présumée.

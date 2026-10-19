@@ -147,7 +147,7 @@ function cgResetDraftTransient() {
   cashGroupState.finalisationKey = null;
   cashGroupState.finalisationPayload = null;
 }
-function cgInt(value) { return /^\d+$/.test(String(value)) ? Number(value) : NaN; }
+function cgInt(value) { const n=Number(value);return /^\d+$/.test(String(value))&&Number.isSafeInteger(n)?n:NaN; }
 function cgSaleDue(sale) {
   if (sale.mode === "CREDIT") throw new Error("Une vente à crédit ne peut pas être encaissée dans ce parcours.");
   if (sale.mode && sale.mode !== "SANS_TIERS") {
@@ -155,6 +155,21 @@ function cgSaleDue(sale) {
     return Number(sale.prise_en_charge.part_client_xaf);
   }
   return Number(sale.totaux.ttc);
+}
+function cgCashChange(due, payments) {
+  due=cgInt(due);if(!Number.isFinite(due))throw new Error("Montant dû invalide.");
+  const result=payments.map(p=>({...p}));let gross=0,noncash=0;
+  for(const p of result){const amount=cgInt(p.montant);if(!Number.isFinite(amount)||amount<=0)throw new Error("Montant de règlement invalide.");gross+=amount;if(p.mode!=="ESPECES"){noncash+=amount;if(cgInt(p.rendu||0)!==0)throw new Error("Aucun rendu sur les moyens non espèces.");}p.rendu="0";}
+  if(!Number.isSafeInteger(gross)||noncash>due)throw new Error("Excédent non espèces ou montant non représentable exactement.");
+  let change=Math.max(0,gross-due);
+  for(let i=result.length-1;i>=0;i--){const p=result[i];if(p.mode!=="ESPECES")continue;const returned=Math.min(change,cgInt(p.montant)-1);p.rendu=String(returned);change-=returned;}
+  if(change)throw new Error("Retirez ou regroupez les lignes espèces inutiles : chaque règlement enregistré doit conserver un net positif.");
+  return result;
+}
+function cgCalculateChange(){
+  if(cashGroupState.busy||cashGroupState.draft?.dossier?.etat!=="BROUILLON")return;
+  cgAssertDraftSession();cashGroupState.payments=cgCashChange(cashGroupState.draft.totaux.du_xaf,cashGroupState.payments);cgRenderPayments();
+  cgMessage("Rendu espèces calculé. Enregistrez les règlements puis vérifiez leur ventilation ; les allocations manuelles ne sont pas modifiées.");
 }
 function cgSelectedTotal() {
   return [...cashGroupState.selected.values()].reduce((sum, sale) => sum + cgSaleDue(sale), 0);
@@ -376,7 +391,7 @@ function cgRenderDraft() {
   cg("due").textContent = `Total dû ${cgMoney(due)} · Règlements nets ${cgMoney(d.totaux.net_regle_xaf)} · Reste ${cgMoney(d.totaux.reste_xaf)}`;
   cgRenderPayments(); cgRenderAllocations(); cgRenderReview(); cgRenderReceipts();
   const editable = d.dossier.etat === "BROUILLON";
-  for (const id of ["add-payment", "save-payments", "auto", "save-allocations", "abandon", "add-selected"]) cg(id).disabled = !editable || cashGroupState.busy;
+  for (const id of ["add-payment", "calculate-change", "save-payments", "auto", "save-allocations", "abandon", "add-selected"]) cg(id).disabled = !editable || cashGroupState.busy;
   cgSyncFinaliseButton();
 }
 function cgRenderLoyaltyCell(cell, sale) {
@@ -412,13 +427,25 @@ function cgLoyaltyPayload() {
   }
   return selected;
 }
+function cgHasUnsavedFinancialChanges() {
+  const saved = cashGroupState.draft?.reglements || [];
+  const pending = cashGroupState.payments;
+  if (saved.length !== pending.length) return true;
+  if (pending.some((row, index) => {
+    const original = saved[index];
+    return row.mode !== original.mode || cgInt(row.montant) !== cgInt(original.montant) ||
+      cgInt(row.rendu || 0) !== cgInt(original.rendu || 0) ||
+      (row.confirmation_id || null) !== (original.confirmation_id || null);
+  })) return true;
+  return Boolean(cg("allocation-body").querySelector('[data-edited="true"]'));
+}
 function cgCanFinalize() {
   const d = cashGroupState.draft;
   return Boolean(!cashGroupState.busy && cashGroupState.finalisationEnabled && d &&
     d.dossier.etat === "BROUILLON" && d.dossier.session_id === cashState.session?.id &&
     cashState.session?.etat === "OUVERTE" && Number(d.totaux.du_xaf) > 0 &&
     Number(d.totaux.reste_xaf) === 0 && Number(d.totaux.du_xaf) === Number(d.totaux.net_regle_xaf) &&
-    d.totaux.allocation_valide && d.ventes.length > 1 &&
+    d.totaux.allocation_valide && d.ventes.length > 1 && !cgHasUnsavedFinancialChanges() &&
     d.ventes.every(row => {
       const sale = cashGroupState.saleDetails.get(row.vente_id);
       const loyalty = cashGroupState.loyalty.get(row.vente_id);
@@ -448,7 +475,7 @@ function cgRenderPayments() {
     fieldset.append(mode, amountLabel);
     const changeLabel = document.createElement("label"); changeLabel.textContent = "Rendu espèces (XAF)";
     const change = document.createElement("input"); change.disabled = payment.mode !== "ESPECES" || cashGroupState.draft?.dossier?.etat !== "BROUILLON"; change.type = "number"; change.min = "0"; change.step = "1"; change.value = payment.rendu || "0"; change.setAttribute("aria-label", `Rendu espèces règlement ${index + 1}`); changeLabel.append(change); fieldset.append(changeLabel);
-    const confirmationLabel = document.createElement("label"); confirmationLabel.textContent = "Confirmation P4.5";
+    const confirmationLabel = document.createElement("label"); confirmationLabel.textContent = "Confirmation du paiement";
     const confirmation = document.createElement("select"); confirmation.disabled = payment.mode === "ESPECES" || cashGroupState.draft?.dossier?.etat !== "BROUILLON"; confirmation.setAttribute("aria-label", `Confirmation règlement ${index + 1}`);
     confirmation.add(new Option(payment.mode === "ESPECES" ? "Sans confirmation espèces" : "Choisir une confirmation existante", ""));
     for (const choice of cgConfirmationOptions(payment.mode, cgInt(payment.montant))) confirmation.add(new Option(choice.label, choice.id));
@@ -588,6 +615,12 @@ function cgRenderReview() {
   }
   root.append(list);
   cg("allocation-status").textContent = `Total dû ${cgMoney(d.totaux.du_xaf)} · Total alloué ${cgMoney(d.totaux.alloue_xaf)} · ${d.totaux.allocation_valide ? "ventilation équilibrée" : "ventilation non validée"}`;
+  if (cgHasUnsavedFinancialChanges()) {
+    const note = document.createElement("p");
+    note.textContent = "Modifications non enregistrées : enregistrez les règlements et la ventilation avant de finaliser.";
+    root.append(note);
+  }
+  cgSyncFinaliseButton();
 }
 async function cgAbandon() {
   const d = cashGroupState.draft; if (!d || d.dossier.etat !== "BROUILLON") return;
@@ -677,6 +710,7 @@ cg("add-selected").addEventListener("click", () => cgAddSelected().catch(cgFailu
 cg("resume").addEventListener("click", () => cgResume());
 cg("reload").addEventListener("click", () => cgReload());
 cg("add-payment").addEventListener("click", () => { cashGroupState.payments.push({ mode: (cashState.context?.configuration?.modes || ["ESPECES"])[0], montant: "", rendu: "0", confirmation_id: null }); cgRenderPayments(); });
+cg("calculate-change").addEventListener("click",()=>{try{cgCalculateChange();}catch(e){cgFailure(e);}});
 cg("save-payments").addEventListener("click", () => cgSavePayments().catch(cgFailure));
 cg("auto").addEventListener("click", () => cgAutoAllocate().catch(cgFailure));
 cg("save-allocations").addEventListener("click", () => cgSaveAllocations().catch(cgFailure));

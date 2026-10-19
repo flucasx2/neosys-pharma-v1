@@ -53,3 +53,18 @@ Les autres observations catalogue, caisse, encaissement groupé et fidélité re
 - GROUP-P5-01 : ventes avec organismes refusées par le service groupé ; correction codée et tests SQLite/API/DOM réussis. Réalisations et fidélité par vente ; native et navigateur non vérifiés. État : partiellement vérifié, activation interdite.
 - Les recettes humaines intermédiaires sont suspendues par décision actuelle. Les observations et réserves historiques restent conservées pour la recette unique.
 - Les plafonds individuels/périodiques, les fournisseurs de paiement distincts, les cartes physiques à double identifiant et P5-C restent des travaux à terminer, sans clôture annoncée.
+
+## Consolidation P4/P5 — lot 02, 19/10
+
+| ID | Cause ou demande | État et preuve |
+|---|---|---|
+| OBS-ORG-01 | Modifier le nom d'une caisse sans réécrire les historiques | Implémenté et vérifié API/SQLite : nom attendu, permission, périmètre, idempotence/audit et PDF inchangé. Navigateur natif non vérifié |
+| OBS-FID-01 | Identifiant virtuel non généré | Serveur UUID préfixé, deux formulaires adaptés ; API et DOM réussis, unicité/idempotence couvertes. Native/Chromium ouverts |
+| OBS-CAI-02 | Borne du formulaire individuel empêchant les espèces supérieures au dû | Corrigé, rendu/net vérifiés. Groupe : proposition explicite de rendu, pas d'automatisme à chaque frappe. Pas de clôture globale de l'observation |
+| GROUP-UI-02 | Finalisation possible malgré un règlement/une ventilation localement modifié sans enregistrement | Reproduit par un test DOM en échec puis corrigé : comparaison à l'état serveur, blocage du bouton et de l'appel, message. Pas de changement financier backend |
+| OBS-UI-01 | Libellés techniques | Nettoyage ponctuel Clients/confirmations ; nettoyage global ouvert |
+| OBS-FID-02 | Numéro visible et code-barres physiques distincts, impression | Non implémenté ; ne pas assimiler la compatibilité de l'ancien code unique à ce périmètre |
+| OBS-CAI-01 | Fournisseurs de paiement indépendants | Non implémenté ; MOBILE_MONEY existant n'est pas une configuration autonome Airtel/Moov |
+| CAP-P5-01 | Consommation périodique/individuelle | Non implémentée, décisions nécessaires consignées dans ARBITRAGES_PLAFONDS_P5.md |
+
+Les limites d'environnement CONF-ENV-02/03 subsistent. Les tests natifs préparés ne sont pas des résultats réussis. Les imports, sélecteurs volumineux et P5-C restent ouverts. La recette unique est préparée progressivement, sans demande d'acceptation intermédiaire.
