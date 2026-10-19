@@ -34,6 +34,7 @@ from neosys_pharma.infrastructure.caisse_models import (
     SessionCaisseModel,
     now,
 )
+from neosys_pharma.infrastructure.prise_en_charge_models import RealisationPriseEnChargeModel
 from neosys_pharma.infrastructure.vente_models import (
     DemandeRemiseModel,
     ReservationVenteModel,
@@ -206,6 +207,14 @@ class EncaissementGroupeService:
         self.caisse.trace("DOSSIER_GROUPE_CREE", dossier_id=row.id, session_id=session.id)
         return self._detail(row)
 
+    def _montant_client(self, sale):
+        if sale.mode == "CREDIT":
+            raise ConflitStock("Les ventes à crédit restent indisponibles dans ce parcours.")
+        if sale.mode != "SANS_TIERS":
+            coverage, lines, parts = self.caisse._prise_en_charge(sale)
+            return francs(coverage.part_client_xaf, zero=True), (coverage, lines, parts)
+        return francs(self.vente.finance(sale)["totaux"]["ttc"], zero=True), None
+
     def remplacer_ventes(self, dossier_id, revision, ventes, *, reinitialiser_allocations=False):
         dossier = self._dossier(dossier_id, revision, modifier=True)
         if len({row["vente_id"] for row in ventes}) != len(ventes):
@@ -228,8 +237,8 @@ class EncaissementGroupeService:
         for item in ventes:
             sale = self._obtenir_vente_autorisee(item["vente_id"])
             self.vente.revision(sale, item["revision"])
-            if sale.etat != "TRANSMISE" or sale.mode != "SANS_TIERS":
-                raise ConflitStock("Seules les ventes comptant transmises sont admissibles.")
+            if sale.etat != "TRANSMISE":
+                raise ConflitStock("Seules les ventes transmises sont admissibles.")
             if sale.site_id != self.site or sale.caisse_id != session.caisse_id:
                 raise PermissionError("La vente doit appartenir au même site et à la caisse de la session.")
             self.stock.emplacement(sale.emplacement_id, "caisse.encaisser")
@@ -239,7 +248,7 @@ class EncaissementGroupeService:
             ))
             if paid:
                 raise ConflitStock("Cette vente a déjà été encaissée.")
-            amount = francs(self.vente.finance(sale)["totaux"]["ttc"], zero=True)
+            amount, _ = self._montant_client(sale)
             validated.append((sale, amount))
 
         selected_ids = {sale.id for sale, _ in validated}
@@ -518,12 +527,13 @@ class EncaissementGroupeService:
 
         finance_by_sale = {}
         due_by_sale = {}
+        coverage_by_sale = {}
         for link in sorted(sale_links, key=lambda row: (str(row.vente_id), row.ordre)):
             sale = sales_by_id[link.vente_id]
             if sale.revision != link.revision_vente:
                 raise ConflitStock("Une vente a changé depuis sa sélection dans le dossier.")
-            if sale.etat != "TRANSMISE" or sale.mode != "SANS_TIERS":
-                raise ConflitStock("Chaque vente doit être comptant et transmise.")
+            if sale.etat != "TRANSMISE":
+                raise ConflitStock("Chaque vente doit être transmise.")
             if sale.site_id != self.site or sale.caisse_id != session.caisse_id:
                 raise PermissionError("Toutes les ventes doivent correspondre au site et à la caisse de la session.")
             self._obtenir_vente_autorisee(sale.id)
@@ -534,12 +544,13 @@ class EncaissementGroupeService:
                 raise ConflitStock("Une vente du dossier a déjà été encaissée.")
             self._verifier_remises(sale)
             finance = self.vente.finance(sale)
-            due = francs(finance["totaux"]["ttc"], zero=True)
+            due, coverage = self._montant_client(sale)
             if due != francs(link.montant_du, zero=True):
                 raise ConflitStock("Le montant dû d'une vente diffère de son instantané.")
             self._reservations(sale)
             finance_by_sale[sale.id] = finance
             due_by_sale[sale.id] = due
+            coverage_by_sale[sale.id] = coverage
 
         payment_rows = sorted(self._reglements(dossier.id), key=lambda row: row.ordre)
         if len(payment_rows) > 20:
@@ -721,9 +732,15 @@ class EncaissementGroupeService:
                 "etat": "ENCAISSEE",
                 "encaissement_groupe": group_meta,
             }
+            coverage = coverage_by_sale[sale.id]
+            if coverage:
+                snapshot["part_client_xaf"] = int(due_by_sale[sale.id])
+                snapshot["total_organismes_xaf"] = coverage[0].total_organismes_xaf
+                snapshot["prise_en_charge"] = self.caisse.prise_en_charge_detail(sale)
             account = accounts.get(sale.id)
             if account:
-                gain = self.caisse.gagner(sale, account, finance_by_sale[sale.id])
+                line_paid = {line.ligne_vente_id: line.part_client_xaf for line in coverage[1]} if coverage else None
+                gain = self.caisse.gagner(sale, account, finance_by_sale[sale.id], line_paid)
                 if "bareme" in gain:
                     snapshot["fidelite"] = gain | {
                         "client": serial(self.stock.obtenir(ClientFideliteModel, account.client_id))
@@ -742,6 +759,13 @@ class EncaissementGroupeService:
                 pdf=pdf,
                 pdf_sha256=hashlib.sha256(pdf).hexdigest(),
             )
+            if coverage and coverage[0].total_organismes_xaf:
+                calcul = coverage[0]
+                self.stock.ajouter(RealisationPriseEnChargeModel,
+                    vente_id=sale.id, encaissement_id=enc.id, calcul_id=calcul.id,
+                    site_id=self.site, total_xaf=int(calcul.total_xaf),
+                    total_organismes_xaf=int(calcul.total_organismes_xaf),
+                    part_client_xaf=int(calcul.part_client_xaf), snapshot=snapshot["prise_en_charge"])
             if account and snapshot["fidelite"] and "bareme" in snapshot["fidelite"]:
                 gain = snapshot["fidelite"]
                 self.stock.ajouter(
@@ -772,6 +796,8 @@ class EncaissementGroupeService:
                 "encaissement_id": str(enc.id),
                 "numero": number,
                 "total_xaf": str(due_by_sale[sale.id]),
+                "total_vente_xaf": str(francs(finance_by_sale[sale.id]["totaux"]["ttc"], zero=True)),
+                "total_organismes_xaf": str(coverage[0].total_organismes_xaf if coverage else 0),
                 "pdf_sha256": enc.pdf_sha256,
             })
 
@@ -788,6 +814,8 @@ class EncaissementGroupeService:
             "date": now().isoformat(),
             "total_xaf": str(sum(due_by_sale.values(), Decimal(0))),
             "ventes": receipts,
+            "total_ventes_xaf": str(sum((francs(x["total_vente_xaf"], zero=True) for x in receipts), Decimal(0))),
+            "total_organismes_xaf": str(sum((francs(x["total_organismes_xaf"], zero=True) for x in receipts), Decimal(0))),
             "reglements": [
                 {
                     "mode": row.mode,

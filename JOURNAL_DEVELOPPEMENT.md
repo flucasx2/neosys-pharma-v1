@@ -90,3 +90,7 @@ Tests automatiques sur bases jetables, puis recette humaine réelle et validatio
 - Résultats et limites exacts : `docs/RESULTATS_P5_CONF_1B.md`. Recette Windows et PostgreSQL jetable : `docs/RECETTE_P5_CONF_1B.md`. Registre existant conservé et complété.
 - Plafonds périodiques/individuels consommables, majorations et montants fixes non définis, imports, automatisme multirégime et amélioration des sélecteurs volumineux non livrés. Pas de clôture de P5-CONF.1b ni d'acceptation humaine présumée.
 - Aucun accès Windows, publication GitHub, PR, fusion, déploiement ou activation groupée. Les bases P5-CONF.1a/P5-B sont explicitement protégées.
+
+## 19 octobre 2026 — nouvelle méthode et consolidation P4/P5 01
+
+Recettes humaines intermédiaires suspendues ; développement par incréments et recette consolidée finale autorisés. Base P5-CONF.1b vérifiée, pas de reconstruction. Groupe avec organismes : part client seulement, réalisations et fidélité par vente, allocations et remboursements conservés, reçus reliés. Résultats : docs/RESULTATS_P4_P5_01.md. PostgreSQL/Chromium restent non validés ; aucune activation, publication ou base conservée touchée.

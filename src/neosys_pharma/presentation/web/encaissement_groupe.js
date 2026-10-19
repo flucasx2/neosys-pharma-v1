@@ -148,8 +148,16 @@ function cgResetDraftTransient() {
   cashGroupState.finalisationPayload = null;
 }
 function cgInt(value) { return /^\d+$/.test(String(value)) ? Number(value) : NaN; }
+function cgSaleDue(sale) {
+  if (sale.mode === "CREDIT") throw new Error("Une vente à crédit ne peut pas être encaissée dans ce parcours.");
+  if (sale.mode && sale.mode !== "SANS_TIERS") {
+    if (!sale.prise_en_charge) throw new Error("Confirmez la prise en charge de cette vente avant sa sélection.");
+    return Number(sale.prise_en_charge.part_client_xaf);
+  }
+  return Number(sale.totaux.ttc);
+}
 function cgSelectedTotal() {
-  return [...cashGroupState.selected.values()].reduce((sum, sale) => sum + Number(sale.totaux.ttc), 0);
+  return [...cashGroupState.selected.values()].reduce((sum, sale) => sum + cgSaleDue(sale), 0);
 }
 function cgScope() {
   return `${authState.me.organisation.id_organisation}:${authState.site}:${cashState.session?.id || ""}`;
@@ -206,6 +214,7 @@ async function cgLoadSales() {
         try {
           const sale = await cashRequest(`/ventes/${row.id}`);
           if (sale.etat !== "TRANSMISE") throw new Error("Cette vente n’est plus admissible. Actualisez la liste.");
+          cgSaleDue(sale);
           if (!authHas("caisse.encaisser", sale.emplacement_id)) throw new Error("Permission d’encaissement absente pour cet emplacement.");
           cashGroupState.selected.set(sale.id, sale); cashGroupState.saleDetails.set(sale.id, sale);
           await cgLoadLoyaltyForSale(sale);
@@ -239,7 +248,7 @@ async function cgLoadActivation() {
 }
 function cgRenderSelection() {
   const rows = [...cashGroupState.selected.values()];
-  cg("selected-total").textContent = `${rows.length} ticket(s) sélectionné(s) · Total ${cgMoney(cgSelectedTotal())}`;
+  cg("selected-total").textContent = `${rows.length} ticket(s) sélectionné(s) · Parts clients à encaisser ${cgMoney(cgSelectedTotal())}`;
   cg("create").disabled = rows.length < 2 || !cashState.session || cashGroupState.busy;
   cg("add-selected").disabled = rows.length < 1 || !cashGroupState.draft || cashGroupState.busy;
 }

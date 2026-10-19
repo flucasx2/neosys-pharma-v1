@@ -47,3 +47,9 @@ Les lignes précédentes décrivent la livraison du 18/10. La mission actuelle c
 | CONF-LIM-01 | Certains sélecteurs limités aux 100 premières références ; preuve demandant identifiant de vente | Normale / ergonomie | Ouvert avant généralisation aux gros référentiels ; listes principales paginées ; limites signalées dans la documentation |
 
 Les autres observations catalogue, caisse, encaissement groupé et fidélité restent ouvertes comme précédemment. Aucun succès DOM ou SQLite n'est une clôture métier ou une preuve de concurrence PostgreSQL.
+
+## Consolidation P4/P5 — lot 01, 19/10
+
+- GROUP-P5-01 : ventes avec organismes refusées par le service groupé ; correction codée et tests SQLite/API/DOM réussis. Réalisations et fidélité par vente ; native et navigateur non vérifiés. État : partiellement vérifié, activation interdite.
+- Les recettes humaines intermédiaires sont suspendues par décision actuelle. Les observations et réserves historiques restent conservées pour la recette unique.
+- Les plafonds individuels/périodiques, les fournisseurs de paiement distincts, les cartes physiques à double identifiant et P5-C restent des travaux à terminer, sans clôture annoncée.

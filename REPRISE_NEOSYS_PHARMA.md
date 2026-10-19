@@ -1,3 +1,5 @@
+> Instruction courante du 19/10 : poursuivre les incréments P4/P5 sans recette humaine intermédiaire. Recette consolidée après complétude technique. Les anciennes demandes d'attente de recette ci-dessous sont historiques et remplacées par cette décision.
+
 > Reprise courante au 19 octobre 2026 : P5-CONF.1a accepté avec réserve ; livraison locale partielle P5-CONF.1b. Voir la dernière section et `docs/RESULTATS_P5_CONF_1B.md`. Les sections historiques restent conservées.
 
 # NeoSys Pharma V1 — Dossier de continuité
@@ -121,3 +123,8 @@ Prochaine action : intégrer dans un nouveau worktree et une nouvelle instance P
 Protections supplémentaires : `D:\Projets_Python\NeoSys_P5_CONF_1A` et `neosys_p5conf1a_recette_temp` sont conservés ; pas de migration, suppression, réinitialisation ou réutilisation destructive sans nouvelle autorisation. Bases P5-B, `neosys_pharma_v1` et `neosys_p46_recette_20261012` également protégées. Le script natif refuse toute base préexistante.
 
 P5-CONF.1a est accepté selon la mission du responsable, avec OBS-P5-UI-01 ouverte. La recette générale demeure distincte de la recette ciblée de cette nouvelle livraison ; P5-B complet et P5-C ne sont pas déclarés validés. Aucune publication ou poursuite automatique après cette livraison.
+
+
+## Suite autorisée — consolidation P4/P5
+
+Branche Work `work/p4-p5-consolidation` depuis `1cc86cee`. P5-CONF.1b présent et sauvegardé ; aucun accès Windows. Priorité à P4 puis P5-CONF/B puis P5-C. Lot 01 : encaissement groupé avec parts clients et organismes, tests ciblés détaillés dans docs/RESULTATS_P4_P5_01.md. Garder le flag fermé et les bases conservées intactes. Les plafonds périodiques exigent un arbitrage avant consommation ; la recette humaine finale est reportée, pas supprimée.

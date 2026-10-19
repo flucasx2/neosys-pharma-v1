@@ -62,10 +62,14 @@ def recu_groupe_pdf(data):
         p(datetime.fromisoformat(data['date']).strftime('%d/%m/%Y %H:%M UTC')),
         Spacer(1,12),Paragraph('Ventes et reçus individuels',styles['Heading2']),
     ]
-    sales=[[p(x) for x in ('Vente','Reçu individuel','Montant XAF')]]
+    with_coverage=any(int(sale.get('total_organismes_xaf',0)) for sale in data['ventes'])
+    labels=('Vente','Reçu','Net vente','Organismes','Part client') if with_coverage else ('Vente','Reçu individuel','Montant XAF')
+    sales=[[p(x) for x in labels]]
     for sale in data['ventes']:
-        sales.append([p(sale['vente_id']),p(str(sale['numero']).zfill(4)),p(sale['total_xaf'])])
-    table=LongTable(sales,colWidths=[300,90,105],repeatRows=1,hAlign='LEFT')
+        cells=[p(sale['vente_id']),p(str(sale['numero']).zfill(4))]
+        if with_coverage:cells.extend([p(sale['total_vente_xaf']),p(sale['total_organismes_xaf'])])
+        cells.append(p(sale['total_xaf']));sales.append(cells)
+    table=LongTable(sales,colWidths=[205,45,85,80,80] if with_coverage else [300,90,105],repeatRows=1,hAlign='LEFT')
     table.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#e8f1f2')),('VALIGN',(0,0),(-1,-1),'TOP'),('BOTTOMPADDING',(0,0),(-1,-1),7),('LINEBELOW',(0,0),(-1,0),.5,colors.grey),('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.white,colors.HexColor('#f6f8f9')])]))
     story.extend([table,Spacer(1,12),Paragraph('Règlements du groupe',styles['Heading2'])])
     payments=[[p(x) for x in ('Moyen','Montant présenté','Rendu','Net encaissé','Référence')]]
@@ -75,6 +79,10 @@ def recu_groupe_pdf(data):
     table=LongTable(payments,colWidths=[90,95,65,95,150],repeatRows=1,hAlign='LEFT')
     table.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#e8f1f2')),('VALIGN',(0,0),(-1,-1),'TOP'),('BOTTOMPADDING',(0,0),(-1,-1),7),('LINEBELOW',(0,0),(-1,0),.5,colors.grey),('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.white,colors.HexColor('#f6f8f9')])]))
     story.extend([table,Spacer(1,12),Paragraph('Total du groupe : '+escape(str(data['total_xaf']))+' XAF',styles['Heading2'])])
+    if with_coverage:
+        story.extend([p('Net des ventes : '+str(data['total_ventes_xaf'])+' XAF'),
+                      p('Parts organismes : '+str(data['total_organismes_xaf'])+' XAF'),
+                      p('Parts clients encaissées : '+str(data['total_xaf'])+' XAF')])
     def footer(canvas,doc):
         canvas.saveState();canvas.setFont('Helvetica',8);canvas.drawString(42,25,'Reçu collectif '+data['reference']);canvas.drawRightString(A4[0]-42,25,'Page '+str(doc.page));canvas.restoreState()
     SimpleDocTemplate(out,pagesize=A4,rightMargin=42,leftMargin=42,topMargin=36,bottomMargin=48,title='Reçu collectif '+data['reference']).build(story,onFirstPage=footer,onLaterPages=footer)
