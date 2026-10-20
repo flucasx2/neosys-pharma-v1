@@ -164,8 +164,33 @@ def client_ventes(client_id: UUID, request: Request, page: int = Query(1, ge=1),
     for loc in s.s.scalars(select(EmplacementModel).where(EmplacementModel.site_id==s.site,EmplacementModel.actif.is_(True))):
         try:s.stock.emplacement(loc.id_emplacement,'vente.consulter');allowed.append(loc.id_emplacement)
         except PermissionError:pass
-    query=select(VenteModel).where(VenteModel.organisation_id==s.org,VenteModel.site_id==s.site,VenteModel.emplacement_id.in_(allowed),VenteModel.client_id==client_id).order_by(VenteModel.cree_le.desc(),VenteModel.id)
+    # Le titulaire choisi à la caisse ne remplace jamais le client de préparation.
+    # EXISTS évite de multiplier les ventes et conserve le décompte/pagination SQL.
+    fidelity_locations=[]
+    for loc_id in allowed:
+        try:s.stock.emplacement(loc_id,'fidelite.consulter');fidelity_locations.append(loc_id)
+        except PermissionError:pass
+    linked_by_card=(select(EncaissementModel.id)
+        .join(CompteFideliteModel,CompteFideliteModel.id==EncaissementModel.compte_id)
+        .join(ClientFideliteModel,ClientFideliteModel.id==CompteFideliteModel.client_id)
+        .where(EncaissementModel.organisation_id==s.org,
+               CompteFideliteModel.organisation_id==s.org,
+               ClientFideliteModel.organisation_id==s.org,
+               ClientFideliteModel.profil_client_id==client_id,
+               EncaissementModel.vente_id==VenteModel.id,
+               VenteModel.emplacement_id.in_(fidelity_locations))
+        .correlate(VenteModel).exists())
+    query=select(VenteModel).where(
+        VenteModel.organisation_id==s.org,VenteModel.site_id==s.site,
+        VenteModel.emplacement_id.in_(allowed),
+        or_(VenteModel.client_id==client_id,linked_by_card)
+    ).order_by(VenteModel.cree_le.desc(),VenteModel.id)
+    # Le repository pagine des entités ; calculer la provenance avec la même
+    # expression sur les seuls identifiants de la page, sans exposer le compte.
     total,rows=s.stock.repo.paginer(query,page,page_size)
+    fidelity_ids=set(s.s.scalars(select(VenteModel.id).where(
+        VenteModel.id.in_([row.id for row in rows]),
+        VenteModel.organisation_id==s.org,VenteModel.site_id==s.site,linked_by_card))) if rows else set()
     # Reçu details are included only where the caller also has caisse.consulter.
     cashier_locations=[]
     for loc in s.s.scalars(select(EmplacementModel).where(EmplacementModel.site_id==s.site,EmplacementModel.actif.is_(True))):
@@ -175,4 +200,7 @@ def client_ventes(client_id: UUID, request: Request, page: int = Query(1, ge=1),
     if rows and cashier_locations:
         for receipt in s.s.scalars(select(EncaissementModel).join(VenteModel,VenteModel.id==EncaissementModel.vente_id).where(EncaissementModel.organisation_id==s.org,VenteModel.id.in_([row.id for row in rows]),VenteModel.emplacement_id.in_(cashier_locations))):
             receipts[receipt.vente_id]={'recu_id':str(receipt.id),'numero_recu':str(receipt.numero).zfill(4),'date_encaissement':receipt.date.isoformat()}
-    return {'items':[{**serial(row),**receipts.get(row.id,{})} for row in rows],'total':total,'page':page,'page_size':page_size}
+    return {'items':[{**serial(row),**receipts.get(row.id,{}),
+        'origines_rattachement':(['PREPARATION'] if row.client_id==client_id else [])+
+            (['FIDELITE_CAISSE'] if row.id in fidelity_ids else [])
+        } for row in rows],'total':total,'page':page,'page_size':page_size}

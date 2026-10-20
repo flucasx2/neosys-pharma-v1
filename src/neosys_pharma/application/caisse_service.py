@@ -133,13 +133,14 @@ class CaisseService:
         if v.mode!='SANS_TIERS':self._prise_en_charge(v)
         return v
 
-    def _prise_en_charge(self,v):
+    def _prise_en_charge(self,v,verrouiller=True):
         """Revalide le snapshot tiers confirmé et ses montants ligne par ligne."""
-        calcul=self.s.scalar(select(CalculPriseEnChargeVenteModel).where(
+        query=select(CalculPriseEnChargeVenteModel).where(
             CalculPriseEnChargeVenteModel.vente_id==v.id,
             CalculPriseEnChargeVenteModel.organisation_id==self.org,
             CalculPriseEnChargeVenteModel.site_id==self.site,
-        ).with_for_update())
+        )
+        calcul=self.s.scalar(query.with_for_update() if verrouiller else query)
         if not calcul:
             raise ConflitStock('Prise en charge non confirmée : aucun encaissement tiers autorisé.')
         if calcul.revision_vente!=v.revision:
@@ -359,22 +360,65 @@ class CaisseService:
             cid=category.parent_id
         return False
 
-    def gagner(self,v,compte,finance,part_client_par_ligne=None):
-        rule=self.bareme('ACQUISITION')
-        if not rule:return {'points':0,'motif':'Aucun barème d’acquisition applicable.'}
-        eligible=[]
+    def assiette_acquisition(self,v,finance,rule,part_client_par_ligne=None):
+        """Lecture commune au diagnostic et au gain ; aucun crédit de points."""
+        eligible=[];diagnostics=[]
         for row in self.vente.lignes(v):
             product=self.s.get(ProduitModel,row.produit_id)
             nature=self.s.get(NatureMedicamentModel,product.nature_id) if product and product.nature_id else None
-            # Seule la nature explicitement codée COSMETIQUE génère des points.
-            # Une nature absente ou inconnue est exclue sans interprétation libre.
-            if (row.actif and nature and nature.code.strip().upper()=='COSMETIQUE'
-                    and self.categorie_eligible(product.categorie_id,rule)):
+            amount=Decimal(0)
+            if not row.actif:code,motif='LIGNE_INACTIVE','Ligne inactive.'
+            elif not nature:code,motif='NATURE_ABSENTE','Nature du produit non renseignée ou introuvable.'
+            elif nature.code.strip().upper()!='COSMETIQUE':code,motif='NATURE_NON_ADMISE','Nature du produit différente de COSMETIQUE.'
+            elif not rule:code,motif='BAREME_ABSENT','Aucun barème d’acquisition applicable à la date métier.'
+            elif not self.categorie_eligible(product.categorie_id,rule):code,motif='CATEGORIE_NON_ADMISE','Catégorie non admise au barème applicable.'
+            else:
                 amount=(part_client_par_ligne or {}).get(row.id,finance['lignes'][str(row.id)]['ttc'])
                 amount=francs(amount,True)
                 if amount:
                     eligible.append({'ligne_id':str(row.id),'ttc_paye':str(amount),
                                      'part_client_xaf':int(amount),'nature_code':nature.code})
+                    code,motif='ELIGIBLE','Montant client éligible ; attribution après encaissement uniquement.'
+                else:code,motif='MONTANT_CLIENT_NUL','Aucun montant client éligible sur cette ligne.'
+            diagnostics.append({'ligne_id':str(row.id),'designation':row.designation,
+                'eligible':code=='ELIGIBLE','code':code,'motif':motif,
+                'montant_client_eligible_xaf':int(amount)})
+        return eligible,diagnostics
+
+    def information_fidelite(self,key):
+        """Diagnostic en lecture seule : présent avant paiement, snapshot après."""
+        v=self.vente.obtenir(key,'caisse.consulter')
+        self.stock.access('fidelite.consulter',self.site,v.emplacement_id)
+        receipt=self.s.scalar(select(EncaissementModel).where(
+            EncaissementModel.organisation_id==self.org,EncaissementModel.vente_id==v.id))
+        if receipt:
+            gain=receipt.instantane.get('fidelite')
+            result={'vente_id':str(v.id),'revision':v.revision,'phase':'ENCAISSEE',
+                'source':'SNAPSHOT_ENCAISSEMENT','lignes':[],
+                'points_acquis':(gain or {}).get('points_acquis',(gain or {}).get('points',0)),
+                'eligible_paye':(gain or {}).get('eligible_paye'),
+                'dette_compensee':(gain or {}).get('dette_compensee',0)}
+            if not gain:code,motif='SANS_FIDELITE','Aucun compte fidélité enregistré pour cet encaissement.'
+            elif gain.get('motif'):code,motif='BAREME_ABSENT',gain['motif']
+            elif result['points_acquis']:code,motif='ACQUISITION_CONFIRMEE','Points acquis enregistrés après encaissement ; une dette éventuelle est compensée avant disponibilité.'
+            elif Decimal(gain.get('eligible_paye','0'))==0:code,motif='ASSIETTE_NULLE','Aucun montant éligible enregistré. Le motif par produit n’est pas conservé dans ce snapshot historique ; aucune réévaluation rétroactive.'
+            else:code,motif='SEUIL_NON_ATTEINT','Assiette éligible enregistrée, mais aucun point entier acquis selon le barème et son arrondi inférieur.'
+            return result|{'code':code,'motif':motif}
+        finance=self.vente.finance(v)
+        coverage,coverage_lines,_=self._prise_en_charge(v,verrouiller=False) if v.mode!='SANS_TIERS' else (None,[],[])
+        line_paid={row.ligne_vente_id:row.part_client_xaf for row in coverage_lines} if coverage else None
+        rule=self.bareme('ACQUISITION')
+        eligible,diagnostics=self.assiette_acquisition(v,finance,rule,line_paid)
+        return {'vente_id':str(v.id),'revision':v.revision,'phase':'AVANT_ENCAISSEMENT',
+            'source':'REGLES_ACTUELLES','points_acquis':None,'lignes':diagnostics,
+            'eligible_paye':str(sum((Decimal(x['ttc_paye']) for x in eligible),Decimal(0))),
+            'code':'INFORMATION_AVANT_PAIEMENT' if rule else 'BAREME_ABSENT',
+            'motif':'Titulaire identifié et éligibilité des produits sont distincts. Aucun point attribué avant encaissement confirmé.' if rule else 'Aucun barème d’acquisition applicable à la date métier. Aucun point ne sera attribué en son absence.'}
+
+    def gagner(self,v,compte,finance,part_client_par_ligne=None):
+        rule=self.bareme('ACQUISITION')
+        if not rule:return {'points':0,'motif':'Aucun barème d’acquisition applicable.'}
+        eligible,_=self.assiette_acquisition(v,finance,rule,part_client_par_ligne)
         base=sum((Decimal(x['ttc_paye']) for x in eligible),Decimal(0))
         points=acquisition(base,rule.points,rule.montant_xaf)
         # Une éventuelle dette est compensée avant disponibilité de nouveaux points.

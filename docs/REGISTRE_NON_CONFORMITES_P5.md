@@ -129,3 +129,14 @@ L'incident réel PharmaGabon reste ouvert faute de reproduction avec son fichier
 | C2-TEST-01 | Fixture de migration réinstallait un catalogue déjà migré | Correction limitée au test ; aucune permission automatique ni règle métier retirée |
 
 OBS-CAT-01 (incident réel PharmaGabon) et CAP-P5-01 (plafonds consommables non arbitrés) restent ouverts. Les contrôles C2 ne lèvent aucune réserve historique non couverte. Aucun push, migration conservée, déploiement ou activation de l'encaissement groupé.
+
+## Corrections ciblées fidélité / historique — 20 octobre 2026
+
+| ID | Constat / intervention | État et réserves |
+|---|---|---|
+| NC-P4-FID-004 | Nature COSMETIQUE et catégorie admise restent obligatoires. Lecture serveur explicative, assiette commune au gain, distinction titulaire/éligibilité/attribution ; motifs figés après paiement sans réévaluation du catalogue | Préparé localement, non intégré/non clos humain. 19 nouveaux tests Python (avec CLI-005) réussis ; aucun reclassement du lecteur ni crédit de 0004. La cause exacte sur données humaines reste à confirmer en lecture seule |
+| NC-P4-CLI-005 | Historique par client préparé OU compte explicitement enregistré à l'encaissement, relié au profil ; EXISTS, pagination SQL, origines et permissions cumulées | Préparé localement, non intégré/non clos humain. Pas de modification de ventes.client_id ; liens réels de 0004 non consultés |
+| FID-VAL-01 | Chromium téléchargé invalide, aucun serveur PostgreSQL/Docker/Podman local disponible | Non exécutés ; DOM simulé et HTTP SQLite ne valent pas preuve PostgreSQL/E2E. Aucune activation groupée hors contexte existant autorisé |
+| FID-REG-01 | Ancien test de remboursement groupé, ligne 907 de test_caisse.py : attendu strict ignorant quatre champs de fournisseurs d'audit | Échec reproduit à l'identique au parent 9c273a94 intact. Test et règles financières non modifiés ; correction distincte à autoriser. Sélection de régressions : 25 réussies, 1 échouée |
+
+Rapport et protocole limité : `CORRECTIONS_P4_FID_004_CLI_005.md`. Pas de migration. Les anomalies et arbitrages précédents restent inchangés.

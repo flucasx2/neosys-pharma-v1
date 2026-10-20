@@ -17,7 +17,7 @@ from neosys_pharma.infrastructure.catalogue_models import CategorieProduitModel
 POLICY.update({
  'caisse_contexte':('caisse.consulter','caisse.encaisser','caisse.session.gerer','caisse.parametrer','fidelite.parametrer','fidelite.gerer'),
  'caisse_moyen_creer':'caisse.parametrer','caisse_moyen_modifier':'caisse.parametrer','caisse_renommer':'caisse.parametrer','caisse_config':'caisse.parametrer','caisse_sessions':'caisse.consulter','caisse_ouvrir':'caisse.session.gerer','caisse_fermer':'caisse.session.gerer',
- 'caisse_attente':'caisse.consulter','caisse_vente':'caisse.consulter','caisse_confirmer':'caisse.paiement.confirmer','caisse_rapprocher':'caisse.paiement.confirmer','caisse_finaliser':'caisse.encaisser',
+ 'caisse_attente':'caisse.consulter','caisse_vente':'caisse.consulter','caisse_information_fidelite':'caisse.consulter','caisse_confirmer':'caisse.paiement.confirmer','caisse_rapprocher':'caisse.paiement.confirmer','caisse_finaliser':'caisse.encaisser',
  'caisse_recus':'caisse.consulter','caisse_recu':'caisse.consulter','caisse_recu_pdf':'caisse.consulter','caisse_appel_pdf':'vente.consulter','caisse_mouvements':'caisse.consulter',
  'fidelite_recherche':'fidelite.consulter','fidelite_detail':'fidelite.consulter','fidelite_journal':'fidelite.consulter','fidelite_ventes':'fidelite.consulter','fidelite_creer':'fidelite.gerer','fidelite_carte':'fidelite.gerer','fidelite_code_barres':'fidelite.gerer','fidelite_impression':'fidelite.gerer','fidelite_carte_pdf':'fidelite.gerer','fidelite_opposer':'fidelite.gerer',
  'fidelite_baremes':'fidelite.parametrer','fidelite_bareme':'fidelite.parametrer','fidelite_clore':'fidelite.parametrer'})
@@ -123,6 +123,10 @@ def caisse_vente(key:UUID,s=Depends(service)):
     coverage=(receipt.instantane.get('prise_en_charge') if receipt else
               execute(lambda:s.prise_en_charge_detail_optionnelle(v)))
     return execute(lambda:s.vente.detail(v))|{'prise_en_charge':coverage,'confirmations':[serial(c) for c in s.stock.lignes(ConfirmationReglementModel,vente_id=v.id)]}
+@router.get('/ventes/{key}/fidelite')
+def caisse_information_fidelite(key:UUID,s=Depends(service)):
+    return execute(lambda:s.information_fidelite(key))
+
 @router.post('/ventes/{key}/confirmations',status_code=201)
 def caisse_confirmer(key:UUID,d:Confirmation,s=Depends(service)):
     execute(lambda:s.vente.obtenir(key,'caisse.paiement.confirmer'));execute(lambda:s.session(d.session_id,'caisse.paiement.confirmer'))

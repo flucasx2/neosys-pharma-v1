@@ -26,7 +26,7 @@ w.cashRequest=async(route,method,body)=>{calls.push({route,method,body});return 
   await saver(values(),{cle:'key'},entry);check(!Object.hasOwn(calls.at(-1).body,'code')&&!Object.hasOwn(calls.at(-1).body,'code_barres'),'Identifiant physique envoyé pour une carte virtuelle');check(entry.form.elements.code_barres.disabled,'Code-barres laissé actif pour une carte virtuelle');
  }
  w.eval('cashState.sale={id:"sale",revision:1,totaux:{ttc:1000},confirmations:[]};cashState.session={id:"session",revision:1};cashState.account=null');
- w.cashPay();entry.form.elements.especes.value='1200';entry.form.elements.confirme.checked=true;
+ w.shellState.view="encaissement";await w.cashPay();entry.form.elements.especes.value='1200';entry.form.elements.confirme.checked=true;
  check(entry.form.checkValidity(),'Le formulaire refuse les espèces supérieures au montant dû');
  await saver(values(),{cle:'pay'},entry);
  check(calls.find(c=>c.route==='/ventes/sale/finaliser').body.reglements[0].montant==='1200','Montant réellement remis perdu');
