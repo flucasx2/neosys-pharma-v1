@@ -139,7 +139,7 @@ def test_retours_partiels_cumulatifs_quarantaine_remboursement_fidelite(raw_clie
 def test_paiement_acquis_restitution_preuve_et_blocage_z(raw_client,account):
     c,a=raw_client,account;v,s,*_=setup45(c,a)
     cf=cash_post(c,a,f'/ventes/{v["id"]}/confirmations',{'session_id':s['id'],'revision':v['revision'],'mode':'CARTE','montant':100,'reference':'ACQUIS-QA','source':'MANUEL_TERMINAL','preuve':'Terminal accepté'})
-    r=post(c,a,'/remboursements',{'confirmation_id':cf['id'],'session_id':s['id'],'revision':s['revision'],'reglements':[{'mode':'CARTE','montant':100}],'justification':'Client abandonne'})
+    r=post(c,a,'/remboursements',{'confirmation_id':cf['id'],'session_id':s['id'],'revision':s['revision'],'reglements':[{'mode':'CARTE','moyen_id':cf['moyen_id'],'moyen_origine_id':cf['moyen_id'],'montant':100}],'justification':'Client abandonne'})
     r=post(c,a,f'/remboursements/{r["id"]}/autoriser',{'revision':r['revision'],'justification':'Autorisé'},200)
     post(c,a,f'/remboursements/{r["id"]}/executer',{'revision':r['revision'],'justification':'Sans preuve','preuves':[{}]},422)
     post(c,a,f'/remboursements/{r["id"]}/executer',{'revision':r['revision'],'justification':'Preuve vide','preuves':[{'reference':'  ','preuve':' \t '}]},422)

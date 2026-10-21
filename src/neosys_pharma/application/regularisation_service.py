@@ -294,6 +294,16 @@ class RegularisationService:
                     paid[key]['montant']-=Decimal(payment['montant'])
         return paid
 
+    def moyen_remboursement(self,payment):
+        """L'exception ne concerne que l'identité historique, jamais une substitution."""
+        mode=payment['mode'];mid=payment.get('moyen_id')
+        historique=(mode,mid)==(payment.get('mode_origine') or mode,payment.get('moyen_origine_id'))
+        famille_active=mode in self.cash.config()['modes']
+        if not historique and not famille_active:raise ValueError('Moyen de remboursement non activé.')
+        target=self.cash.moyen(mode,mid,actif=not historique)
+        if mode=='ESPECES' and mid:raise ValueError('Les espèces ne portent pas de fournisseur.')
+        return target, historique and (not famille_active or (target is not None and not target.actif))
+
     def remboursement(self,data):
         session=self.cash.session(data['session_id'],'caisse.remboursement.demander');self.revision(session,data)
         if session.etat!='OUVERTE':raise ConflitStock('Session ouverte requise.')
@@ -312,12 +322,10 @@ class RegularisationService:
         planned=[]
         for row in data['reglements']:
             mode=row['mode'];original=row.get('mode_origine') or mode;value=francs(row['montant'])
-            if mode not in self.cash.config()['modes']:raise ValueError('Moyen de remboursement non activé.')
             mid=str(row['moyen_id']) if row.get('moyen_id') else None
             origin_id=str(row['moyen_origine_id']) if row.get('moyen_origine_id') else None
-            target=self.cash.moyen(mode,mid)
-            if mode=='ESPECES' and mid:raise ValueError('Les espèces ne portent pas de fournisseur.')
-            if not mid and (mode,None) not in paid and any(m['mode']==mode for m in self.cash.config()['moyens']):
+            target,_=self.moyen_remboursement({'mode':mode,'moyen_id':mid,'mode_origine':original,'moyen_origine_id':origin_id})
+            if mode!='ESPECES' and not mid and (mode,None) not in paid:
                 raise ValueError('Sélection explicite du moyen de remboursement requise.')
             if (original,origin_id)!=(mode,mid):self.access('caisse.remboursement.substituer',session.emplacement_id)
             budget=paid.get((original,origin_id))
@@ -347,8 +355,10 @@ class RegularisationService:
             if row.etat!='AUTORISE':raise ConflitStock('Autorisation préalable requise.')
             proofs=data['preuves']
             if len(proofs)!=len(row.reglements):raise ValueError('Une preuve par règlement de remboursement requise.')
+            desactives=[]
             for payment,proof in zip(row.reglements,proofs,strict=True):
-                self.cash.moyen(payment['mode'],payment.get('moyen_id'))
+                _,desactive=self.moyen_remboursement(payment)
+                if desactive:desactives.append(payment)
                 if payment['mode']!='ESPECES' and (not (proof.get('reference') or '').strip() or not (proof.get('preuve') or '').strip()):raise ValueError('Référence et preuve externe obligatoires ; aucun prestataire simulé.')
             for payment,proof in zip(row.reglements,proofs,strict=True):
                 if payment['mode']!='ESPECES':self.stock.ajouter(PreuveRemboursementModel,remboursement_id=row.id,mode=payment['mode'],reference=proof['reference'].strip(),preuve=proof['preuve'].strip())
@@ -371,6 +381,9 @@ class RegularisationService:
             snap,pdf,digest=self.document('REMBOURSEMENT CONFIRMÉ',row.id,source+[{'titre':'Règlements restitués','colonnes':['Moyen original','Moyen restitué','Montant FCFA','Référence','Preuve'],'lignes':[[p.get('moyen_origine_libelle',p['mode_origine']),p.get('moyen_libelle',p['mode']),p['montant'],proof.get('reference') or 'REMIS EN ESPÈCES',proof.get('preuve') or data['justification']] for p,proof in zip(row.reglements,proofs,strict=True)]}])
             snap.update(dossier=serial(row),preuves=proofs,justification=data['justification'])
             self.stock.ajouter(PieceFinanciereModel,remboursement_id=row.id,auteur_id=self.stock.user,instantane=snap,pdf=pdf,pdf_sha256=digest)
+            if desactives:
+                self.trace('REMBOURSEMENT_HISTORIQUE_MOYEN_DESACTIVE',dossier=serial(row),
+                           moyens_desactives=desactives,preuves=proofs,justification=data['justification'])
         self.trace('REMBOURSEMENT_'+action.upper(),dossier=serial(row),justification=data['justification']);return serial(row)
     def compenser(self,key):
         ret=self.stock.obtenir(RetourVenteModel,key);enc=self.stock.obtenir(EncaissementModel,ret.encaissement_id)

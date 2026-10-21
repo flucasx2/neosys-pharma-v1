@@ -1,6 +1,7 @@
 """Montants XAF entiers, paiements acquis et acquisition sans taux implicite."""
 from decimal import Decimal,ROUND_FLOOR
 MODES=('ESPECES','CARTE','MOBILE_MONEY','CHEQUE','VIREMENT')
+MODES_INITIAUX=('ESPECES',)
 
 def francs(value,zero=False):
     d=Decimal(str(value))

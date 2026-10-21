@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select,func
 from fastapi.encoders import jsonable_encoder
 from neosys_pharma.application.stock_service import ident
-from neosys_pharma.domain.caisse import MODES,francs,repartir_paiements,acquisition,RegleFiscaleFidelite
+from neosys_pharma.domain.caisse import MODES,MODES_INITIAUX,francs,repartir_paiements,acquisition,RegleFiscaleFidelite
 from neosys_pharma.domain.catalogue import texte
 from neosys_pharma.domain.stock import ConflitStock
 from neosys_pharma.infrastructure.caisse_models import *
@@ -45,7 +45,7 @@ class CaisseService:
 
     def config(self):
         row=self.s.scalar(select(ParametrageCaisseModel).filter_by(organisation_id=self.org))
-        return (serial(row) if row else {'modes':[],'ticket_appel':False,'revision':0})|{'moyens':[serial(m) for m in self.s.scalars(select(MoyenPaiementModel).where(MoyenPaiementModel.organisation_id==self.org).order_by(MoyenPaiementModel.code))]}
+        return (serial(row) if row else {'modes':list(MODES_INITIAUX),'ticket_appel':False,'revision':0})|{'moyens':[serial(m) for m in self.s.scalars(select(MoyenPaiementModel).where(MoyenPaiementModel.organisation_id==self.org).order_by(MoyenPaiementModel.code))]}
 
     def moyen(self,mode,key,*,actif=True):
         if not key:return None
@@ -72,6 +72,7 @@ class CaisseService:
         return serial(row)
 
     def configurer(self,data):
+        self.stock.access('caisse.parametrer',self.site,None)
         row=self.s.scalar(select(ParametrageCaisseModel).filter_by(organisation_id=self.org))
         if data['revision']!=(row.revision if row else 0):raise ConflitStock('Configuration modifiée : actualiser.')
         if len(set(data['modes']))!=len(data['modes']) or any(x not in MODES for x in data['modes']):raise ValueError('Moyens de paiement invalides.')
@@ -222,7 +223,7 @@ class CaisseService:
         if data['mode'] in ('CARTE','MOBILE_MONEY') and data['source']!='MANUEL_TERMINAL':raise ValueError('Confirmation manuelle du terminal indépendant requise.')
         if data['mode'] in ('CHEQUE','VIREMENT') and data['source']!='MANUEL_JUSTIFICATIF':raise ValueError('Confirmation du justificatif requise.')
         moyen=self.moyen(data['mode'],data.get('moyen_id'))
-        if not moyen and any(m['mode']==data['mode'] for m in self.config()['moyens']):
+        if not moyen:
             raise ValueError('Sélection explicite du moyen de paiement configuré requise.')
         ref=data['reference'].strip()
         if not ref or not data['preuve'].strip():raise ValueError('Référence vérifiable et preuve de confirmation obligatoires.')

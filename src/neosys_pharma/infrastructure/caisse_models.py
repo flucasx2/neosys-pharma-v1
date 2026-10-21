@@ -8,6 +8,7 @@ from neosys_pharma.infrastructure.database import Base
 from neosys_pharma.infrastructure.montant_xaf import MontantXAF
 from neosys_pharma.infrastructure.vente_models import EntiteVente
 from neosys_pharma.infrastructure.client_models import ClientModel
+from neosys_pharma.domain.caisse import MODES_INITIAUX
 
 def now():return datetime.now(timezone.utc)
 def org_fk(local,table,remote='id'):
@@ -48,7 +49,7 @@ class SessionCaisseModel(EntiteVente,Base):
 class ParametrageCaisseModel(EntiteVente,Base):
     __tablename__='caisse_parametrages'
     __table_args__=scoped('caisse_param',UniqueConstraint('organisation_id'),CheckConstraint('revision > 0'))
-    modes:Mapped[list]=mapped_column(JSON,default=list)
+    modes:Mapped[list]=mapped_column(JSON,default=lambda:list(MODES_INITIAUX))
     ticket_appel:Mapped[bool]=mapped_column(default=False)
     revision:Mapped[int]=mapped_column(default=1)
 
