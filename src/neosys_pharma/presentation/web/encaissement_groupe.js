@@ -710,7 +710,7 @@ cg("create").addEventListener("click", () => cgCreateDraft().catch(cgFailure));
 cg("add-selected").addEventListener("click", () => cgAddSelected().catch(cgFailure));
 cg("resume").addEventListener("click", () => cgResume());
 cg("reload").addEventListener("click", () => cgReload());
-cg("add-payment").addEventListener("click", () => { cashGroupState.payments.push({ mode: cashPaymentChoices(cashState.context.configuration,true)[0]?.mode||'ESPECES', moyen_id:cashPaymentChoices(cashState.context.configuration,true)[0]?.moyen_id||null, montant: "", rendu: "0", confirmation_id: null }); cgRenderPayments(); });
+cg("add-payment").addEventListener("click", () => { const choice=cashPaymentChoices(cashState.context.configuration,true)[0];if(!choice){cgMessage('Aucun moyen de paiement actif.',true);return;}cashGroupState.payments.push({ mode: choice.mode, moyen_id:choice.moyen_id, montant: "", rendu: "0", confirmation_id: null }); cgRenderPayments(); });
 cg("calculate-change").addEventListener("click",()=>{try{cgCalculateChange();}catch(e){cgFailure(e);}});
 cg("save-payments").addEventListener("click", () => cgSavePayments().catch(cgFailure));
 cg("auto").addEventListener("click", () => cgAutoAllocate().catch(cgFailure));

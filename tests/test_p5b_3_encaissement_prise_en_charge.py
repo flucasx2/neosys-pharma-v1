@@ -292,7 +292,10 @@ def test_encaissement_part_client_multi_organismes_receipt_loyalty_and_returns(r
     assert int(first["montant"]) + first["montant_organismes_xaf"] == first["montant_ttc_xaf"]
     _refund_idempotent(c, a, first, session["id"], "ESPECES")
     second = create_return(c, a, receipt, 10)
-    refund(c, a, second, session, mode="CARTE")
+    # Restitution sur le fournisseur historique exact, sans substitution.
+    assert confirmation["moyen_id"] is not None
+    refund(c, a, second, session, mode="CARTE",
+           moyen_id=confirmation["moyen_id"], moyen_origine_id=confirmation["moyen_id"])
     loyalty = c.get(cash_root(a) + f"/fidelite/{account_id}").json()
     assert loyalty["points"] == 0 and loyalty["dette"] == 0
     closed_session = current_session(c, a, session)
