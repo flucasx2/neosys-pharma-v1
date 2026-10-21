@@ -6,6 +6,9 @@ venv/
 .env
 .env.*
 !.env.example
+!.env.docker.example
+.secrets/
+.codex-tools-download/
 
 # Python
 __pycache__/
