@@ -1,0 +1,31 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync('src/neosys_pharma/presentation/web/caisse.js','utf8');
+const group=fs.readFileSync('src/neosys_pharma/presentation/web/encaissement_groupe.js','utf8');
+const context=vm.createContext({});
+vm.runInContext(source.split('\n').find(l=>l.startsWith('function cashFinancialSummary(')),context);
+vm.runInContext(group.slice(group.indexOf('function cgInt('),group.indexOf('function cgCalculateChange(')),context);
+const mixed=[{mode:'ESPECES',montant:'90500'},{mode:'CARTE',montant:'10000',confirmation_id:'card'},{mode:'MOBILE_MONEY',montant:'1400',confirmation_id:'air'}];
+assert.equal(JSON.stringify(context.cashFinancialSummary(101400,mixed)),JSON.stringify({gross:101900,change:500,net:101400,remaining:0}));
+assert.equal(context.cgCashChange(101400,mixed)[0].rendu,'500');
+assert.equal(context.cashFinancialSummary(7000,[{mode:'ESPECES',montant:10000}]).change,3000);
+assert.equal(context.cashFinancialSummary(7000,[{mode:'ESPECES',montant:6000}]).remaining,1000);
+assert.equal(context.cashFinancialSummary(7000,[{mode:'CARTE',montant:7000}]).change,0);
+for(const rows of [[{mode:'CARTE',montant:7001},{mode:'ESPECES',montant:10000}],[{mode:'ESPECES',montant:'1.5'}],[{mode:'ESPECES',montant:'9007199254740992'}]])assert.throws(()=>context.cashFinancialSummary(7000,rows));
+assert.throws(()=>context.cashFinancialSummary(7000,[{mode:'CARTE',montant:1,confirmation_id:'same'},{mode:'CARTE',montant:1,confirmation_id:'same'}]));
+assert.equal(mixed[0].rendu,undefined);
+// Rendu réel du récapitulatif ; DOM minimal, aucune base ni transport.
+function element(){return {textContent:'',children:[],append(...nodes){this.children.push(...nodes)},replaceChildren(){this.children=[]},setAttribute(){},querySelectorAll(){return []}};}
+const nodes={review:element(),'allocation-body':element(),'allocation-status':element(),payments:element()};
+Object.assign(context,{document:{createElement:element},venteMoney:String,cgMoney:String,cg:id=>nodes[id],cgHasUnsavedFinancialChanges:()=>true,cgSyncFinaliseButton(){},cashGroupState:{payments:mixed.map(x=>({...x})),draft:{dossier:{etat:'BROUILLON'},totaux:{du_xaf:'101400',alloue_xaf:'0',allocation_valide:false},ventes:[]},loyalty:new Map()}});
+vm.runInContext(source.split('\n').find(l=>l.startsWith('function cashRenderFinancialSummary(')),context);
+vm.runInContext(group.slice(group.indexOf('function cgRenderReview()'),group.indexOf('async function cgAbandon(')),context);
+context.cgRenderReview();
+for(const expected of ['Total reçu : 101900','Rendu monnaie : 500','Net encaissé : 101400','Reste à répartir : 0'])assert.ok(nodes.review.children[0].textContent.includes(expected));
+assert.equal(context.cashGroupState.payments[0].rendu,'500');
+context.cashGroupState.payments[0].montant='90000';context.cgRenderReview();
+assert.ok(nodes.review.children[0].textContent.includes('Rendu monnaie : 0'));
+context.cashGroupState.payments[0].montant='89000';context.cgRenderReview();
+assert.ok(nodes.review.children[0].textContent.includes('Reste à répartir : 1000'));
+context.cashGroupState.payments[1].montant='110000';context.cgRenderReview();
+assert.equal(nodes.review.children[0].textContent,'Excédent non espèces interdit.');
+console.log('18 assertions B04 réussies (calculs et rendu réels, DOM minimal simulé).');

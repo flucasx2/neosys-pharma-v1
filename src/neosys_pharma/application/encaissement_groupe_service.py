@@ -10,6 +10,7 @@ from sqlalchemy import select, delete
 from neosys_pharma.application.caisse_service import serial
 from neosys_pharma.domain.caisse import francs
 from neosys_pharma.domain.encaissement_groupe import (
+    calculer_rendu_groupe,
     AllocationReglement,
     ReglementGroupe,
     VenteGroupe,
@@ -124,6 +125,8 @@ class EncaissementGroupeService:
         allocations = self._allocations(dossier.id)
         total_due = sum((francs(row.montant_du, zero=True) for row in sales), Decimal(0))
         total_net = sum((francs(row.montant - row.rendu, zero=True) for row in payments), Decimal(0))
+        total_brut = sum((row.montant for row in payments), Decimal(0))
+        total_rendu = sum((row.rendu for row in payments), Decimal(0))
         allocated = sum((francs(row.montant, zero=True) for row in allocations), Decimal(0))
         return {
             "dossier": serial(dossier),
@@ -132,6 +135,8 @@ class EncaissementGroupeService:
             "allocations": [serial(row) for row in allocations],
             "totaux": {
                 "du_xaf": str(total_due),
+                "brut_recu_xaf": str(total_brut),
+                "rendu_xaf": str(total_rendu),
                 "net_regle_xaf": str(total_net),
                 "alloue_xaf": str(allocated),
                 "reste_xaf": str(total_due - total_net),
@@ -305,6 +310,8 @@ class EncaissementGroupeService:
         modes = set(self.caisse.config()["modes"])
         parsed = []
         confirmation_ids = set()
+        total_du = sum((francs(row.montant_du, zero=True) for row in self._lignes_vente(dossier.id)), Decimal(0))
+        reglements = calculer_rendu_groupe(total_du, reglements)
         for order, item in enumerate(reglements, 1):
             if item["mode"] not in modes:
                 raise ValueError("Moyen de règlement non activé pour cette caisse.")

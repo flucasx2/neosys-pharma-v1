@@ -116,7 +116,9 @@ def vente_contexte(request:Request,s=Depends(service)):
         try:s.stock.emplacement(loc.id_emplacement,request.state.vente_permission)
         except PermissionError:continue
         result.append({'id':str(loc.id_emplacement),'nom':loc.nom,'postes':[{'id':str(p.id_poste_vente),'nom':p.nom} for p in s.s.scalars(select(PosteVenteModel).where(PosteVenteModel.emplacement_id==loc.id_emplacement,PosteVenteModel.actif.is_(True)))],'caisses':[{'id':str(p.id_caisse),'nom':p.nom} for p in s.s.scalars(select(CaisseModel).where(CaisseModel.emplacement_id==loc.id_emplacement,CaisseModel.actif.is_(True)))]})
-    return {'emplacements':result}
+    from neosys_pharma.infrastructure.caisse_models import ParametrageCaisseModel
+    config=s.s.scalar(select(ParametrageCaisseModel).where(ParametrageCaisseModel.organisation_id==s.org))
+    return {'emplacements':result,'ticket_appel':bool(config and config.ticket_appel)}
 
 @router.get('/conditionnements')
 def vente_conditionnements(q:str=Query('',max_length=200),page:int=Query(1,ge=1),page_size:int=Query(20,ge=1,le=100),s=Depends(service)):
@@ -177,7 +179,11 @@ def remise_locale(vente_id:UUID,demande_id:UUID,data:Locale,request:Request,s=De
     return execute(lambda:s.stock.operation(data.cle,'P4:LOCALE:'+str(demande_id),body,lambda:s.decider_remise(s.obtenir(vente_id,'vente.remise.demander'),demande_id,data.model_dump(exclude={'password','identifiant'}),approver.id_utilisateur,local=True)))
 
 @router.get('/{vente_id}')
-def vente_detail(vente_id:UUID,request:Request,s=Depends(service)):return execute(lambda:s.detail(vente(s,request,vente_id)))
+def vente_detail(vente_id:UUID,request:Request,s=Depends(service)):
+    from neosys_pharma.infrastructure.caisse_models import AppelVenteModel
+    detail=execute(lambda:s.detail(vente(s,request,vente_id)))
+    appel=s.s.scalar(select(AppelVenteModel).where(AppelVenteModel.organisation_id==s.org,AppelVenteModel.vente_id==vente_id))
+    return detail|{'numero_appel':str(appel.numero).zfill(4)} if appel else detail
 @router.put('/{vente_id}/client')
 def vente_client_affecter(vente_id:UUID,data:ClientAffectation,request:Request,s=Depends(service)):
     # Selecting a profile requires both the preparation permission and client consultation.

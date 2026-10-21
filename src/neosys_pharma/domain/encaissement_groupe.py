@@ -192,3 +192,35 @@ def valider_allocations(ventes, reglements, allocations):
         if allocated_by_payment[payment.reglement_id] != payment.montant_net:
             raise ValueError("Les allocations d'un règlement doivent égaler son montant net.")
     return True
+
+
+def calculer_rendu_groupe(total, reglements):
+    """Calcule le rendu sur les espèces, en conservant un net positif par ligne.
+
+    Un brouillon peut rester insuffisant ; sa ventilation/finalisation exige
+    toujours la couverture exacte. Les montants et confirmations restent intacts.
+    """
+    total = francs(total, zero=True)
+    rows = [dict(row) for row in reglements]
+    brut = Decimal(0)
+    noncash = Decimal(0)
+    for row in rows:
+        if row["mode"] not in MODES:
+            raise ValueError("Moyen de paiement inconnu.")
+        montant = francs(row["montant"])
+        brut += montant
+        if row["mode"] != "ESPECES":
+            noncash += montant
+            if francs(row.get("rendu", 0), zero=True):
+                raise ValueError("Aucun rendu sur les moyens non espèces.")
+        row["rendu"] = Decimal(0)
+    if noncash > total:
+        raise ValueError("Un excédent non espèces est interdit.")
+    restant = max(Decimal(0), brut - total)
+    for row in reversed(rows):
+        if row["mode"] == "ESPECES":
+            row["rendu"] = min(restant, francs(row["montant"]) - 1)
+            restant -= row["rendu"]
+    if restant:
+        raise ValueError("Retirez ou regroupez les lignes espèces inutiles : chaque règlement doit conserver un net positif.")
+    return rows

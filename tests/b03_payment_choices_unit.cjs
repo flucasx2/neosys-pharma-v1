@@ -13,7 +13,7 @@ function element() {
     append(...items) { this.children.push(...items); },
     replaceChildren() { this.children = []; },
     add(option) { this.options.push(option); },
-    setAttribute() {}, addEventListener() {} };
+    setAttribute() {}, setCustomValidity() {}, addEventListener() {} };
 }
 const provider = { id: 'air', mode: 'MOBILE_MONEY', libelle: 'Airtel', actif: true };
 let modal, addPayment, groupMessage, calls = [];
@@ -22,10 +22,10 @@ const state = { epoch: 1, sale: { id: 'sale', revision: 2, totaux: { ttc: 100 },
 const paymentsRoot = element();
 const context = {
   cashState: state, shellState: { view: 'encaissement' }, Number, Error,
-  cashRefreshFidelity: async () => {}, venteMoney: String, stockText() {},
+  cashRefreshFidelity: async () => {}, cashRenderFinancialSummary() {}, venteMoney: String, stockText() {},
   stockField(form, name) { return form.elements[name] = element(); },
   cashModal(title, permission, build, save) {
-    const form = { elements: {} }; build(form); modal = { title, permission, form, save };
+    const form = { elements: {}, append() {}, addEventListener() {}, querySelector:element }; const init=build(form); if(init)init({form}); modal = { title, permission, form, save };
   },
   cashRequest: async (route, method, body) => { calls.push({ route, method, body }); return state.sale; },
   cashGroupState: { payments: [], draft: { dossier: { etat: 'BROUILLON' } } },
