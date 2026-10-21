@@ -204,9 +204,14 @@ def test_permissions_referentiel_et_configuration(raw_client, account):
     finally:
         gen.close()
     post(c, a, '/moyens', {'code':'REFUSE', 'libelle':'Fictif', 'mode':'CARTE'}, 403)
-    assert c.put(root(a)+f'/moyens/{m["id"]}', json={'cle':str(uuid4()),
-        'revision':1, 'libelle':'Interdit', 'actif':False}).status_code == 403
+    # Renommage seul et désactivation empruntent le même endpoint protégé.
+    for actif in (True, False):
+        response = c.put(root(a)+f'/moyens/{m["id"]}', json={'cle':str(uuid4()),
+            'revision':1, 'libelle':'Interdit', 'actif':actif})
+        assert response.status_code == 403, response.text
     post(c, a, '/configuration', {'revision':1, 'modes':[]}, 403)
+    after = c.get(root(a)+'/contexte').json()['configuration']
+    assert after['moyens'] == [m]  # aucune création, modification ou désactivation
 
 
 @pytest.mark.parametrize('source', ['retour', 'acquis'])
