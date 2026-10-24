@@ -5,7 +5,7 @@ from hashlib import sha256
 from uuid import UUID,uuid4
 import pytest
 from sqlalchemy import create_engine,MetaData,select,text,Uuid
-from sqlalchemy.engine import make_url
+from p405_migration_guard import validate_url,validate_server
 from alembic import command
 from alembic.config import Config
 from test_p405_documents_annulation import raw_client,account,requested,db
@@ -17,12 +17,15 @@ from neosys_pharma.domain.organisation.permissions_systeme import permission_id
 
 def target(engine):
     # Contrôle répété avant fixture et avant suppression de son propre schéma.
+    if engine.dialect.name=='postgresql':
+        validate_url(engine.url.render_as_string(hide_password=False))
     with engine.connect() as sql:
         if engine.dialect.name=='postgresql':
             sql.execute(text('SET TRANSACTION READ ONLY'))
-            assert sql.scalar(text('show transaction_read_only'))=='on'
-            assert sql.execute(text('select current_database(),current_user')).one()==('neosys_p405_migrations','neosys_test')
-            assert sql.scalar(text("select shobj_description(oid,'pg_database') from pg_database where datname=current_database()"))=='NEOSYS_P405_MIGRATIONS_DISPOSABLE'
+            readonly=sql.scalar(text('show transaction_read_only'))
+            database,role=sql.execute(text('select current_database(),current_user')).one()
+            marker=sql.scalar(text("select shobj_description(oid,'pg_database') from pg_database where datname=current_database()"))
+            validate_server(database,role,marker,readonly)
 
 
 def typed_metadata(engine):
@@ -51,10 +54,9 @@ def reset_disposable_schema(engine):
 
 def test_migrations_preservent_historique_et_refusent_perte_document(raw_client,account,tmp_path,monkeypatch):
     c,a=raw_client,account;_,receipt,returned,refund=requested(c,a)
-    url=os.getenv('TEST_MIGRATION_DATABASE_URL',f'sqlite:///{tmp_path / "p405-history.db"}')
+    url=os.getenv('TEST_P405_MIGRATION_DATABASE_URL') or os.getenv('TEST_MIGRATION_DATABASE_URL',f'sqlite:///{tmp_path / "p405-history.db"}')
     if not url.startswith('sqlite'):
-        parsed=make_url(url)
-        assert parsed.host=='test-db' and parsed.database=='neosys_p405_migrations' and parsed.username=='neosys_test'
+        validate_url(url)
     engine=create_engine(url);target(engine)
     # Réinitialisation de cette seule base de migrations marquée : les autres
     # campagnes peuvent y avoir laissé leurs propres fixtures de catalogue.
