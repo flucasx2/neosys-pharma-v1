@@ -9,11 +9,6 @@ docs/RECETTE_CONSOLIDEE_P4_P5.md
 docs/REGISTRE_EXIGENCES_P5_C.md
 docs/REGISTRE_NON_CONFORMITES_P5.md
 docs/RESULTATS_P5_C_1.md
-docs/preuves_p5_c_1/contraintes.log
-docs/preuves_p5_c_1/dom.log
-docs/preuves_p5_c_1/downgrade.log
-docs/preuves_p5_c_1/politique-ci.log
-docs/preuves_p5_c_1/python.log
 migrations/env.py
 migrations/versions/20261019_05_creances.py
 scripts/recette_p5c_postgresql.py
@@ -32,3 +27,5 @@ src/neosys_pharma/presentation/web/shell.js
 tests/creances_ui.cjs
 tests/test_p5c_creances.py
 tests/test_p5c_migration.py
+
+Note de publication P4 : les journaux de preuve P5-C1/C2 sont privés et exclus de l’historique de publication. Ce manifeste ne garantit pas leur disponibilité publique ni une validation complète de P5.

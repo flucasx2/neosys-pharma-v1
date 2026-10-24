@@ -1,5 +1,7 @@
 # Résultats P5-C.2 — 19 octobre 2026
 
+
+Les noms de journaux ci-dessous identifient des preuves historiques conservées séparément et exclues de la publication P4. Leur mention ne garantit pas leur disponibilité publique et ne vaut pas validation complète de P5.
 **Verdict : livraison partielle ; préparation de recette disponible, facturation de production non prête.** Aucune publication GitHub, base conservée, migration Windows ou activation du groupe effectuée. Aucune recette humaine intermédiaire demandée.
 
 ## Base vérifiée

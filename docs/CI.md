@@ -62,7 +62,7 @@ Les parcours navigateur existants sont exécutés dans leur ordre de jeux de don
 
 ## Conservation P4.5
 
-La recette existante réussie est conservée : commit `9f09af42a22b20a1528fba3d93b986dd105209e1`, [run PR 38152190064](https://github.com/flucasx2/neosys-pharma-v1/actions/runs/38152190064), run push `38152185889`. Artefact `p1-browser-screenshots`, ID `11706882712`, 14 423 253 octets, digest `sha256:e591d2f9cd85958b2c5d26717c0819e731b7ea98767ee81c077f5767efd7dfdd`. Non expiré ; expiration annoncée au 9 janvier 2027. Aucun run ni artefact existant supprimé ou modifié. Cette preuve ne valide pas automatiquement un nouveau SHA.
+La recette existante réussie est conservée : commit `9f09af42a22b20a1528fba3d93b986dd105209e1`, [run PR 38152190064](https://github.com/flucasx2/neosys-pharma-v1/actions/runs/38152190064), run push `38152185889`. Les artefacts de ce run sont des références historiques ; leur disponibilité et leur expiration ne sont pas attestées par cette publication. Cette preuve ne valide pas automatiquement un nouveau SHA.
 
 ## Tests locaux et runner Ubuntu optionnel
 

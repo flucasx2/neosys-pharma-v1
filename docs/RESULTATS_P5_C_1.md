@@ -30,7 +30,7 @@ Les ajouts P5-C.1 ont été repris dans cette copie et **les résultats ci-desso
 | Migration Alembic | Réussie dans la campagne ciblée SQLite temporaire | Chaîne jusqu'à 20261019_05, command.check, FK/UNIQUE, retour à 04 puis montée, conservation organisme P4-B fictif |
 | Syntaxe JS et git diff --check | Réussis | Aucun parcours Chromium implicite |
 
-Les logs finaux de campagne sont dans `docs/preuves_p5_c_1/`. Le contrôle supplémentaire du refus de downgrade avec créances existantes est réussi ; son résultat est enregistré dans `downgrade.log`. Les 30 + 1 tests ci-dessus sont deux exécutions distinctes, sans addition de campagnes redondantes.
+Les logs de cette campagne historique sont conservés séparément et exclus de l’historique de publication P4 ; ils ne sont pas des pièces jointes publiques ni une validation complète de P5. Le contrôle supplémentaire du refus de downgrade avec créances existantes est réussi ; son résultat est enregistré dans `downgrade.log`. Les 30 + 1 tests ci-dessus sont deux exécutions distinctes, sans addition de campagnes redondantes.
 
 Les tests applicatifs vérifient : absence de source avant encaissement, refus d'une simple confirmation de calcul comme source, trois créances pour trois organismes, somme exacte, rejeu même/nouvelle clé sans duplication, séparation finance/administration, rejet des champs financiers modifiés, états/révisions, historique, contrôles d'engagement incomplet/non vérifié, retours, contrôle d'accès, CSRF, triggers immuables et FK/uniquité. Un échec provoqué après insertion de la deuxième créance annule toutes les créations ; une nouvelle tentative aboutit ensuite.
 
