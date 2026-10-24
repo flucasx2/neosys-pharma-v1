@@ -63,11 +63,23 @@ class Remboursement(Motif):
     session_id:UUID
     retour_id:UUID|None=None
     confirmation_id:UUID|None=None
+    remplace_id:UUID|None=None
     reglements:list[ReglementRetour]=Field(min_length=1,max_length=20)
 class Preuve(Input):
     reference:str|None=Field(default=None,max_length=200)
     preuve:str|None=Field(default=None,max_length=2000)
 class Execution(Motif):preuves:list[Preuve]=Field(default_factory=list,max_length=20)
+class Annulation(Motif):
+    attestation_absence_restitution:bool=Field(strict=True)
+    restitution_externe_incertaine:bool=Field(strict=True)
+
+POLICY['finance_annulation']='caisse.remboursement.annuler'
+POLICY['finance_contexte']+=('caisse.remboursement.annuler',)
+POLICY['finance_liste']={genre:('caisse.cloture.consulter','vente.retour.gerer') if genre=='retours' else
+    ('caisse.cloture.consulter','caisse.remboursement.annuler') if genre=='remboursements' else 'caisse.cloture.consulter'
+    for genre in ('clotures','transferts','retours','remboursements','mouvements')}
+POLICY['finance_pdf']={genre:('vente.retour.gerer','caisse.cloture.consulter') if genre=='retours' else 'caisse.cloture.consulter'
+    for genre in ('clotures','remboursements','transferts','retours')}
 
 @router.get('/contexte')
 def finance_contexte(request:Request,s=Depends(service)):
@@ -75,15 +87,23 @@ def finance_contexte(request:Request,s=Depends(service)):
     period=s.s.scalar(select(PeriodeCaisseSiteModel).filter_by(organisation_id=s.org,site_id=s.site,etat='OUVERTE'))
     return {'periode':serial(period) if period else None,'sessions':[s.cash.session_detail(x) for x in s.stock.lignes(SessionCaisseModel,site_id=s.site) if x.emplacement_id in ids],'coffres':[{'id':str(x.id_coffre),'nom':x.nom,'solde':str(s.solde_coffre(x.id_coffre))} for x in s.s.scalars(select(CoffreModel).where(CoffreModel.site_id==s.site,CoffreModel.actif.is_(True)))],'modes':s.cash.config()['modes'],'moyens':s.cash.config()['moyens']}
 @router.get('/{genre}')
-def finance_liste(genre:Literal['clotures','transferts','retours','remboursements','mouvements'],page_:int=Query(1,alias='page',ge=1),page_size:int=Query(20,ge=1,le=100),s=Depends(service)):
+def finance_liste(request:Request,genre:Literal['clotures','transferts','retours','remboursements','mouvements'],page_:int=Query(1,alias='page',ge=1),page_size:int=Query(20,ge=1,le=100),s=Depends(service)):
     cls={'clotures':ClotureModel,'transferts':TransfertFondsModel,'retours':RetourVenteModel,'remboursements':RemboursementModel,'mouvements':MouvementFinancierModel}[genre]
     q=select(cls).where(cls.organisation_id==s.org,cls.site_id==s.site)
-    ids=locations(s.cash,'caisse.cloture.consulter');sessions=select(SessionCaisseModel.id).where(SessionCaisseModel.organisation_id==s.org,SessionCaisseModel.emplacement_id.in_(ids))
+    permission=request.state.vente_permission
+    if permission=='vente.retour.gerer' and genre!='retours':raise HTTPException(403,'Consultation financière non autorisée.')
+    if permission=='caisse.remboursement.annuler' and genre!='remboursements':raise HTTPException(403,'Consultation limitée aux demandes de remboursement.')
+    ids=locations(s.cash,permission);sessions=select(SessionCaisseModel.id).where(SessionCaisseModel.organisation_id==s.org,SessionCaisseModel.emplacement_id.in_(ids))
     if genre=='retours':q=q.join(EncaissementModel,EncaissementModel.id==RetourVenteModel.encaissement_id).join(VenteModel,VenteModel.id==EncaissementModel.vente_id).where(VenteModel.emplacement_id.in_(ids))
     elif genre=='clotures':q=q.where((cls.type=='Z')|(cls.session_id.in_(sessions)))
     elif genre=='mouvements':q=q.where(cls.session_id.is_(None)|cls.session_id.in_(sessions))
     else:q=q.where(cls.session_id.in_(sessions))
-    return page(s.cash,q.order_by(cls.date.desc(),cls.id),page_,page_size)
+    def item(row):
+        result=serial(row)
+        if genre=='retours':result['document_disponible']=bool(s.stock.lignes(DocumentRetourModel,retour_id=row.id))
+        if genre=='remboursements':result['annulations']=[serial(x) for x in s.stock.lignes(AnnulationRemboursementModel,remboursement_id=row.id)]
+        return result
+    return page(s.cash,q.order_by(cls.date.desc(),cls.id),page_,page_size,item)
 @router.post('/fonds',status_code=201)
 def finance_fonds(d:Fonds,s=Depends(service)):
     execute(lambda:s.cash.session(d.session_id,'caisse.fonds.gerer'));return mutation(s,d,'FONDS',lambda:s.fonds(d.model_dump()))
@@ -137,12 +157,23 @@ def finance_remboursement(d:Remboursement,s=Depends(service)):
     if d.confirmation_id:
         c=execute(lambda:s.stock.obtenir(ConfirmationReglementModel,d.confirmation_id));execute(lambda:s.vente.obtenir(c.vente_id,'caisse.remboursement.demander'))
     return mutation(s,d,'REMBOURSEMENT',lambda:s.remboursement(d.model_dump()))
+@router.post('/remboursements/{key}/annuler')
+def finance_annulation(key:UUID,d:Annulation,s=Depends(service)):
+    execute(lambda:s.refund_scope(key,'caisse.remboursement.annuler'))
+    return mutation(s,d,'REMBOURSEMENT:'+str(key)+':annuler',lambda:s.annuler_remboursement(key,d.model_dump()))
 @router.post('/remboursements/{key}/{action}')
 def finance_refund_action(key:UUID,action:Literal['autoriser','executer'],d:Execution,s=Depends(service)):
     execute(lambda:s.refund_scope(key,'caisse.remboursement.'+action));return mutation(s,d,'REMBOURSEMENT:'+str(key)+':'+action,lambda:s.refund_action(key,d.model_dump(),action))
 @router.get('/documents/{genre}/{key}/pdf')
-def finance_pdf(genre:Literal['clotures','remboursements','transferts'],key:UUID,s=Depends(service)):
+def finance_pdf(request:Request,genre:Literal['clotures','remboursements','transferts','retours'],key:UUID,s=Depends(service)):
     def get():
+        if genre=='retours':
+            s.retour_scope(key,request.state.vente_permission)
+            rows=s.stock.lignes(DocumentRetourModel,retour_id=key)
+            if not rows:raise ConflitStock('Retour historique sans pièce : aucun document créé à la consultation.')
+            row=rows[0]
+            return Response(row.pdf,media_type='application/pdf',headers={'Content-Disposition':f'inline; filename="retour-{key}.pdf"','ETag':'"'+row.pdf_sha256+'"'})
+        s.access('caisse.cloture.consulter')
         if genre=='clotures':
             row=s.stock.obtenir(ClotureModel,key)
             if row.site_id!=s.site:raise PermissionError('Document hors site.')
@@ -163,7 +194,13 @@ def finance_pdf(genre:Literal['clotures','remboursements','transferts'],key:UUID
 @router.get('/paiements/non-finalises')
 def finance_pending(s=Depends(service)):
     def get():
-        ids=locations(s.cash,'caisse.cloture.consulter');return [serial(c) for c in s.unresolved() if s.stock.obtenir(VenteModel,c.vente_id).emplacement_id in ids]
+        ids=locations(s.cash,'caisse.cloture.consulter');result=[]
+        for c in s.unresolved():
+            if s.stock.obtenir(VenteModel,c.vente_id).emplacement_id not in ids:continue
+            previous=s.stock.lignes(RemboursementModel,confirmation_id=c.id)
+            latest=next((old for old in previous if old.etat=='ANNULE' and not any(other.remplace_id==old.id for other in previous)),None)
+            result.append(serial(c)|{'remplace_id':str(latest.id) if latest else None})
+        return result
     return execute(get)
 
 @router.get('/ventes/encaisses')
@@ -178,4 +215,6 @@ def finance_solde(key:UUID,s=Depends(service)):
     ret,enc=execute(lambda:s.retour_scope(key,'caisse.remboursement.demander'))
     paid=execute(lambda:s.budget_reglements(enc))
     modes={mode:str(sum((row['montant'] for row in paid.values() if row['mode']==mode),Decimal(0))) for mode in ('ESPECES','CARTE','MOBILE_MONEY','CHEQUE','VIREMENT')}
-    return {'montant':str(ret.montant),'disponible_par_mode':modes,'disponible_par_moyen':[{**row,'montant':str(row['montant'])} for row in paid.values()],'deja_demande':bool(s.stock.lignes(RemboursementModel,retour_id=ret.id))}
+    previous=s.stock.lignes(RemboursementModel,retour_id=ret.id)
+    latest=next((old for old in previous if old.etat=='ANNULE' and not any(other.remplace_id==old.id for other in previous)),None)
+    return {'montant':str(ret.montant),'disponible_par_mode':modes,'disponible_par_moyen':[{**row,'montant':str(row['montant'])} for row in paid.values()],'deja_demande':any(row.etat!='ANNULE' for row in previous),'remplace_id':str(latest.id) if latest else None}

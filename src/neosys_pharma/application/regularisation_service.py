@@ -5,6 +5,7 @@ from hashlib import sha256
 from sqlalchemy import select,func
 from fastapi.encoders import jsonable_encoder
 from neosys_pharma.application.caisse_service import serial
+from neosys_pharma.application.etats_caisse_presentation import detail_flux,sections_flux
 from neosys_pharma.application.stock_service import ident
 from neosys_pharma.domain.caisse import francs,MODES
 from neosys_pharma.domain.stock import ConflitStock,perime
@@ -136,9 +137,9 @@ class RegularisationService:
     def cloture_x(self,data):
         session=self.cash.session(data['session_id'],'caisse.cloture.x');self.revision(session,data)
         if self.stock.lignes(SessionClotureeZModel,session_id=session.id):raise ConflitStock('Session déjà incluse dans une clôture Z historique.')
-        p=self.cash.periode();key=uuid4();summary=self.session_summary(session)
-        snap,pdf,digest=self.document('ÉTAT X — CAISSE',key,[{'titre':'Session et comptage','colonnes':['Session','État','Fond initial','Espèces attendues','Comptées','Écart'],'lignes':[[str(session.id),session.etat,str(session.fond_initial),summary['especes_attendues'],str(session.comptage_final) if session.comptage_final is not None else 'NON COMPTÉ',summary['ecart_especes'] or 'NON COMPTÉ']]},{'titre':'Mouvements nets par moyen','colonnes':['Moyen','Montant FCFA'],'lignes':[[r['libelle']+' / '+r['mode'],r['montant_net']] for r in summary['nets_par_moyen'].values()]}])
-        snap['session']=summary
+        p=self.cash.periode();key=uuid4();summary=self.session_summary(session);flux=detail_flux(self,[session])
+        snap,pdf,digest=self.document('ÉTAT X — CAISSE',key,[{'titre':'Session et comptage','colonnes':['Session','État','Fond initial','Espèces attendues','Comptées','Écart'],'lignes':[[str(session.id),session.etat,str(session.fond_initial),summary['especes_attendues'],str(session.comptage_final) if session.comptage_final is not None else 'NON COMPTÉ',summary['ecart_especes'] or 'NON COMPTÉ']]},{'titre':'Mouvements nets par moyen','colonnes':['Moyen','Montant FCFA'],'lignes':[[r['libelle']+' / '+r['mode'],r['montant_net']] for r in summary['nets_par_moyen'].values()]}]+sections_flux(flux))
+        snap['session']=summary;snap['detail_flux']=flux
         row=self.stock.ajouter(ClotureModel,id=key,site_id=self.site,session_id=session.id,periode_id=p.id,type='X',auteur_id=self.stock.user,instantane=snap,pdf=pdf,pdf_sha256=digest)
         self.trace('ETAT_X',document_id=row.id);return serial(row)
     def unresolved(self):
@@ -161,7 +162,7 @@ class RegularisationService:
         if any(s.etat=='OUVERTE' for s in sessions):raise ConflitStock('Fermer toutes les sessions du site avant Z.')
         if self.unresolved():raise ConflitStock('Paiements acquis non finalisés : rapprochement ou restitution confirmée obligatoire.')
         if any(t.etat not in ('RECU','ANNULE') for t in self.stock.lignes(TransfertFondsModel,site_id=self.site)):raise ConflitStock('Transferts de fonds non résolus.')
-        if any(r.etat!='EXECUTE' for r in self.stock.lignes(RemboursementModel,site_id=self.site)):raise ConflitStock('Remboursements non exécutés.')
+        if any(r.etat not in ('EXECUTE','ANNULE') for r in self.stock.lignes(RemboursementModel,site_id=self.site)):raise ConflitStock('Remboursements non exécutés.')
         # An obligation cannot silently disappear merely because no refund request exists yet.
         for r in self.stock.lignes(RetourVenteModel,site_id=self.site):
             if r.montant and not self.stock.lignes(RemboursementModel,retour_id=r.id,etat='EXECUTE'):raise ConflitStock('Retour à rembourser avant Z.')
@@ -194,8 +195,9 @@ class RegularisationService:
             for code,detail in summary['nets_par_moyen'].items():
                 if code not in means:means[code]=detail|{'montant_net':Decimal(0)}
                 means[code]['montant_net']+=Decimal(detail['montant_net'])
-        key=uuid4();snap,pdf,digest=self.document('CLÔTURE Z — SITE',key,[{'titre':'Période Z '+str(p.numero),'colonnes':['Ventes encaissées','Préparations annulées','Sessions fermées'],'lignes':[[len(encs),len(cancelled),len(sessions)]]},{'titre':'Mouvements nets par moyen','colonnes':['Moyen','Montant FCFA'],'lignes':[[r['libelle']+' / '+r['mode'],str(r['montant_net'])] for r in means.values()]},{'titre':'Comptages et écarts conservés','colonnes':['Session','Attendu','Compté','Écart'],'lignes':[[str(s.id),self.cash.session_detail(s)['especes_attendues'],str(s.comptage_final),self.cash.session_detail(s)['ecart_especes']] for s in sessions]}])
-        snap.update(nets_par_mode={m:str(v) for m,v in totals.items()},nets_par_moyen={k:{**v,'montant_net':str(v['montant_net'])} for k,v in means.items()},periode_z=p.numero,preparations_annulees=cancelled,sessions=[self.session_summary(s) for s in sessions],justification=data['justification'],etat='EFFECTIVE')
+        flux=detail_flux(self,sessions)
+        key=uuid4();snap,pdf,digest=self.document('CLÔTURE Z — SITE',key,[{'titre':'Période Z '+str(p.numero),'colonnes':['Ventes encaissées','Préparations annulées','Sessions fermées'],'lignes':[[len(encs),len(cancelled),len(sessions)]]},{'titre':'Mouvements nets par moyen','colonnes':['Moyen','Montant FCFA'],'lignes':[[r['libelle']+' / '+r['mode'],str(r['montant_net'])] for r in means.values()]},{'titre':'Comptages et écarts conservés','colonnes':['Session','Attendu','Compté','Écart'],'lignes':[[str(s.id),self.cash.session_detail(s)['especes_attendues'],str(s.comptage_final),self.cash.session_detail(s)['ecart_especes']] for s in sessions]}]+sections_flux(flux))
+        snap.update(detail_flux=flux,nets_par_mode={m:str(v) for m,v in totals.items()},nets_par_moyen={k:{**v,'montant_net':str(v['montant_net'])} for k,v in means.items()},periode_z=p.numero,preparations_annulees=cancelled,sessions=[self.session_summary(s) for s in sessions],justification=data['justification'],etat='EFFECTIVE')
         row=self.stock.ajouter(ClotureModel,id=key,site_id=self.site,session_id=None,periode_id=p.id,type='Z',auteur_id=self.stock.user,instantane=snap,pdf=pdf,pdf_sha256=digest)
         for session in sessions:self.stock.ajouter(SessionClotureeZModel,session_id=session.id,cloture_id=row.id)
         p.etat='CLOTUREE';self.s.flush()
@@ -253,7 +255,29 @@ class RegularisationService:
         for r in rows:
             line=self.stock.ajouter(LigneRetourVenteModel,retour_id=ret.id,ligne_id=r['line'].id,stock_id=r['balance'].id,quantite=r['quantite'],montant=r['montant'],instantane=r['instantane'])
             self.stock.ajouter(QuarantaineModel,ligne_retour_id=line.id,stock_id=r['balance'].id,quantite=r['quantite'])
-        self.trace('RETOUR_QUARANTAINE',retour=serial(ret));return serial(ret)
+        group=self.s.scalar(select(EncaissementGroupeVenteModel).where(EncaissementGroupeVenteModel.organisation_id==self.org,EncaissementGroupeVenteModel.encaissement_id==enc.id))
+        group_reference=self.stock.obtenir(EncaissementGroupeModel,group.dossier_id).reference if group else None
+        provenance={'retour_id':str(ret.id),'vente_id':str(v.id),'encaissement_id':str(enc.id),
+            'numero_encaissement':enc.instantane['numero_encaissement'],'date_reception':ret.date.isoformat(),
+            'justification':data['justification'],'client_historique':enc.instantane.get('client') or (enc.instantane.get('fidelite') or {}).get('client'),
+            'groupe_id':str(group.dossier_id) if group else None,'reference_groupe':group_reference,'etat_reception':'EN_CONTROLE',
+            'montant_client_xaf':str(amount),'montant_ttc_xaf':gross_amount}
+        physical=[]
+        for r in rows:
+            lot=self.stock.obtenir(LotModel,r['balance'].lot_id)
+            physical.append({**r['instantane'],'ligne_id':str(r['line'].id),'stock_id':str(r['balance'].id),
+                'lot':lot.numero,'peremption':str(lot.peremption) if lot.peremption else None})
+        snap,pdf,digest=self.document('RÉCEPTION DE RETOUR — NE VAUT PAS REMBOURSEMENT',ret.id,[
+            {'titre':'Réception physique en quarantaine — contrôle sanitaire à effectuer','colonnes':['Vente','Encaissement original','Retour'],
+             'lignes':[[str(v.id),enc.instantane['numero_encaissement']+(' / '+group_reference if group_reference else ''),str(ret.id)]]},
+            {'titre':'Produits reçus — prix historiques','colonnes':['Produit / conditionnement','Lot / péremption','Quantité','HT FCFA','TVA FCFA','TTC FCFA'],
+             'lignes':[[r['designation']+' / '+r['conditionnement'],(r['lot'] or 'SANS LOT')+' / '+(r['peremption'] or 'NON RENSEIGNÉE'),r['quantite'],r['ht'],r['tva'],r['ttc']] for r in physical]},
+            {'titre':'Motif et portée du document','colonnes':['Justification','Remboursable au client FCFA','Statut'],
+             'lignes':[[data['justification'],str(amount),'Réception uniquement ; aucune conformité sanitaire ou restitution attestée']]}])
+        snap.update(provenance=provenance,lignes=physical)
+        doc=self.stock.ajouter(DocumentRetourModel,retour_id=ret.id,auteur_id=self.stock.user,instantane=snap,pdf=pdf,pdf_sha256=digest)
+        self.trace('RETOUR_QUARANTAINE',retour=serial(ret),document_id=doc.id,pdf_sha256=digest)
+        return serial(ret)|{'document':serial(doc)}
     def retour_scope(self,key,p):
         ret=self.stock.obtenir(RetourVenteModel,key);enc=self.stock.obtenir(EncaissementModel,ret.encaissement_id);self.vente.obtenir(enc.vente_id,p);return ret,enc
     def controle(self,key,data):
@@ -261,12 +285,17 @@ class RegularisationService:
         if b.site_id!=self.site:raise PermissionError('Quarantaine hors site.')
         if q.etat!='EN_CONTROLE':raise ConflitStock('Décision sanitaire déjà définitive.')
         checks={k:data[k] for k in ('identite_conforme','lot_conforme','integrite_conforme','conservation_conforme')}
-        lot=self.stock.obtenir(LotModel,b.lot_id);checks['peremption_conforme']=bool(lot.peremption is None or not perime(lot.peremption,self.stock.jour))
+        lot=self.stock.obtenir(LotModel,b.lot_id)
+        _,rules=self.stock.conditionnement(lot.conditionnement_id,operation=data['liberer'])
+        checks['peremption_conforme']=bool(
+            (lot.peremption is not None and not perime(lot.peremption,self.stock.jour))
+            or (lot.peremption is None and not rules['gestion_peremption'])
+        )
         if data['liberer']:
-            self.stock.conditionnement(lot.conditionnement_id)
             if not all(checks.values()):raise ValueError('Contrôles sanitaires non satisfaits : remise en vente interdite.')
             self.stock.mouvement(b,q.quantite,0,'RETOUR_LIBERE',str(q.ligne_retour_id),data['justification']);q.etat='LIBEREE'
-        else:q.etat='REFUSEE'
+        else:
+            q.etat='REFUSEE'
         decision=self.stock.ajouter(DecisionQuarantaineModel,quarantaine_id=q.id,auteur_id=self.stock.user,decision=q.etat,controles=checks,justification=data['justification'])
         self.trace('DECISION_SANITAIRE',decision=serial(decision));return serial(q)
     def budget_reglements(self,enc):
@@ -287,7 +316,7 @@ class RegularisationService:
             for payment in self.stock.lignes(ReglementModel,encaissement_id=enc.id):add(payment.mode,payment.confirmation_id,payment.montant-payment.rendu)
         returnids={r.id for r in self.stock.lignes(RetourVenteModel,encaissement_id=enc.id)}
         for old in self.stock.lignes(RemboursementModel):
-            if old.retour_id in returnids:
+            if old.retour_id in returnids and old.etat!='ANNULE':
                 for payment in old.reglements:
                     key=(payment.get('mode_origine',payment['mode']),payment.get('moyen_origine_id'))
                     if key not in paid:raise ConflitStock('Origine historique de remboursement incohérente.')
@@ -319,6 +348,14 @@ class RegularisationService:
                 raise ConflitStock('Paiement déjà encaissé : utiliser un retour de vente.')
             amount=confirmation.montant;mid=str(confirmation.moyen_id) if confirmation.moyen_id else None
             paid={(confirmation.mode,mid):{'mode':confirmation.mode,'moyen_id':mid,'libelle':confirmation.moyen_libelle or confirmation.mode,'montant':amount}}
+        source={'retour_id':data.get('retour_id')} if data.get('retour_id') else {'confirmation_id':data['confirmation_id']}
+        previous=self.stock.lignes(RemboursementModel,**source)
+        if any(old.etat!='ANNULE' for old in previous):raise ConflitStock('Remboursement déjà demandé ou exécuté.')
+        replacement=data.get('remplace_id')
+        if previous:
+            latest=next((old for old in previous if not any(other.remplace_id==old.id for other in previous)),None)
+            if not latest or replacement!=latest.id:raise ConflitStock('Désigner explicitement la dernière demande annulée à remplacer.')
+        elif replacement:raise ConflitStock('Aucune demande annulée de cette source à remplacer.')
         planned=[]
         for row in data['reglements']:
             mode=row['mode'];original=row.get('mode_origine') or mode;value=francs(row['montant'])
@@ -334,13 +371,32 @@ class RegularisationService:
             planned.append({'mode':mode,'mode_origine':original,'montant':str(value),
                 'moyen_id':mid,'moyen_origine_id':origin_id,'moyen_libelle':target.libelle if target else mode,'moyen_origine_libelle':budget['libelle']})
         if sum((Decimal(r['montant']) for r in planned),Decimal(0))!=amount:raise ValueError('Remboursement intégral du retour ou paiement acquis requis ; répartir les moyens.')
-        row=self.stock.ajouter(RemboursementModel,site_id=self.site,retour_id=data.get('retour_id'),confirmation_id=data.get('confirmation_id'),session_id=session.id,montant=amount,reglements=planned,demandeur_id=self.stock.user,justification=data['justification'])
+        row=self.stock.ajouter(RemboursementModel,site_id=self.site,retour_id=data.get('retour_id'),confirmation_id=data.get('confirmation_id'),remplace_id=replacement,session_id=session.id,montant=amount,reglements=planned,demandeur_id=self.stock.user,justification=data['justification'])
         self.trace('REMBOURSEMENT_DEMANDE',dossier=serial(row));return serial(row)
     def refund_scope(self,key,p):
         r=self.dossier(RemboursementModel,key,p)
         if r.retour_id:self.retour_scope(r.retour_id,p)
         else:self.vente.obtenir(self.stock.obtenir(ConfirmationReglementModel,r.confirmation_id).vente_id,p)
         return r
+    def annuler_remboursement(self,key,data):
+        row=self.refund_scope(key,'caisse.remboursement.annuler');self.revision(row,data)
+        if row.etat not in ('DEMANDE','AUTORISE'):raise ConflitStock('Seule une demande non exécutée peut être annulée.')
+        reason=(data.get('justification') or '').strip()
+        if not reason or data.get('attestation_absence_restitution') is not True:
+            raise ValueError('Justification et attestation responsable d’absence de restitution requises.')
+        if data.get('restitution_externe_incertaine') is not False:
+            raise ConflitStock('Restitution externe incertaine : vérifier la preuve, annulation interdite.')
+        if (self.stock.lignes(PieceFinanciereModel,remboursement_id=row.id)
+                or self.stock.lignes(PreuveRemboursementModel,remboursement_id=row.id)
+                or self.stock.lignes(MouvementFinancierModel,origine=row.id)
+                or self.stock.lignes(AnnulationRemboursementModel,remboursement_id=row.id)):
+            raise ConflitStock('Pièce, preuve ou mouvement lié : annulation interdite, diagnostic requis.')
+        before=serial(row);row.etat='ANNULE';row.revision+=1
+        event=self.stock.ajouter(AnnulationRemboursementModel,remboursement_id=row.id,auteur_id=self.stock.user,
+            justification=reason,attestation_absence_restitution=True,revision_avant=before['revision'],
+            revision_apres=row.revision,instantane={'avant':before,'apres':serial(row),'restitution_externe_incertaine':False})
+        self.trace('REMBOURSEMENT_ANNULE',annulation=serial(event))
+        return serial(row)
     def refund_action(self,key,data,action):
         permission='caisse.remboursement.autoriser' if action=='autoriser' else 'caisse.remboursement.executer'
         row=self.refund_scope(key,permission);self.revision(row,data)

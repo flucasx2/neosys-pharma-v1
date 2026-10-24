@@ -604,7 +604,7 @@ class EncaissementGroupeService:
                     ReglementModel.confirmation_id == confirmation.id,
                 )):
                     raise ConflitStock("Confirmation déjà consommée par un encaissement individuel.")
-                if self.stock.lignes(RemboursementModel, confirmation_id=confirmation.id):
+                if self.caisse.remboursement_engage(confirmation.id):
                     raise ConflitStock("Confirmation déjà engagée dans une restitution.")
                 confirmations[confirmation.id] = confirmation
             payment_domain.append(ReglementGroupe(
@@ -617,7 +617,7 @@ class EncaissementGroupeService:
                 confirmation.id
                 for confirmation in self.stock.lignes(ConfirmationReglementModel, vente_id=sale.id)
                 if not self.stock.lignes(ReglementModel, confirmation_id=confirmation.id)
-                and not self.stock.lignes(RemboursementModel, confirmation_id=confirmation.id)
+                and not self.caisse.remboursement_engage(confirmation.id)
             }
             assigned = {
                 confirmation_id for confirmation_id in confirmation_ids

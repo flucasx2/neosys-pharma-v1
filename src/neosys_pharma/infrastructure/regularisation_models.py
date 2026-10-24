@@ -93,6 +93,16 @@ class LigneRetourVenteModel(EntiteVente,Base):
     montant:Mapped[Decimal]=mapped_column(MontantXAF())
     instantane:Mapped[dict]=mapped_column(JSON)
 
+class DocumentRetourModel(EntiteVente,Base):
+    __tablename__='vente_documents_retour'
+    __table_args__=scoped('document_retour',org_fk('retour_id','vente_retours'),org_fk('auteur_id','utilisateurs','id_utilisateur'),UniqueConstraint('retour_id',name='uq_document_retour_source'))
+    retour_id:Mapped[UUID]=mapped_column(Uuid)
+    auteur_id:Mapped[UUID]=mapped_column(Uuid)
+    instantane:Mapped[dict]=mapped_column(JSON)
+    pdf:Mapped[bytes]=mapped_column(LargeBinary)
+    pdf_sha256:Mapped[str]=mapped_column(String(64))
+    date:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
+
 class QuarantaineModel(EntiteVente,Base):
     __tablename__='stock_quarantaine'
     __table_args__=scoped('quarantaine',org_fk('ligne_retour_id','vente_lignes_retour'),org_fk('stock_id','stock_emplacements'),UniqueConstraint('ligne_retour_id'),CheckConstraint('quantite > 0'),CheckConstraint("etat IN ('EN_CONTROLE','LIBEREE','REFUSEE')"))
@@ -113,10 +123,11 @@ class DecisionQuarantaineModel(EntiteVente,Base):
 
 class RemboursementModel(EntiteVente,Base):
     __tablename__='finance_remboursements'
-    __table_args__=scoped('remboursement',org_fk('retour_id','vente_retours'),org_fk('confirmation_id','caisse_confirmations'),org_fk('site_id','sites','id_site'),org_fk('session_id','caisse_sessions'),org_fk('demandeur_id','utilisateurs','id_utilisateur'),org_fk('autorisateur_id','utilisateurs','id_utilisateur'),UniqueConstraint('retour_id'),UniqueConstraint('confirmation_id'),CheckConstraint('montant > 0 AND revision > 0'),CheckConstraint("etat IN ('DEMANDE','AUTORISE','EXECUTE')"),CheckConstraint('(retour_id IS NULL) <> (confirmation_id IS NULL)'))
+    __table_args__=scoped('remboursement',org_fk('retour_id','vente_retours'),org_fk('confirmation_id','caisse_confirmations'),org_fk('site_id','sites','id_site'),org_fk('session_id','caisse_sessions'),org_fk('demandeur_id','utilisateurs','id_utilisateur'),org_fk('autorisateur_id','utilisateurs','id_utilisateur'),org_fk('remplace_id','finance_remboursements'),UniqueConstraint('remplace_id',name='uq_remboursement_remplacement'),CheckConstraint('montant > 0 AND revision > 0'),CheckConstraint("etat IN ('DEMANDE','AUTORISE','EXECUTE','ANNULE')",name='ck_remboursement_etat'),CheckConstraint('(retour_id IS NULL) <> (confirmation_id IS NULL)'),CheckConstraint('remplace_id IS NULL OR remplace_id <> id',name='ck_remboursement_non_autoremplacement'),Index('uq_remboursement_retour_actif','retour_id',unique=True,sqlite_where=text("etat <> 'ANNULE'"),postgresql_where=text("etat <> 'ANNULE'")),Index('uq_remboursement_confirmation_active','confirmation_id',unique=True,sqlite_where=text("etat <> 'ANNULE'"),postgresql_where=text("etat <> 'ANNULE'")))
     site_id:Mapped[UUID]=mapped_column(Uuid,index=True)
     retour_id:Mapped[UUID|None]=mapped_column(Uuid)
     confirmation_id:Mapped[UUID|None]=mapped_column(Uuid)
+    remplace_id:Mapped[UUID|None]=mapped_column(Uuid)
     session_id:Mapped[UUID]=mapped_column(Uuid)
     montant:Mapped[Decimal]=mapped_column(MontantXAF())
     reglements:Mapped[list]=mapped_column(JSON)
@@ -135,6 +146,18 @@ class PieceFinanciereModel(EntiteVente,Base):
     instantane:Mapped[dict]=mapped_column(JSON)
     pdf:Mapped[bytes]=mapped_column(LargeBinary)
     pdf_sha256:Mapped[str]=mapped_column(String(64))
+    date:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
+
+class AnnulationRemboursementModel(EntiteVente,Base):
+    __tablename__='finance_annulations_remboursement'
+    __table_args__=scoped('annulation_remboursement',org_fk('remboursement_id','finance_remboursements'),org_fk('auteur_id','utilisateurs','id_utilisateur'),UniqueConstraint('remboursement_id',name='uq_annulation_remboursement'),CheckConstraint('revision_apres = revision_avant + 1 AND revision_avant > 0',name='ck_annulation_revisions'),CheckConstraint('attestation_absence_restitution AND length(trim(justification)) > 0',name='ck_annulation_attestation'))
+    remboursement_id:Mapped[UUID]=mapped_column(Uuid)
+    auteur_id:Mapped[UUID]=mapped_column(Uuid)
+    justification:Mapped[str]=mapped_column(String(2000))
+    attestation_absence_restitution:Mapped[bool]=mapped_column()
+    revision_avant:Mapped[int]=mapped_column()
+    revision_apres:Mapped[int]=mapped_column()
+    instantane:Mapped[dict]=mapped_column(JSON)
     date:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
 
 class CompensationRetourModel(EntiteVente,Base):
@@ -156,14 +179,14 @@ class PreuveRemboursementModel(EntiteVente,Base):
     reference:Mapped[str]=mapped_column(String(200))
     preuve:Mapped[str]=mapped_column(String(2000))
 
-IMMUTABLE_P45=('finance_preuves_remboursement','finance_mouvements','finance_ecarts_reconnus','finance_clotures','finance_sessions_z','vente_retours','vente_lignes_retour','stock_decisions_quarantaine','finance_pieces','fidelite_compensations_retour')
+IMMUTABLE_P45=('vente_documents_retour','finance_annulations_remboursement','finance_preuves_remboursement','finance_mouvements','finance_ecarts_reconnus','finance_clotures','finance_sessions_z','vente_retours','vente_lignes_retour','stock_decisions_quarantaine','finance_pieces','fidelite_compensations_retour')
 for name in IMMUTABLE_P45:
     for dialect in ('sqlite','postgresql'):
         for sql in immutable_sql(name,dialect):event.listen(Base.metadata.tables[name],'after_create',DDL(sql).execute_if(dialect=dialect))
 
 # Dossiers révisables uniquement pendant leur circuit ; les données financières originales sont figées.
 def dossier_guard_sql(dialect):
-    rows=[('finance_transferts',('site_id','session_id','coffre_id','sens','montant','demandeur_id','justification','date'),"'RECU','ANNULE'"),('finance_remboursements',('site_id','retour_id','confirmation_id','session_id','montant','reglements','demandeur_id','justification','date'),"'EXECUTE'"),('stock_quarantaine',('ligne_retour_id','stock_id','quantite'),"'LIBEREE','REFUSEE'")]
+    rows=[('finance_transferts',('site_id','session_id','coffre_id','sens','montant','demandeur_id','justification','date'),"'RECU','ANNULE'"),('finance_remboursements',('site_id','retour_id','confirmation_id','remplace_id','session_id','montant','reglements','demandeur_id','justification','date'),"'EXECUTE','ANNULE'"),('stock_quarantaine',('ligne_retour_id','stock_id','quantite'),"'LIBEREE','REFUSEE'")]
     result=[]
     for table,columns,states in rows:
         changed=' OR '.join(f'NEW.{c} IS NOT OLD.{c}' if dialect=='sqlite' else f'NEW.{c}::text IS DISTINCT FROM OLD.{c}::text' for c in ('organisation_id','id',*columns))
