@@ -105,7 +105,7 @@ def test_permission_migration_additive_conserve_organisme(tmp_path,monkeypatch):
         with engine.begin() as s:
             s.execute(sa.text('INSERT INTO organisations(id_organisation,nom_commercial,raison_sociale,actif) VALUES (:id,\'QA\',\'QA\',1)'),{'id':org_id})
             s.execute(sa.text('INSERT INTO organismes_prise_en_charge(id,organisation_id,code,nom,actif,revision) VALUES (:id,:org,\'QA\',\'Historique QA\',1,1)'),{'id':payer_id,'org':org_id})
-        command.upgrade(cfg,'20261018_01');command.check(cfg)
+        command.upgrade(cfg,'20261018_01')
         with engine.connect() as s:
             assert s.scalar(sa.text('SELECT nom FROM organismes_prise_en_charge WHERE id=:id'),{'id':payer_id})=='Historique QA'
             assert s.scalar(sa.text('SELECT count(*) FROM permissions WHERE code=:code'),{'code':MANAGE})==1
@@ -115,6 +115,7 @@ def test_permission_migration_additive_conserve_organisme(tmp_path,monkeypatch):
             assert s.scalar(sa.text('SELECT count(*) FROM organismes_prise_en_charge'))==1
             assert s.scalar(sa.text('SELECT count(*) FROM permissions WHERE code=:code'),{'code':MANAGE})==0
         command.upgrade(cfg,'20261018_01')
+        command.upgrade(cfg,'head');command.check(cfg)
     finally:engine.dispose();get_settings.cache_clear()
 
 

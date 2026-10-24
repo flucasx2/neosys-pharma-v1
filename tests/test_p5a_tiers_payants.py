@@ -250,7 +250,8 @@ def test_p5a_migration_is_additive_and_round_trips_on_temporary_sqlite(tmp_path,
             column["name"] for column in inspector.get_columns("vente_retours")}
         with engine.connect() as conn:
             assert conn.execute(sa.select(payors.c.nom).where(payors.c.id == payor_id)).scalar_one() == "Organisme historique"
-            assert conn.execute(sa.text("SELECT count(*) FROM permissions WHERE code LIKE 'tiers_payant.%'")).scalar_one() == 6  # P5-A (5) + administration autonome des organismes (1)
+            from neosys_pharma.domain.organisation.permissions_systeme import PERMISSIONS
+            assert set(conn.execute(sa.text("SELECT code FROM permissions WHERE code LIKE 'tiers_payant.%'")).scalars()) == {code for code, _ in PERMISSIONS if code.startswith('tiers_payant.')}
 
         command.downgrade(cfg, "20261015_02")
         assert "tiers_payant_conventions" not in sa.inspect(engine).get_table_names()

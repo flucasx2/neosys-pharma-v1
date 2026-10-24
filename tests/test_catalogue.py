@@ -191,7 +191,8 @@ def test_migration_catalogue_retour_p1_conserve_droits(tmp_path,monkeypatch):
         assert not any(name.startswith('catalogue_') for name in inspect(engine).get_table_names())
         with engine.connect() as connection:
             assert connection.execute(text('SELECT role_id, permission_id FROM roles_permissions ORDER BY role_id, permission_id')).all()==before
-            assert connection.execute(text('SELECT count(*) FROM permissions')).scalar()==7
+            from test_p1_vertical import assert_p1_permissions_after_downgrade
+            assert_p1_permissions_after_downgrade(connection)
         command.upgrade(cfg,'head');command.check(cfg)
         assert set(inspect(engine).get_table_names()) >= {'catalogue_produits','catalogue_conditionnements','catalogue_references'}
         engine.dispose()

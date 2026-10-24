@@ -172,7 +172,7 @@ def test_migration_upgrade_check_downgrade(tmp_path, monkeypatch):
         assert "auth_credentials" not in inspect(engine).get_table_names()
         assert "utilisateurs" in inspect(engine).get_table_names()
         with engine.connect() as connection:
-            assert connection.execute(text("SELECT count(*) FROM permissions")).scalar() == 7
+            assert_p1_permissions_after_downgrade(connection)
         command.upgrade(config, "head")
         command.check(config)
         command.downgrade(config, "20261007_02")
@@ -195,3 +195,17 @@ def test_migration_upgrade_check_downgrade(tmp_path, monkeypatch):
         engine.dispose()
     finally:
         get_settings.cache_clear()
+
+
+def assert_p1_permissions_after_downgrade(connection):
+    # C1/C2 deliberately retain these catalog entries on downgrade; no role
+    # assignment is removed to make an obsolete permission count pass.
+    from neosys_pharma.domain.organisation.permissions_systeme import P1_PERMISSIONS
+    retained = {
+        'tiers_payant.creance.consulter', 'tiers_payant.creance.constituer',
+        'tiers_payant.creance.completer', 'tiers_payant.creance.verifier',
+        'tiers_payant.document.consulter', 'tiers_payant.document.preparer',
+        'tiers_payant.document.valider', 'tiers_payant.document.emettre',
+        'tiers_payant.document.regrouper',
+    }
+    assert set(connection.execute(text('SELECT code FROM permissions')).scalars()) == {code for code, _ in P1_PERMISSIONS} | retained

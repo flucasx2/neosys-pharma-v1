@@ -176,6 +176,8 @@ def test_plafond_cible_transmission_reservations_et_annulation(raw_client,accoun
     own=cap(c,a);_,role=manager(c,a);other=cap(c,a,str(role))
     v=line(c,a,create(c,a,pid),prod,pack,2);r=request(c,a,v);decide(c,a,v,r)
     v=current(c,a,v);v=act(c,a,v,'valider');v=act(c,a,v,'transmettre',caisse_id=cid)
+    v=current(c,a,v)
+    assert v['numero_appel']=='0001'
     reservations=[x['id'] for l in v['lignes'] for x in l['reservations']]
     cap(c,a,str(role),revision=other['revision'],max_pourcentage='30')
     assert current(c,a,v)==v  # unrelated cap: no revision/state/amount changes

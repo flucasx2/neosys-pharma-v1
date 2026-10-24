@@ -95,7 +95,7 @@ def cycle_import(url,monkeypatch):
     from neosys_pharma.infrastructure.tiers_payants_models import BeneficiaireCouvertureModel,OrigineImportBeneficiaireModel
     monkeypatch.setenv('DATABASE_URL',url);get_settings.cache_clear();cfg=Config('alembic.ini');engine=sa.create_engine(url)
     try:
-        command.upgrade(cfg,'20261019_04');command.check(cfg)
+        command.upgrade(cfg,'20261019_04')
         command.downgrade(cfg,'20261019_03');command.upgrade(cfg,'20261019_04')
         org,user,payer,bene=uuid4(),uuid4(),uuid4(),uuid4()
         with Session(engine) as s:
@@ -109,4 +109,5 @@ def cycle_import(url,monkeypatch):
                 with pytest.raises(sa.exc.DBAPIError):c.execute(sa.text(statement));c.commit()
                 c.rollback()
         with pytest.raises(RuntimeError,match='conserver'):command.downgrade(cfg,'20261019_03')
+        command.upgrade(cfg,'head');command.check(cfg)
     finally:engine.dispose();get_settings.cache_clear()
