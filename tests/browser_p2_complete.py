@@ -77,14 +77,37 @@ with sync_playwright() as p:
       try{document.getElementById('p2-prix-date').value='2026-10-08';const old=p2Prix();document.getElementById('p2-prix-date').value='2027-01-01';await Promise.all([old,p2Prix()]);}finally{catalogueRequest=original;}
     }""")
     expect(page.locator('#p2-prix-resultat')).to_contain_text('177,00 XAF TTC')
+    def check_partial_import(imported,pending):
+        # Batch completion is not full success: BAD must remain invalid.
+        outcome=(f'Traitement incomplet : {imported} ligne(s) importée(s) au catalogue, '
+                 f'0 conseil(s), 0 ligne(s) ignorée(s) ; {pending} ligne(s) à reprendre, '
+                 '1 invalide(s). Consultez le rapport : catégorie et conditionnement requis '
+                 'pour les inconnus, données CSV à corriger si invalides.')
+        for selector in ('#catalogue-message','#p2-import-message'):
+            expect(page.locator(selector)).to_have_text(outcome)
+        report=page.evaluate('async()=>await catalogueRequest(`/imports/${p2State.importId}?page_size=100`)')
+        counts={'IMPORTE':imported,'INVALIDE':1}
+        if pending:counts['INCONNU']=pending
+        assert report['total']==3 and report['compteurs']==counts,report
+        assert [(row['donnees']['CIP'],row['statut']) for row in report['items']]==[
+            ('0012345','IMPORTE'),('7654321','INCONNU' if pending else 'IMPORTE'),('BAD','INVALIDE')]
+        unknown,invalid=report['items'][1:]
+        assert invalid['produit_id'] is None and invalid['conditionnement_id'] is None
+        assert any('exactement sept chiffres' in error for error in invalid['erreurs'])
+        if pending:
+            assert unknown['produit_id'] is None and unknown['conditionnement_id'] is None
+            assert any('catégorie et libellé' in error for error in unknown['erreurs'])
+        else:
+            assert not unknown['erreurs'] and unknown['produit_id'] and unknown['conditionnement_id']
+        return report
     # Import preview, mapping, missing required defaults and idempotent rerun.
     csv='CIP;Quantite;Description;DCI;PrixAchat;PrixVente\n0012345;999;NOM SOURCE;DCI BRUTE NON DÉDUITE;100;180\n7654321;1500;Nouveau catalogue importé;;20;30\nBAD;1;Ligne invalide;;1;2\n'
     page.locator('#p2-tab-import').click();expect(page.locator('#catalogue-message')).to_have_text('');page.locator('#p2-import-form [name="fichier"]').set_input_files({'name':'PharmaGabon-QA.csv','mimeType':'text/csv','buffer':csv.encode('utf-8')})
     expect(page.locator('#p2-import-mapping select')).to_have_count(6);page.locator('#p2-import-form button').click();expect(page.locator('#p2-import-message')).to_contain_text('3 lignes');expect(page.locator('#p2-import-rows')).to_contain_text('INVALIDE');shot('p2-import-previsualisation.png')
-    page.locator('#p2-import-run').click();expect(page.locator('#catalogue-message')).to_contain_text('Import terminé');expect(page.locator('#p2-import-rows')).to_contain_text('catégorie et libellé')
+    page.locator('#p2-import-run').click();check_partial_import(1,1);expect(page.locator('#p2-import-rows')).to_contain_text('catégorie et libellé')
     # Preserve current search; unknown products need an explicit commercial-unit label.
     category=page.locator('#p2-import-category option').nth(1).get_attribute('value');page.locator('#p2-import-category').select_option(category);page.locator('#p2-import-pack').fill('Unité commerciale fournie')
-    page.locator('#p2-import-run').click();expect(page.locator('#p2-import-message')).to_contain_text('IMPORTE : 2');expect(page.locator('#catalogue-search')).to_have_value('Produit QA modifié');expect(page.locator('#catalogue-count')).to_contain_text('1 résultat')
+    page.locator('#p2-import-run').click();check_partial_import(2,0);expect(page.locator('#catalogue-search')).to_have_value('Produit QA modifié');expect(page.locator('#catalogue-count')).to_contain_text('1 résultat')
     expect(page.locator('#p2-compositions li')).to_have_count(2);expect(page.locator('#p2-prix-resultat')).to_contain_text('177,00 XAF TTC');expect(page.locator('#p2-conseils')).to_contain_text('180,00 XAF')
     # Source prices have not overwritten the reference price (100) or product/site rule.
     page.locator('#p2-tab-tarification').click();page.locator('#p2-tarif-type').select_option('references');expect(page.locator('#p2-tarif-history tr')).to_have_count(1);expect(page.locator('#p2-tarif-history')).to_contain_text('100,00')
@@ -93,7 +116,7 @@ with sync_playwright() as p:
     conseil.get_by_role('button',name='Enregistrer',exact=True).click();expect(conseil).to_be_visible() # explicit checkbox required
     conseil.locator('[name="confirmer"]').check();save(conseil);expect(page.locator('#p2-tarif-history tr')).to_have_count(2)
     expect(page.locator('#p2-prix-resultat')).to_contain_text('177,00 XAF TTC') # higher-priority product rule remains
-    page.locator('#p2-tab-import').click();page.locator('#p2-import-form button').click();expect(page.locator('#p2-import-message')).to_contain_text('EXISTANT : 2');page.locator('#p2-import-run').click();expect(page.locator('#p2-import-message')).to_contain_text('IMPORTE : 2')
+    page.locator('#p2-tab-import').click();page.locator('#p2-import-form button').click();expect(page.locator('#p2-import-message')).to_contain_text('EXISTANT : 2');page.locator('#p2-import-run').click();check_partial_import(2,0)
     expect(page.locator('#module-title')).to_have_text('Import catalogue');shot('p2-import-rapport.png')
     # Paginated advice review and explicit multi-selection validation from the global table.
     page.locator('#p2-tab-conseils').click();page.locator('#p2-conseils-search').fill('7654321');expect(page.locator('#p2-conseils-rows tr')).to_have_count(1)
