@@ -2,17 +2,20 @@
 const fs=require('node:fs'),path=require('node:path');
 const web=path.resolve(__dirname,'../src/neosys_pharma/presentation/web');
 const html=fs.readFileSync(path.join(web,'index.html'),'utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'');
-const source=fs.readFileSync(path.join(web,'caisse.js'),'utf8').split('\n').find(l=>l.startsWith('function cashPaymentChoices('))+'\n'+fs.readFileSync(path.join(web,'encaissement_groupe.js'),'utf8');
+const source=fs.readFileSync(path.join(web,'caisse.js'),'utf8')+'\n'+fs.readFileSync(path.join(web,'encaissement_groupe.js'),'utf8');
 async function scenario(w,source){
  const d=w.document;let checks=0;const assert=(v,msg)=>{if(!v)throw Error(msg);checks++;};
- w.$=id=>d.getElementById(id);w.authState={me:{organisation:{id_organisation:'qa'}},site:'site'};w.cashState={session:{id:'session',etat:'OUVERTE'},context:{configuration:{modes:['ESPECES','CARTE']}},key:'qa'};
+ w.$=id=>d.getElementById(id);w.authState={me:{organisation:{id_organisation:'qa'}},site:'site'};
  w.authHas=()=>true;w.cashLoad=async()=>{};w.authReset=()=>{};w.shellSync=()=>{};w.venteMoney=value=>`${value} XAF`;w.shellState={view:'encaissement'};
  const sale={id:'sale-a',etat:'TRANSMISE',mode:'MUTUELLE',emplacement_id:'loc',totaux:{ttc:2000},prise_en_charge:{part_client_xaf:500,total_organismes_xaf:1500},client:{nom:'Client A'}};
  const cash={id:'sale-b',etat:'TRANSMISE',mode:'SANS_TIERS',emplacement_id:'loc',totaux:{ttc:1000},client:{nom:'Client B'}};
- w.cashRequest=async route=>route.startsWith('/attente')?{items:[{...sale,net_ttc:2000},{...cash,net_ttc:1000}],page:1,page_size:15,total:2}:structuredClone(route.includes('sale-a')?sale:cash);
+ const request=async route=>route.startsWith('/attente')?{items:[{...sale,net_ttc:2000},{...cash,net_ttc:1000}],page:1,page_size:15,total:2}:structuredClone(route.includes('sale-a')?sale:cash);
  w.fetch=async()=>{throw Error('Requête réseau interdite');};
  w.authFetch=async()=>({ok:true,json:async()=>({finalisation_active:false})});
  const script=d.createElement('script');script.textContent=source;d.head.append(script);
+ w.eval('Object.assign(cashState,{session:{id:"session",etat:"OUVERTE"},context:{configuration:{modes:["ESPECES","CARTE"],moyens:[]}},key:"qa"})');
+ w.cashRequest=request;
+ assert(typeof w.cashFinancialSummary==='function'&&typeof w.cashRenderFinancialSummary==='function','Dépendances financières de caisse absentes');
  assert(w.cgSaleDue(sale)===500,'Part client incorrecte');assert(w.cgSaleDue(cash)===1000,'Comptant individuel modifié');
  for(const candidate of [{...sale,prise_en_charge:null},{...sale,mode:'CREDIT'}]){let rejected=false;try{w.cgSaleDue(candidate);}catch(_){rejected=true;}assert(rejected,'Vente inadmissible acceptée');}
  // Les totaux de sélection utilisent les montants serveur, sans recalcul des taux.
@@ -30,7 +33,7 @@ async function scenario(w,source){
  w.eval('cashGroupState.payments[0].montant="1700"');assert(!w.cgCanFinalize(),'Règlement non enregistré accepté pour finaliser');
  let calls=0;w.authFetch=async()=>{calls++;throw Error('Finalisation interdite');};
  let blocked=false;try{await w.cgFinalize();}catch(_){blocked=true;}assert(blocked&&calls===0,'Une modification non enregistrée déclenche une requête financière');
- w.cgRenderReview();assert(d.getElementById('cash-group-finalise').disabled,'Bouton de finalisation non désactivé');
+ w.cgRenderReview();assert(d.getElementById('cash-group-review').textContent.includes('Solde client à régler : 1500 XAF\nTotal reçu : 1700 XAF\nRendu monnaie : 200 XAF\nNet encaissé : 1500 XAF\nReste à répartir : 0 XAF'),'Récapitulatif groupé ou rendu incorrect');assert(d.getElementById('cash-group-finalise').disabled,'Bouton de finalisation non désactivé');
  w.eval('cashGroupState.payments[0].montant="1500"');
  const edited=d.createElement('input');edited.dataset.edited='true';d.getElementById('cash-group-allocation-body').append(edited);
  assert(!w.cgCanFinalize(),'Ventilation manuelle non enregistrée acceptée');edited.remove();
