@@ -1,3 +1,39 @@
+# Reprise courante — 27 octobre 2026
+
+> **Décision du propriétaire — références Git du 27 octobre 2026.** Publication : `origin/main` attendu à `2910cc60e8c8287a587ce8ff8e3f48c95be1ba39`. `main` local conservé à `fe53c42dc89d79618290b182aae29b01d8cb42d6`, aucune synchronisation autorisée. La différence est acceptée comme anomalie connue ; l'ancien audit reste inchangé avec son échec conservé. Adaptation ciblée proposée pour contrôler séparément les deux SHA, à autoriser avant application. Les preuves locales sont acceptées. Préparation du plan de commits uniquement : aucun commit, intégration, merge ou push autorisé à cette étape.
+
+Mise à jour : 2026-10-27T13:43:16, Codex, Africa/Lagos. Cette section remplace les anciennes instructions de poursuite P5 ci-dessous ; elles restent des décisions historiques, pas une autorisation actuelle.
+
+## Priorité et état vérifié
+
+Finaliser P4/P4-05, conserver son acceptation humaine, geler P5 historique non entièrement validé. Ne pas relancer une validation fonctionnelle exhaustive P5 pour clôturer P4. Aucune règle CNAMGS, mutuelle ou organisme ne doit être modifiée.
+
+Checkout autorisé : `D:\Projets_Python\NeoSys_Pharma_Dev`, branche `dev/codex-docker`, HEAD `b223ca2c86fe93bac811f3d6e146034dff3c8acf`. Ce checkout B04 ne contient pas les commits P4-05 de la branche de publication ; ne pas confondre les arbres. Les candidats sont dans `.audit-publication/global-stabilization`, leurs sources et hashes sont rattachés aux SHA publiés.
+
+PR #14 : `codex/p4-prerequis-b04`, `c88151d4d5e899c564c8cddb6a8760de3f99875a`, Draft vers `main`. PR #15 : `codex/p4-05-retours-caisse-publication`, `37ed8350bf840e676fc3f4f3cd4fb6f30601c45f`, Draft vers les prérequis. Dernière lecture distante : voir le rapport de stabilisation ; les références locales restent inchangées.
+
+Main attendu : `2910cc60e8c8287a587ce8ff8e3f48c95be1ba39`. Branches originales conservées : `codex/p4-05-retours-caisse` (`c5c72199cdf10e877e2e4fd4ca90df5189094c83`) et `codex/p5-phase0-conception` (`b223ca2c86fe93bac811f3d6e146034dff3c8acf`). Aucun nouveau commit ni push de stabilisation.
+
+`main` local est distinct de la base distante : `fe53c42dc89d79618290b182aae29b01d8cb42d6` (dernier mouvement reflog du 10 octobre), contre `origin/main` et base GitHub `2910cc60e8c8287a587ce8ff8e3f48c95be1ba39`. Ne pas synchroniser automatiquement ni présenter le contrôle d'égalité comme réussi. Les branches de publication sont conformes aux SHA attendus.
+
+## Architecture et modules
+
+Python/FastAPI ; couches domaine/application/infrastructure/présentation ; SQLAlchemy/Alembic ; PostgreSQL ; interface JavaScript ; pytest/JSDOM/Playwright et GitHub Actions. P1 sécurité/organisation, P2 catalogue/tarification/imports, P3 stocks/états, P4 vente/proforma/caisse/clients/fidélité/groupes/régularisations, P4-05 retours/annulations/états. P5-A référentiels, P5-CONF conventions/droits, P5-B prises en charge et réalisations, P5-C1 créances et P5-C2 documents existent historiquement sans acceptation P5 globale.
+
+Les moyens configurables et snapshots de caisse sont partagés : leur origine historique mixte P4/P5 n'autorise pas leur retrait. Émission C2 de production fermée par garde de recette ; d'autres routes P5 restent présentes et protégées par permissions, pas par un interrupteur général. Le gel documentaire ne prouve pas leur inaccessibilité. Voir [analyse d'isolation](docs/CLOTURE_P4_GEL_P5_20261027.md).
+
+## Reprise opérationnelle
+
+Lire AGENTS.md, PROGRESS.md, le [rapport consolidé](docs/STABILISATION_GLOBALE_P4_20261027.md) et le bilan d'isolation. Conserver les 20 scénarios Chromium et suites prérequis réussis. Ne pas recommencer les campagnes terminées sans cause démontrée ; PostgreSQL 18 P4-05 est désormais terminée, code0 et serveur stable : 671 passed, 2 skipped, 1 warning, 17 subtests passed in 6891.86s (1:54:51). Toutes les suites locales requises sont terminées ; ne pas les relancer sans cause démontrée. SQLite P4-05 finale a réussi : 629 tests/44 ignorés, code de sortie0 et XML complet. PostgreSQL 17 P4-05 corrigée a réussi : 671 tests/2 ignorés. Les sous-tests sont comptés séparément dans le rapport.
+
+Les trois campagnes demandées ont déjà été démarrées dans des instances Docker d'audit jetables ; les services de développement ne sont pas leurs cibles. Ne pas réutiliser les commandes natives Windows des sections historiques. Aucune connexion aux bases Windows, aucun TEST_*_URL hérité ; aucune intervention sur 8001/8003/8004/8005, P405R2, C0/C1/C2/CFINAL ou volume conservé.
+
+Après consolidation : présenter GO/NO-GO et le périmètre candidat, arrêter les développements. Attendre autorisations distinctes pour intégration/commits, push puis opérations GitHub. PR en Draft ; aucun merge, Ready for Review, déploiement ou nouveau P5. Les 16 journaux exclus ne doivent pas être réintroduits depuis ce checkout historique.
+
+---
+
+## Continuité historique conservée intégralement
+
 > Instruction courante du 19/10 : poursuivre les incréments P4/P5 sans recette humaine intermédiaire. Recette consolidée après complétude technique. Les anciennes demandes d'attente de recette ci-dessous sont historiques et remplacées par cette décision.
 
 > Reprise courante au 19 octobre 2026 : P5-CONF.1a accepté avec réserve ; livraison locale partielle P5-CONF.1b. Voir la dernière section et `docs/RESULTATS_P5_CONF_1B.md`. Les sections historiques restent conservées.

@@ -132,3 +132,113 @@ Base exacte ba570569 récupérée par bundles dans une copie isolée après disp
 ## 19/10/2026 — P5-C.2, documents organismes
 
 P5-C.1 b8ddf845 et son arbre vérifiés via livraison/bundle ; branche isolée work/p5-c-2-facturation créée, aucun patch réappliqué. Préparations versionnées, engagements exclusifs, contrôles FAC-02, bordereaux/factures de recette, PDF historiques en base, récapitulatifs/lots facultatifs, permissions/API/écran intégré. Migration additive 20261019_06 (huit tables), après 05. Émission de production fermée faute de politique fiscale/numérotation et preuves natives ; garde explicite de recette jetable côté serveur. Retour post-facture accepté dans un récapitulatif reproduit puis corrigé, garde aussi appliqué au lot. Campagne ciblée 24 réussis/9 natifs ignorés ; contrôles ultérieurs 64 bits/migration 2 réussis/1 ignoré, traçabilité 2 réussis, nominal final 1 réussi, 48 tests de politique et 27 assertions DOM C2 réussis. Chromium absent. Aucun test natif ni run GitHub exécuté. Voir docs/RESULTATS_P5_C_2.md ; les campagnes successives ne sont pas additionnées en tests distincts. La campagne humaine unique est enrichie, sans demande de validation intermédiaire.
+
+
+## 27 octobre 2026 — stabilisation globale et décision de clôture P4 / gel P5
+
+Entrée par Codex à 2026-10-27T12:49:14 (Africa/Lagos). Décision du propriétaire : finaliser P4/P4-05 ; conserver les développements historiques P5 et leurs commits, geler toute poursuite/activation, ne pas demander une validation exhaustive P5 pour clôturer P4. P4 reste accepté humainement dans son périmètre ; aucune fusion ni aucun déploiement réalisé.
+
+Chromium réel : 20/20 scénarios réussis en trois segments dépendants. SQLite prérequis : 571 réussis/37 ignorés ; PostgreSQL 17 et 18 prérequis : 605 réussis/2 ignorés chacun ; PostgreSQL 17 P4-05 corrigée : 671 réussis/2 ignorés. SQLite et PG18 P4-05 encore en cours à cette entrée. CI locale48/51, gardes8/8. Résultats exacts, sous-tests, causes et limites : [rapport consolidé](docs/STABILISATION_GLOBALE_P4_20261027.md) ; cet état ne vaut pas validation GitHub des futurs SHA.
+
+Causes démontrées : dialogue de paiement/ancien sélecteur, attentes prématurées de callbacks, configuration de fixture et nature manquante du produit synthétique ; période de migration basée sur date.today() après changement de jour ; dépassement GitHub du budget PG20minutes. Candidats : 13 fichiers de tests/fixtures et proposition séparée d'une ligne CI20→30minutes. Aucune règle financière, permission, migration ou dépendance modifiée.
+
+PR #14 : `codex/p4-prerequis-b04`, `c88151d4d5e899c564c8cddb6a8760de3f99875a`, Draft vers `main`. PR #15 : `codex/p4-05-retours-caisse-publication`, `37ed8350bf840e676fc3f4f3cd4fb6f30601c45f`, Draft vers les prérequis. Dernière lecture distante : voir le rapport de stabilisation ; les références locales restent inchangées.
+
+Main : `2910cc60e8c8287a587ce8ff8e3f48c95be1ba39` ; checkout `dev/codex-docker` à `b223ca2c86fe93bac811f3d6e146034dff3c8acf`. Les SHA de publication n'ont pas changé. PR13 inchangée. Les anciens rapports sont conservés. Le bilan [CLOTURE_P4_GEL_P5_20261027.md](docs/CLOTURE_P4_GEL_P5_20261027.md) qualifie l'isolation et les contradictions documentaires.
+
+Autorisations actuelles : terminer les campagnes existantes, analyse et préparation locale, mises à jour cumulatives de suivi. Non autorisés à ce stade : intégration des candidats, commits, push, opérations GitHub, merge, déploiement et activation P5. Préserver toutes bases conservées, ports8001/8003/8004/8005, P405R2 et C0/C1/C2/CFINAL. Arrêter les développements après le bilan consolidé.
+
+### Conservation intégrale de PROGRESS.md avant actualisation
+
+Le texte suivant était l'état courant précédent ; ses incertitudes et actions sont historiques et remplacées par le bilan ci-dessus.
+
+<details><summary>État précédent de PROGRESS.md, conservé sans modification</summary>
+
+# 📁 Suivi du Projet : NeoSys Pharma V1
+
+> Mise à jour : **27 octobre 2026 à 11 h 16 (Libreville, UTC+1)**. Basé sur les échanges, rapports partagés et PR GitHub contrôlées. L'activité locale de Codex non publiée reste inconnue.
+
+## 📌 État Actuel
+- **Dernière IA utilisée :** Codex (développement sur Windows) ; ChatGPT (supervision et revue).
+- **Dernière mise à jour :** 27/10/2026, 11 h 16 (UTC+1).
+- **Phase en cours :** stabilisation globale des tests Chromium pour clôturer l'intégration P4.
+- **État métier :** P4 accepté dans le périmètre de recette V1, mais non fusionné dans `main`.
+- **P5 :** code historique partiellement présent dans les prérequis, **pas entièrement validé**.
+- **Dépôt :** `flucasx2/neosys-pharma-v1` (privé).
+- **`main` :** `2910cc60e8c8287a587ce8ff8e3f48c95be1ba39`.
+- **PR #14 — prérequis mixtes P4/P5 :** [Draft → main](https://github.com/flucasx2/neosys-pharma-v1/pull/14), SHA `c88151d4d5e899c564c8cddb6a8760de3f99875a`.
+- **PR #15 — finalisation P4-05 :** [Draft → branche #14](https://github.com/flucasx2/neosys-pharma-v1/pull/15), SHA `37ed8350bf840e676fc3f4f3cd4fb6f30601c45f`.
+
+## 🎯 Objectif de la Session Précédente
+- [x] Publier deux PR Draft avec historique nettoyé, sans les 16 journaux de preuve P5.
+- [x] Corriger les sept blocages historiques de tests/migrations avant publication.
+- [x] Corriger les harnais UI `cashPay` et `cgRenderReview` (JSDOM et Chromium ciblés).
+- [x] Actualiser `browser_p2_complete.py` pour l'import CSV partiel réel (2 lignes importées, 1 invalide après reprise).
+- [x] Lancer les deux CI complètes sur les SHA publiés et localiser le nouveau blocage navigateur.
+- [ ] Produire **la matrice exhaustive de tous les scénarios Chromium** et un plan de stabilisation consolidé (mission Codex confiée ; livrable local non vérifié).
+- [ ] Diagnostiquer le sélecteur caisse `[name=ESPECES]` et les autres scénarios encore masqués par l'arrêt précoce.
+- [ ] Obtenir des CI complètes vertes avant toute fusion.
+
+## 🏗️ Architecture & Fichiers Clés Modifiés Récemment
+Architecture : **Python/FastAPI, SQLAlchemy, Alembic, PostgreSQL, Web JavaScript**, tests pytest, JSDOM et Playwright/Chromium, GitHub Actions. Séparation domaine/application/infrastructure/présentation.
+
+- `tests/finitions_caisse_ui.cjs` : initialisation du contexte de caisse et tests de confirmation/rendu monnaie.
+- `tests/groupe_organismes_ui.cjs` : chargement complet des fonctions financières de `caisse.js` avant l'encaissement groupé.
+- `tests/browser_p2_complete.py` : assertions d'un bilan d'importation partielle et compteurs du rapport serveur.
+- `tests/browser_caisse.py` : **blocage actuel**, ligne 24 ; le test attend un moyen `ESPECES` dans un dialogue ouvert.
+- `caisse.js`, `encaissement_groupe.js` : modules de référence à examiner pour le diagnostic, **pas de changement métier récent autorisé**.
+- `.github/workflows/tests.yml` : contrôle des changements, SQLite, PostgreSQL 17/18, Chromium et synthèse. Draft automatique = contrôles légers ; CI complète par `workflow_dispatch`.
+- Documents historiques de recette : `docs/PROCES_VERBAL_RECETTE_P4_05.md`, `docs/CHECKPOINT_P405R2_CFINAL.md` (emplacements à vérifier dans le checkout).
+
+## 🚧 Problèmes / Bugs en suspens
+1. **Chromium Caisse :** `tests/browser_caisse.py:24`, `Locator.focus: Timeout 30000ms exceeded`, recherche `dialog[open] [name=ESPECES]` ; la cause exacte n'est **pas encore établie** (dialogue, configuration, permission, fixture, sélecteur, erreur réelle).
+2. **Dernière CI complète non valide :** [run #14 — 40221467927](https://github.com/flucasx2/neosys-pharma-v1/actions/runs/40221467927) : SQLite OK, browser échec, PostgreSQL 17/18 annulés, synthèse échec. [run #15 — 40221480958](https://github.com/flucasx2/neosys-pharma-v1/actions/runs/40221480958) : SQLite OK, PostgreSQL 17 OK, PostgreSQL 18 annulé, browser échec, synthèse échec.
+3. **Scénarios masqués :** le job Chromium s'arrête au premier échec ; les parcours ultérieurs ne sont pas tous attestés.
+4. **PR #13 historique** : modèle concurrent d'encaissement groupé `eg32/eg33/eg34` ; ne pas fusionner/cherry-pick globalement ses migrations.
+5. **Reportés à fin V1 :** clôture Z forcée/exceptionnelle, tickets 80 mm, harmonisation et pagination de PDF ; ne pas les présenter comme déjà livrés.
+
+## 🚀 Prochaines Étapes Immédiates
+1. Rechercher dans les dossiers locaux de Codex la **matrice globale Chromium** et le **plan de stabilisation** éventuellement déjà produits.
+2. Inventorier tous les tests, dépendances, fixtures, seeds et états de données ; distinguer scénarios indépendants et séquentiels.
+3. Reproduire sur navigateur réel et PostgreSQL **jetable** le blocage `browser_caisse.py:24` ; recueillir DOM, réseau et configuration des moyens de paiement ; démontrer la cause.
+4. Préparer une **seule série de corrections groupées** des tests/harnais. Tout changement métier, financier, de permissions ou migration requiert un accord distinct.
+5. Faire une campagne de stabilisation complète avant nouveau push, puis CI complète sur les nouveaux SHA (SQLite, PostgreSQL 17/18, Chromium et synthèse).
+6. Revoir puis éventuellement fusionner **#14 avant #15**, uniquement sur autorisation explicite et après succès de tous les contrôles obligatoires.
+
+## 🛡️ Protections non négociables
+- Ne pas toucher aux bases conservées, environnements **8001/8003/8004/8005**, sauvegardes **C0/C1/C2/CFINAL**, pièces P405R2 ni aux données financières de recette.
+- Bases de tests : PostgreSQL **jetable, nommé, vérifié vide et isolé** ; jamais les bases Windows conservées.
+- Aucun push, force-push, merge, déploiement, migration réelle ni nouveau P5 sans autorisation explicite.
+- PR #14 et #15 maintenues **Draft** ; pas de « GO merge » sur une suite partielle ou des jobs annulés.
+
+</details>
+
+
+### 27 octobre 2026, 13 h 02 — complément de consolidation
+
+SQLite P4-05 finale terminée : 629 tests réussis, 44 ignorés historiques, 17 sous-tests séparés ; code de sortie0, XML complet. PostgreSQL18 P4-05 reste en cours. Les contrôles de conservation documentaire et Gitleaks des sept documents ont réussi (zéro détection).
+
+Différence de références constatée : main local fe53c42dc89d79618290b182aae29b01d8cb42d6 (dernier mouvement reflog du10octobre), origin/main et base GitHub2910cc60e8c8287a587ce8ff8e3f48c95be1ba39. Aucun mouvement Git effectué. Le contrôle d’égalité reste en échec explicite ; la revue automatique a refusé une adaptation de l’audit pour accepter cette différence, au motif du risque de masquer une divergence. Aucune tentative de contournement, aucune intégration/publication autorisée par ce complément. Les deux PR sont confirmées ouvertes en Draft aux SHA attendus ; PR15 vise toujours PR14.
+
+
+## 27 octobre 2026 — bilan local final P4 et arrêt des développements
+
+Horodatage : 2026-10-27T13:43:16 (Africa/Lagos), Codex. Toutes les suites locales requises sont terminées avec succès et codes de sortie0 ; stabilité des serveurs natifs vérifiée. Résultats non additionnés entre campagnes :
+
+- sqlite-final/prerequis : 571 passed, 37 skipped, 1 warning, 3 subtests passed in 3975.70s (1:06:15)
+- sqlite-final/p405 : 629 passed, 44 skipped, 1 warning, 17 subtests passed in 4638.41s (1:17:18)
+- fullpg17r2/prerequis : 605 passed, 2 skipped, 1 warning, 3 subtests passed in 5146.64s (1:25:46)
+- fullpg17r3/p405 : 671 passed, 2 skipped, 1 warning, 17 subtests passed in 8168.55s (2:16:08)
+- fullpg18r2/prerequis : 605 passed, 2 skipped, 1 warning, 3 subtests passed in 7132.81s (1:58:52)
+- fullpg18r2/p405 : 671 passed, 2 skipped, 1 warning, 17 subtests passed in 6891.86s (1:54:51)
+
+Chromium20/20, CI48/51, gardes8/8 conservés. Les tests ignorés historiques sont qualifiés dans le rapport ; aucune assertion affaiblie, aucun skip ajouté. P4 reste accepté humainement, non fusionné/non déployé ; P5 historique gelé et incomplet. Les développements s’arrêtent ici. Les branches publiables restent aux SHA c88151d4d5e899c564c8cddb6a8760de3f99875a et37ed8350bf840e676fc3f4f3cd4fb6f30601c45f, sans nouveau commit ni push.
+
+GO technique local du périmètre candidat, pas autorisation d’intégration/publication. Le contrôle d’égalité main local/origin reste en échec explicite et nécessite une décision de référence ; aucune synchronisation effectuée. Attendre les autorisations pour intégrer/committer, publier puis opérations GitHub. Ne pas relancer une recette P5 exhaustive pour clôturer P4. Voir docs/CLOTURE_P4_GEL_P5_20261027.md et docs/STABILISATION_GLOBALE_P4_20261027.md.
+
+
+## 27 octobre 2026 — décision du propriétaire sur les références Git
+
+Horodatage : 2026-10-27T14:02:19 (Africa/Lagos), Codex. Référence officielle de publication : origin/main à2910cc60e8c8287a587ce8ff8e3f48c95be1ba39 ; main local conservé àfe53c42dc89d79618290b182aae29b01d8cb42d6, interdiction de modification/réinitialisation/fusion/synchronisation automatique. La divergence devient une anomalie connue et documentée. Les preuves locales du candidat sont acceptées ; périmètre13 tests/fixtures, une ligne CI et documents de suivi, sans changement métier/migrations/règles financières ; P5 historique conservé et gelé.
+
+Lecture GitHub à nouveau effectuée : main distant attendu, PR14 ouverte Draft sur main attendu, PR15 ouverte Draft sur la branche des prérequis ; SHA inchangés. Autorisation courante limitée à finaliser la préparation et proposer les commits et contrôles. L’ancien audit reste inchangé et son échec est conservé ; une adaptation ciblée contrôlant séparément les deux références est proposée, pas appliquée. Aucun commit, merge, push, déploiement ou intervention sur les environnements conservés. Attendre l’autorisation du plan avant exécution.

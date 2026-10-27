@@ -1,5 +1,7 @@
 # NeoSys Pharma V1
 
+> État courant au 27 octobre 2026 : P4/P4-05 en clôture technique, non fusionné ni déployé ; P5 historique gelé et incomplet. Consulter [PROGRESS.md](PROGRESS.md), [le guide de reprise](REPRISE_NEOSYS_PHARMA.md) et [le bilan de clôture](docs/CLOTURE_P4_GEL_P5_20261027.md). Les sections incrémentales ci-dessous décrivent leurs jalons historiques ; elles ne valent pas autorisation de migration ni de poursuite P5. Lire [AGENTS.md](AGENTS.md) avant toute commande locale.
+
 FastAPI / Python 3.14 / PostgreSQL / SQLAlchemy / Alembic.
 
 ## P1 : premier incrément vertical
