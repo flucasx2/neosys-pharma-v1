@@ -16,13 +16,30 @@ with sync_playwright() as p:
         page_.goto(url);form=page_.locator('#login-form')
         for field,value in [('organisation_id',f['organisation_id']),('identifiant',name),('password',f['password'])]:
             form.locator('[name='+field+']').focus();page_.keyboard.type(value)
-        form.locator('button').focus();page_.keyboard.press('Enter');expect(page_.locator('#app-shell')).to_be_visible()
+        form.locator('button').focus();page_.keyboard.press('Enter');page_.locator('#login-form button:enabled').wait_for(state='attached');expect(page_.locator('#app-shell')).to_be_visible()
         page_.locator('#nav-vente').focus();page_.keyboard.press('Enter');expect(page_.locator('#vente-panel')).to_be_visible();expect(page_.locator('#p4-list')).to_have_attribute('aria-busy','false')
     def modal():return page.locator('dialog[open]').last
-    def save():key_activate(modal().get_by_role('button',name='Enregistrer',exact=True));expect(page.locator('dialog[open]')).to_have_count(0);expect(page.locator('#vente-panel')).to_have_attribute('aria-busy','false')
-    def shortcut(n):
+    def save():key_activate(modal().get_by_role('button',name='Enregistrer',exact=True));page.locator('dialog[open] button[type=submit]:disabled').wait_for(state='detached');expect(page.locator('dialog[open]')).to_have_count(0);expect(page.locator('#vente-panel')).to_have_attribute('aria-busy','false')
+    def shortcut(n,rejected=False):
         expect(page.locator('#vente-panel')).to_have_attribute('aria-busy','false')
-        page.keyboard.press('Alt+Shift+Digit'+str(n))
+        if n in (8,9,0):
+            sale_id=page.evaluate('venteState.current.id')
+            action={8:'attendre',9:'reprendre',0:'valider'}[n]
+            with page.expect_request(lambda r:r.method=='POST' and r.url.endswith('/'+sale_id+'/'+action)) as mutation:
+                if rejected:
+                    page.keyboard.press('Alt+Shift+Digit'+str(n))
+                else:
+                    with page.expect_request(lambda r:r.method=='GET' and r.url.endswith('/'+sale_id)) as refresh:
+                        page.keyboard.press('Alt+Shift+Digit'+str(n))
+            response=mutation.value.response()
+            assert response is not None and response.status==(422 if rejected else 200)
+            response.finished()
+            if not rejected:
+                refreshed=refresh.value.response()
+                assert refreshed is not None and refreshed.status==200
+                refreshed.finished()
+        else:
+            page.keyboard.press('Alt+Shift+Digit'+str(n))
         if n in (8,9,0):expect(page.locator('#vente-panel')).to_have_attribute('aria-busy','false')
     def shot(name):page.screenshot(path='qa/'+name,full_page=True)
     login(page,'vente.qa');shortcut(2);expect(modal()).to_be_visible();page.keyboard.press('Escape');expect(page.locator('dialog[open]')).to_have_count(0);shortcut(2);expect(modal()).to_be_visible();expect(modal().locator('[name=mode]')).to_be_focused()
@@ -38,7 +55,7 @@ with sync_playwright() as p:
     page.locator('#p4-lines tr').last.focus();expect(page.locator('#p4-lines tr').last).to_be_focused();page.keyboard.press('Delete');save();expect(page.locator('#p4-lines tr')).to_have_count(1)
     # Line authorization local: manager enters own password, operator remains signed in.
     shortcut(6);type_field(modal().locator('[name=valeur]'),'10');type_field(modal().locator('[name=justification]'),'Demande ligne au clavier');save();expect(page.locator('#p4-totals')).to_contain_text('300 FCFA')
-    shortcut(0);expect(page.locator('#p4-message')).to_contain_text('attente')
+    shortcut(0,rejected=True);expect(page.locator('#p4-message')).to_contain_text('attente')
     key_activate(page.get_by_role('button',name='Autorisation locale du responsable',exact=True));type_field(modal().locator('[name=identifiant]'),'responsable.qa');type_field(modal().locator('[name=password]'),'incorrect');choice(modal().locator('[name=autoriser]'),'true');type_field(modal().locator('[name=justification]'),'Contrôle local du responsable');key_activate(modal().get_by_role('button',name='Enregistrer',exact=True));expect(modal().locator('.creation-dialog-error')).to_contain_text('refusée');expect(page.locator('#identity-name')).to_contain_text('vente.qa');expect(modal().locator('[name=password]')).to_have_value('');type_field(modal().locator('[name=password]'),f['password']);save();expect(page.locator('#p4-totals')).to_contain_text('270 FCFA');expect(page.locator('#p4-discounts')).to_contain_text('responsable.qa');shot('p4-remise-ligne-autorisee.png')
     # Global request is approved remotely from an independent browser session.
     shortcut(7);type_field(modal().locator('[name=valeur]'),'10');type_field(modal().locator('[name=justification]'),'Demande globale distante');save();shortcut(8);expect(page.locator('#p4-title')).to_contain_text('EN_ATTENTE');shortcut(9);expect(page.locator('#p4-title')).to_contain_text('PREPARATION')

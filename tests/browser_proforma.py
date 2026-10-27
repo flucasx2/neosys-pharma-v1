@@ -24,10 +24,10 @@ with sync_playwright() as p:
     def login(name):
         page.goto(url);form=page.locator('#login-form')
         for name_,value in [('organisation_id',f['organisation_id']),('identifiant',name),('password',f['password'])]:field(form.locator('[name='+name_+']'),value)
-        activate(form.locator('button'));expect(page.locator('#app-shell')).to_be_visible();activate(page.locator('#nav-proforma'));expect(page.locator('#proforma-panel')).to_be_visible();expect(page.locator('#pf-list')).to_have_attribute('aria-busy','false')
+        activate(form.locator('button'));page.locator('#login-form button:enabled').wait_for(state='attached');expect(page.locator('#app-shell')).to_be_visible();activate(page.locator('#nav-proforma'));expect(page.locator('#proforma-panel')).to_be_visible();expect(page.locator('#pf-list')).to_have_attribute('aria-busy','false')
     def modal():return page.locator('dialog[open]').last
     def save():
-        activate(modal().get_by_role('button',name='Enregistrer',exact=True));expect(page.locator('dialog[open]')).to_have_count(0);expect(page.locator('#proforma-panel')).to_have_attribute('aria-busy','false')
+        activate(modal().get_by_role('button',name='Enregistrer',exact=True));page.locator('dialog[open] button[type=submit]:disabled').wait_for(state='detached');expect(page.locator('dialog[open]')).to_have_count(0);expect(page.locator('#proforma-panel')).to_have_attribute('aria-busy','false')
     def shortcut(key):expect(page.locator('#proforma-panel')).to_have_attribute('aria-busy','false');page.keyboard.press('Alt+Shift+'+key)
     def api(path,method='GET',body=None):return page.evaluate("""async ({path,method,body})=>{const r=await authFetch(proformaRoot()+path,{method,body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json()};}""",{'path':path,'method':method,'body':body})
     def inventory():return page.evaluate("""async()=>{const r=await authFetch(venteRoot()+`/stocks?emplacement_id=${authState.emplacement||document.querySelector('#emplacements').value}&conditionnement_id="""+f['p4_pack']+"""`);return (await r.json()).totaux;}""")

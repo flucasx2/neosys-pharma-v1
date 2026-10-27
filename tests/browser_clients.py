@@ -45,7 +45,7 @@ with sync_playwright() as playwright:
             target.keyboard.type(value)
         form.locator('button').focus()
         target.keyboard.press('Enter')
-        expect(target.locator('#app-shell')).to_be_visible()
+        target.locator('#login-form button:enabled').wait_for(state='attached');expect(target.locator('#app-shell')).to_be_visible()
 
     def wait_clients():
         expect(page.locator('#clients-rows')).to_have_attribute('aria-busy', 'false')
@@ -64,6 +64,7 @@ with sync_playwright() as playwright:
 
     def save_modal():
         activate(modal().get_by_role('button', name='Enregistrer', exact=True))
+        page.locator('dialog[open] button[type=submit]:disabled').wait_for(state='detached')
         expect(page.locator('dialog[open]')).to_have_count(0)
 
     login(page, 'clients.qa')

@@ -1,7 +1,7 @@
 """Préservation réelle d'une créance P5-C.1 avant/après la migration additive."""
 import os
 from uuid import UUID,uuid4
-from datetime import date
+from datetime import date,datetime,timezone,timedelta
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.orm import Session,sessionmaker
@@ -37,6 +37,8 @@ def cycle(url,monkeypatch):
         with TestClient(app) as c:
             a=account_fixture.__wrapped__(c);sale,session,calc=prepare(c,a);real,_=realise(c,a,sale,session,calc)
             claim=validate_claim(c,a,claim_post(c,a,'',{'realisation_id':real['id']},201)['creances'][0])
+            instant=datetime.fromisoformat(real['realisee_le'])
+            realisation_day=instant.astimezone(timezone.utc).date() if instant.tzinfo else instant.date()
         command.upgrade(cfg,'20261019_06')
         command.upgrade(cfg,'head');command.check(cfg);engine.dispose()
         with factory() as s:
@@ -46,7 +48,7 @@ def cycle(url,monkeypatch):
         with factory() as s:
             stock=StockService(s,a['org'],a['user'],lambda *args:None,date.today());data=body([claim])
             data['organisme_id']=UUID(data['organisme_id']);data['convention_id']=UUID(data['convention_id'])
-            data['date_debut']=date.fromisoformat(data['date_debut']);data['date_fin']=date.fromisoformat(data['date_fin'])
+            data['date_debut']=data['date_fin']=realisation_day
             result=stock.operation(uuid4(),'MIGRATION:PREPARER',{'test':'fictif'},lambda:FacturationOrganismeService(stock,a['site']).creer(data))
             assert result['version']['etat']=='PREPARATION'
         with pytest.raises(RuntimeError,match='conserver'):command.downgrade(cfg,'20261019_05')
@@ -72,3 +74,14 @@ def test_migration_p5c2_native(monkeypatch):
             print(c.scalar(sa.text('select version()')),parsed.database)
     finally:engine.dispose()
     cycle(url,monkeypatch)
+
+
+def test_migration_p5c2_sqlite_changement_jour_utc(tmp_path,monkeypatch):
+    # Le générateur de payload passe au lendemain, la réalisation reste historique.
+    import test_p5c2_facturation as fixtures
+    tomorrow=date.today()+timedelta(days=1)
+    class Tomorrow(date):
+        @classmethod
+        def today(cls):return tomorrow
+    monkeypatch.setattr(fixtures,'date',Tomorrow)
+    cycle('sqlite+pysqlite:///'+str(tmp_path/'historique-changement-jour.db'),monkeypatch)

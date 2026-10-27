@@ -9,7 +9,7 @@ with sync_playwright() as p:
     page.goto('http://127.0.0.1:8000')
     def login(user):
         for k,v in {'organisation_id':fixture['organisation_id'],'identifiant':user,'password':fixture['password']}.items():page.locator(f'#login-form [name="{k}"]').fill(v)
-        page.locator('#login-form button').click();expect(page.locator('#app-shell')).to_be_visible();page.locator('#nav-catalogue').click()
+        page.locator('#login-form button').click();page.locator('#login-form button:enabled').wait_for(state='attached');expect(page.locator('#app-shell')).to_be_visible();page.locator('#nav-catalogue').click()
     def fill(form,values):
         for k,v in values.items():form.locator(f'[name="{k}"]').fill(v)
     def save(modal):
