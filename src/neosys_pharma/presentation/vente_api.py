@@ -22,6 +22,7 @@ def contexte(request:Request,organisation_id:UUID,user=Depends(utilisateur_coura
     try:
         site=UUID(request.headers.get('X-Site-ID',''))
         permission=POLICY.get(request.scope['route'].name)
+        if isinstance(permission,dict):permission=permission.get(request.path_params.get('genre'))
         if not permission:raise PermissionError('Opération Vente non autorisée.')
         control=ControleAcces(SqlAlchemySecuriteRepository(session),user,jour_courant())
         permissions=permission if isinstance(permission,tuple) else (permission,)

@@ -123,7 +123,7 @@ class CaisseService:
         row=self.session(key,'caisse.session.gerer',True)
         if row.revision!=data['revision']:raise ConflitStock('Session modifiée : actualiser.')
         from neosys_pharma.infrastructure.regularisation_models import TransfertFondsModel,RemboursementModel
-        if any(x.etat not in ('RECU','ANNULE') for x in self.stock.lignes(TransfertFondsModel,session_id=row.id)) or any(x.etat!='EXECUTE' for x in self.stock.lignes(RemboursementModel,session_id=row.id)):raise ConflitStock('Résoudre les transferts et remboursements avant fermeture.')
+        if any(x.etat not in ('RECU','ANNULE') for x in self.stock.lignes(TransfertFondsModel,session_id=row.id)) or any(x.etat not in ('EXECUTE','ANNULE') for x in self.stock.lignes(RemboursementModel,session_id=row.id)):raise ConflitStock('Résoudre les transferts et remboursements avant fermeture.')
         row.comptage_final=francs(data['comptage_final'],True);row.ferme_le=now();row.etat='FERMEE';row.revision+=1
         self.trace('SESSION_FERMEE',session=self.session_detail(row),justification=data['justification']);return self.session_detail(row)
 
@@ -427,6 +427,9 @@ class CaisseService:
         details={'bareme':serial(rule),'eligible_paye':str(base),'lignes':eligible,'points_acquis':points,'dette_compensee':compensation,'fractions_reportees':False}
         return details|{'solde':compte.points,'dette':compte.dette}
 
+    def remboursement_engage(self,confirmation_id):
+        from neosys_pharma.infrastructure.regularisation_models import RemboursementModel
+        return any(row.etat!='ANNULE' for row in self.stock.lignes(RemboursementModel,confirmation_id=confirmation_id))
     def finaliser(self,key,data):
         session=self.session(data['session_id'],'caisse.encaisser',True)
         v=self.verifier_vente(key,session,data['revision'])
@@ -466,7 +469,7 @@ class CaisseService:
         payments=repartir_paiements(total,payments)
         from neosys_pharma.infrastructure.regularisation_models import RemboursementModel
         if any(self.stock.lignes(RemboursementModel,confirmation_id=c,etat='EXECUTE') for c in used):raise ConflitStock('Paiement déjà restitué.')
-        if any(self.stock.lignes(RemboursementModel,confirmation_id=c) for c in used):raise ConflitStock('Restitution demandée : paiement indisponible pour encaissement.')
+        if any(self.remboursement_engage(c) for c in used):raise ConflitStock('Restitution demandée : paiement indisponible pour encaissement.')
         pending={c.id for c in self.stock.lignes(ConfirmationReglementModel,vente_id=v.id) if not self.stock.lignes(ReglementModel,confirmation_id=c.id) and not self.stock.lignes(RemboursementModel,confirmation_id=c.id,etat='EXECUTE')}
         if pending!=used:raise ConflitStock('Tous les paiements acquis confirmés doivent être rapprochés et intégrés ; ne pas laisser de règlement orphelin.')
         compte=None

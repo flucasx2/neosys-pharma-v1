@@ -21,10 +21,11 @@ async function scenario(w,sources){
  const session=d.getElementById('finance-session');session.add(new w.Option('Session','session'));session.value='session';
  w.eval('financeState.context={sessions:[{id:"session",revision:1}],...'+JSON.stringify(config)+'}');
  w.financeRequest=async(route,method,body)=>{if(method){calls.push({route,method,body});return {};}
- return {montant:'100',disponible_par_moyen:[{mode:'MOBILE_MONEY',moyen_id:'air',libelle:'Airtel Money',montant:'100'},{mode:'MOBILE_MONEY',moyen_id:'moov',libelle:'Moov Money',montant:'100'}]};};
+ return {montant:'100',remplace_id:'demande-annulee',disponible_par_moyen:[{mode:'MOBILE_MONEY',moyen_id:'air',libelle:'Airtel Money',montant:'100'},{mode:'MOBILE_MONEY',moyen_id:'moov',libelle:'Moov Money',montant:'100'}]};};
  await w.financeRefund({id:'retour'});assert(entry.form.elements.montant_0&&entry.form.elements.montant_1,'Deux origines de même famille fusionnées');
  entry.form.elements.justification.value='Restitution';await save(Object.fromEntries(new w.FormData(entry.form)),{cle:'refund'});
  assert(calls.at(-1).body.reglements[0].moyen_origine_id==='air'&&calls.at(-1).body.reglements[0].moyen_id==='air','Origine du remboursement perdue');
+ assert(calls.at(-1).body.remplace_id==='demande-annulee','Lien explicite de remplacement perdu');
  assert(entry.form.elements.mode_0&&entry.form.elements.mode_1,'Contrôles de fournisseurs non indépendants');
  w.financeRequest=async()=>({montant:'100',disponible_par_moyen:[{mode:'ESPECES',moyen_id:null,libelle:'ESPECES',montant:'100'},{mode:'CARTE',moyen_id:null,libelle:'CARTE',montant:'100'}]});
  w.eval('financeState.context.modes=["ESPECES","CARTE"];financeState.context.moyens=[]');

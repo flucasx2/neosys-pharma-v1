@@ -94,6 +94,7 @@ REGULARISATION_PERMISSIONS = (
     ('caisse.remboursement.demander','Demander un remboursement ou une restitution'),
     ('caisse.remboursement.autoriser','Autoriser les remboursements justifiés'),
     ('caisse.remboursement.executer','Confirmer les remboursements réellement exécutés'),
+    ('caisse.remboursement.annuler','Annuler une demande de remboursement non exécutée avec attestation responsable'),
     ('caisse.remboursement.substituer','Autoriser un autre moyen de remboursement'),
     ('stock.quarantaine.consulter','Consulter les produits retournés en quarantaine'),
     ('stock.quarantaine.decider','Décider la remise en vente ou le refus sanitaire'),

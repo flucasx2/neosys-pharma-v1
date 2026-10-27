@@ -39,7 +39,8 @@ def cycle(url,monkeypatch):
             claim=validate_claim(c,a,claim_post(c,a,'',{'realisation_id':real['id']},201)['creances'][0])
             instant=datetime.fromisoformat(real['realisee_le'])
             realisation_day=instant.astimezone(timezone.utc).date() if instant.tzinfo else instant.date()
-        command.upgrade(cfg,'20261019_06');command.check(cfg);engine.dispose()
+        command.upgrade(cfg,'20261019_06')
+        command.upgrade(cfg,'head');command.check(cfg);engine.dispose()
         with factory() as s:
             assert s.get(CreanceOrganismeModel,UUID(claim['id'])).snapshot_hash==claim['snapshot_hash']
             assert s.get(RealisationPriseEnChargeModel,UUID(real['id'])).total_organismes_xaf==real['total_organismes_xaf']
