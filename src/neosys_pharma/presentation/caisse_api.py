@@ -16,10 +16,10 @@ from neosys_pharma.infrastructure.organisation_models import EmplacementModel,Ca
 from neosys_pharma.infrastructure.catalogue_models import CategorieProduitModel
 POLICY.update({
  'caisse_contexte':('caisse.consulter','caisse.encaisser','caisse.session.gerer','caisse.parametrer','fidelite.parametrer','fidelite.gerer'),
- 'caisse_config':'caisse.parametrer','caisse_sessions':'caisse.consulter','caisse_ouvrir':'caisse.session.gerer','caisse_fermer':'caisse.session.gerer',
- 'caisse_attente':'caisse.consulter','caisse_vente':'caisse.consulter','caisse_confirmer':'caisse.paiement.confirmer','caisse_rapprocher':'caisse.paiement.confirmer','caisse_finaliser':'caisse.encaisser',
+ 'caisse_moyen_creer':'caisse.parametrer','caisse_moyen_modifier':'caisse.parametrer','caisse_renommer':'caisse.parametrer','caisse_config':'caisse.parametrer','caisse_sessions':'caisse.consulter','caisse_ouvrir':'caisse.session.gerer','caisse_fermer':'caisse.session.gerer',
+ 'caisse_attente':'caisse.consulter','caisse_vente':'caisse.consulter','caisse_information_fidelite':'caisse.consulter','caisse_confirmer':'caisse.paiement.confirmer','caisse_rapprocher':'caisse.paiement.confirmer','caisse_finaliser':'caisse.encaisser',
  'caisse_recus':'caisse.consulter','caisse_recu':'caisse.consulter','caisse_recu_pdf':'caisse.consulter','caisse_appel_pdf':'vente.consulter','caisse_mouvements':'caisse.consulter',
- 'fidelite_recherche':'fidelite.consulter','fidelite_detail':'fidelite.consulter','fidelite_journal':'fidelite.consulter','fidelite_ventes':'fidelite.consulter','fidelite_creer':'fidelite.gerer','fidelite_carte':'fidelite.gerer','fidelite_opposer':'fidelite.gerer',
+ 'fidelite_recherche':'fidelite.consulter','fidelite_detail':'fidelite.consulter','fidelite_journal':'fidelite.consulter','fidelite_ventes':'fidelite.consulter','fidelite_creer':'fidelite.gerer','fidelite_carte':'fidelite.gerer','fidelite_code_barres':'fidelite.gerer','fidelite_impression':'fidelite.gerer','fidelite_carte_pdf':'fidelite.gerer','fidelite_opposer':'fidelite.gerer',
  'fidelite_baremes':'fidelite.parametrer','fidelite_bareme':'fidelite.parametrer','fidelite_clore':'fidelite.parametrer'})
 router=APIRouter(prefix='/api/caisses/organisations/{organisation_id}',tags=['Encaissement et fidélité'],dependencies=[Depends(contexte)])
 def service(v=Depends(vente_service)):return CaisseService(v)
@@ -36,6 +36,7 @@ class Fermeture(Revision):
     comptage_final:Decimal=Field(ge=0,max_digits=18,decimal_places=0)
     justification:str=Field(min_length=1,max_length=2000)
 class Confirmation(Revision):
+    moyen_id:UUID|None=None
     session_id:UUID
     mode:Mode
     montant:Decimal=Field(gt=0,max_digits=18,decimal_places=0)
@@ -61,7 +62,8 @@ class Client(Mutation):
     nom:str=Field(min_length=1,max_length=200)
     telephone:str|None=Field(default=None,max_length=80)
 class Carte(Revision):
-    code:str=Field(min_length=1,max_length=200)
+    code_barres:str|None=Field(default=None,min_length=1,max_length=80)
+    code:str|None=Field(default=None,min_length=1,max_length=200)
     type:Literal['PHYSIQUE','VIRTUELLE']
     remplace_id:UUID|None=None
 class Opposition(Revision):justification:str=Field(min_length=1,max_length=2000)
@@ -117,7 +119,14 @@ def caisse_attente(page_:int=Query(1,alias='page',ge=1),page_size:int=Query(25,g
 @router.get('/ventes/{key}')
 def caisse_vente(key:UUID,s=Depends(service)):
     v=execute(lambda:s.vente.obtenir(key,'caisse.consulter'))
-    return execute(lambda:s.vente.detail(v))|{'confirmations':[serial(c) for c in s.stock.lignes(ConfirmationReglementModel,vente_id=v.id)]}
+    receipt=s.s.scalar(select(EncaissementModel).where(EncaissementModel.vente_id==v.id,EncaissementModel.organisation_id==s.org))
+    coverage=(receipt.instantane.get('prise_en_charge') if receipt else
+              execute(lambda:s.prise_en_charge_detail_optionnelle(v)))
+    return execute(lambda:s.vente.detail(v))|{'prise_en_charge':coverage,'confirmations':[serial(c) for c in s.stock.lignes(ConfirmationReglementModel,vente_id=v.id)]}
+@router.get('/ventes/{key}/fidelite')
+def caisse_information_fidelite(key:UUID,s=Depends(service)):
+    return execute(lambda:s.information_fidelite(key))
+
 @router.post('/ventes/{key}/confirmations',status_code=201)
 def caisse_confirmer(key:UUID,d:Confirmation,s=Depends(service)):
     execute(lambda:s.vente.obtenir(key,'caisse.paiement.confirmer'));execute(lambda:s.session(d.session_id,'caisse.paiement.confirmer'))
@@ -163,7 +172,7 @@ def caisse_mouvements(session_id:UUID,page_:int=Query(1,alias='page',ge=1),page_
 @router.get('/fidelite')
 def fidelite_recherche(q:str=Query('',min_length=3,max_length=200),page_:int=Query(1,alias='page',ge=1),page_size:int=Query(20,ge=1,le=100),s=Depends(service)):
     term=s.stock.repo.terme(q);phone=re.sub(r'[\s().-]','',q)
-    cards=select(CarteFideliteModel.compte_id).where(CarteFideliteModel.organisation_id==s.org,CarteFideliteModel.code==q,CarteFideliteModel.etat=='ACTIVE')
+    cards=select(CarteFideliteModel.compte_id).where(CarteFideliteModel.organisation_id==s.org,CarteFideliteModel.id.in_(select(IdentifiantCarteFideliteModel.carte_id).where(IdentifiantCarteFideliteModel.organisation_id==s.org,IdentifiantCarteFideliteModel.valeur==q)),CarteFideliteModel.etat=='ACTIVE')
     query=select(CompteFideliteModel).join(ClientFideliteModel,ClientFideliteModel.id==CompteFideliteModel.client_id).where(CompteFideliteModel.organisation_id==s.org,(s.stock.repo.upper(ClientFideliteModel.nom).contains(term,autoescape=True))|(ClientFideliteModel.telephone==phone)|(CompteFideliteModel.id.in_(cards))).order_by(ClientFideliteModel.nom,CompteFideliteModel.id)
     return page(s,query,page_,page_size,lambda r:s.compte(r.id))
 @router.post('/fidelite',status_code=201)
@@ -210,3 +219,53 @@ def fidelite_bareme(d:Bareme,s=Depends(service)):return mutation(s,d,'BAREME',la
 def fidelite_clore(key:UUID,d:Cloture,s=Depends(service)):
     execute(lambda:s.stock.obtenir(BaremeFideliteModel,key))
     return mutation(s,d,'BAREME_CLORE:'+str(key),lambda:s.clore_bareme(key,d.model_dump()))
+
+
+class NomCaisse(Mutation):
+    nom_attendu: str = Field(min_length=1, max_length=200)
+    nom: str = Field(min_length=1, max_length=200)
+
+
+@router.put('/caisses/{key}/libelle')
+def caisse_renommer(key:UUID,d:NomCaisse,s=Depends(service)):
+    execute(lambda:s.caisse(key,'caisse.parametrer'))
+    return mutation(s,d,'RENOMMER_CAISSE:'+str(key),lambda:s.renommer_caisse(key,d.model_dump()))
+
+
+class CreationMoyen(Mutation):
+    code:str=Field(min_length=1,max_length=80)
+    libelle:str=Field(min_length=1,max_length=200)
+    mode:Literal['CARTE','MOBILE_MONEY','CHEQUE','VIREMENT']
+    actif:bool=True
+class ModificationMoyen(Revision):
+    libelle:str=Field(min_length=1,max_length=200)
+    actif:bool
+
+@router.post('/moyens',status_code=201)
+def caisse_moyen_creer(d:CreationMoyen,s=Depends(service)):
+    return mutation(s,d,'MOYEN_CREER',lambda:s.definir_moyen(d.model_dump()))
+
+@router.put('/moyens/{key}')
+def caisse_moyen_modifier(key:UUID,d:ModificationMoyen,s=Depends(service)):
+    return mutation(s,d,'MOYEN_MODIFIER:'+str(key),lambda:s.definir_moyen(d.model_dump(),key))
+
+
+class CodeBarresCarte(Revision):
+    code_barres:str=Field(min_length=1,max_length=80)
+
+@router.post('/fidelite/cartes/{key}/code-barres')
+def fidelite_code_barres(key:UUID,d:CodeBarresCarte,s=Depends(service)):
+    return mutation(s,d,'CARTE_BARRES:'+str(key),lambda:s.associer_code_barres(key,d.model_dump()))
+
+@router.post('/fidelite/cartes/{key}/impressions')
+def fidelite_impression(key:UUID,d:Mutation,s=Depends(service)):
+    return mutation(s,d,'CARTE_DOCUMENT:'+str(key),lambda:s.imprimer_carte(key))
+
+@router.get('/fidelite/cartes/{key}/pdf')
+def fidelite_carte_pdf(key:UUID,s=Depends(service)):
+    def get():
+        card=s.stock.obtenir(CarteFideliteModel,key);s.compte(card.compte_id,'fidelite.gerer')
+        rows=s.stock.lignes(DocumentCarteFideliteModel,carte_id=card.id)
+        if not rows:raise LookupError('Préparer le document de carte avant consultation.')
+        return Response(rows[0].pdf,media_type='application/pdf',headers={'Content-Disposition':'inline; filename="carte-fidelite.pdf"'})
+    return execute(get)

@@ -24,9 +24,28 @@ from neosys_pharma.domain.stock import ConflitStock
 
 def root(a):return f'/api/caisses/organisations/{a["org"]}'
 def post(c,a,path,body=None,status=201,key=None):
+    # Les anciens scénarios financiers choisissent désormais un moyen créé
+    # explicitement par leur utilisateur de recette, sans seed applicatif.
+    if path.endswith('/confirmations') and body and body.get('mode')!='ESPECES' and 'moyen_id' not in body and status==201:
+        mode=body['mode'];code='RECETTE_'+mode
+        moyens=c.get(root(a)+'/contexte').json()['configuration']['moyens']
+        moyen=next((m for m in moyens if m['code']==code),None)
+        if moyen is None:
+            moyen=post(c,a,'/moyens',{'code':code,'libelle':'Recette '+mode,'mode':mode})
+        body={**body,'moyen_id':moyen['id']}
     r=c.post(root(a)+path,json={'cle':str(key or uuid4()),**(body or {})});assert r.status_code==status,r.text;return r.json()
-def ready(c,a,q=3):
+def ready(c,a,q=3,*,configure=True):
     product,pack,pid,cid=setup(c,a)
+    from neosys_pharma.infrastructure.catalogue_models import ProduitModel,NatureMedicamentModel
+    gen=db(c);s=next(gen)
+    try:
+        nature=s.scalar(select(NatureMedicamentModel).where(
+            NatureMedicamentModel.organisation_id==a['org'],NatureMedicamentModel.code=='COSMETIQUE'))
+        if not nature:
+            nature=NatureMedicamentModel(id_nature=uuid4(),organisation_id=a['org'],code='COSMETIQUE',nom='Cosmétique',actif=True)
+            s.add(nature);s.flush()
+        s.get(ProduitModel,UUID(product)).nature_id=nature.id_nature;s.commit()
+    finally:gen.close()
     from neosys_pharma.infrastructure.securite_models import RoleModel
     gen=db(c);s=next(gen)
     try:
@@ -35,7 +54,8 @@ def ready(c,a,q=3):
         s.commit()
     finally:gen.close()
     login(c,a)
-    post(c,a,'/configuration',{'revision':0,'modes':['ESPECES','CARTE','MOBILE_MONEY','CHEQUE','VIREMENT'],'ticket_appel':True},200)
+    if configure:
+        post(c,a,'/configuration',{'revision':0,'modes':['ESPECES','CARTE','MOBILE_MONEY','CHEQUE','VIREMENT'],'ticket_appel':True},200)
     session=post(c,a,'/sessions',{'caisse_id':cid,'fond_initial':1000})
     v=line(c,a,create(c,a,pid),product,pack,q);v=act(c,a,v,'valider');v=act(c,a,v,'transmettre',caisse_id=cid)
     return v,session,product,pack,pid,cid
@@ -561,7 +581,7 @@ def test_brouillon_refuse_vente_deja_encaissee(raw_client, account):
         "cle": str(uuid4()), "revision": draft["dossier"]["revision"],
         "ventes": [{"vente_id": sale["id"], "revision": paid_sale["revision"]}],
     }, 409)
-    assert "Seules les ventes comptant transmises" in result["detail"]
+    assert "Seules les ventes transmises sont admissibles." == result["detail"]
 
 
 def test_brouillon_confirme_reglement_non_especes(raw_client, account):
@@ -762,6 +782,10 @@ def test_finalisation_groupe_atomique_reçus_mouvements_fidelite_et_rejeu(
     assert denied_substitution.status_code == 403
 
     def refund_return(returned, payments, proof_rows):
+        payments = [{**p,
+                     **({'moyen_id':confirmation['moyen_id']} if p['mode']=='CARTE' else {}),
+                     **({'moyen_origine_id':confirmation['moyen_id']} if p.get('mode_origine')=='CARTE' else {})}
+                    for p in payments]
         session_now = next(row for row in client.get(root(a) + "/sessions").json()["items"]
                            if row["id"] == session["id"])
         refund_payload = {
@@ -833,7 +857,7 @@ def test_finalisation_groupe_atomique_reçus_mouvements_fidelite_et_rejeu(
     over_allocated = client.post(refund_url, json={
         "cle": str(uuid4()), "retour_id": second_return_data["id"],
         "session_id": session["id"], "revision": session_before_overallocation["revision"],
-        "reglements": [{"mode": "CARTE", "mode_origine": "CARTE", "montant": "201"}],
+        "reglements": [{"mode": "CARTE", "mode_origine": "CARTE", "moyen_id":confirmation['moyen_id'], "moyen_origine_id":confirmation['moyen_id'], "montant": "201"}],
         "justification": "Montant carte supérieur à l'allocation de la vente.",
     })
     assert over_allocated.status_code == 409
@@ -896,6 +920,8 @@ def test_finalisation_groupe_atomique_reçus_mouvements_fidelite_et_rejeu(
         assert substitution_event is not None
         assert substitution_event.donnees['dossier']['reglements'][0] == {
             'mode': 'CARTE', 'mode_origine': 'ESPECES', 'montant': '100',
+            'moyen_id':confirmation['moyen_id'], 'moyen_origine_id':None,
+            'moyen_libelle':'Recette CARTE', 'moyen_origine_libelle':'ESPECES',
         }
     finally:
         gen.close()

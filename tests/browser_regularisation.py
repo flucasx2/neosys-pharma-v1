@@ -10,6 +10,7 @@ with sync_playwright() as p:
     def modal():return page.locator('dialog[open]')
     def save():
         activate(modal().get_by_role('button',name='Enregistrer',exact=True))
+        page.locator('dialog[open] button[type=submit]:disabled').wait_for(state='detached')
         try:expect(modal()).to_have_count(0)
         except AssertionError:
             page.screenshot(path='qa/p45-erreur-recette.png',full_page=True)
@@ -22,7 +23,7 @@ with sync_playwright() as p:
     def logout():
         activate(page.get_by_role('button',name='Se déconnecter',exact=True));expect(page.locator('#login-panel')).to_be_visible();expect(page.locator('#app-shell')).to_be_hidden()
     def login(user):
-        page.goto('http://127.0.0.1:8000/#administration/finance');expect(page.locator('#login-panel')).to_be_visible();fill(page.locator('#login-form [name=organisation_id]'),f['organisation_id']);fill(page.locator('#login-form [name=identifiant]'),user);fill(page.locator('#login-form [name=password]'),f['password']);activate(page.locator('#login-form button'));expect(page.locator('#app-shell')).to_be_visible();activate(page.locator('#nav-finance'));expect(page.locator('#finance-panel')).to_be_visible();expect(page.get_by_role('button',name='F12 · Actualiser',exact=True)).to_be_visible()
+        page.goto('http://127.0.0.1:8000/#administration/finance');expect(page.locator('#login-panel')).to_be_visible();fill(page.locator('#login-form [name=organisation_id]'),f['organisation_id']);fill(page.locator('#login-form [name=identifiant]'),user);fill(page.locator('#login-form [name=password]'),f['password']);activate(page.locator('#login-form button'));page.locator('#login-form button:enabled').wait_for(state='attached');expect(page.locator('#app-shell')).to_be_visible();activate(page.locator('#nav-finance'));expect(page.locator('#finance-panel')).to_be_visible();expect(page.get_by_role('button',name='F12 · Actualiser',exact=True)).to_be_visible()
     login('caisse.qa');activate(page.locator('#nav-encaissement'));expect(page.get_by_role('button',name='F2 · Ouvrir une session',exact=True)).to_be_visible();page.keyboard.press('Alt+Shift+Digit2');select(modal().locator('[name=caisse_id]'),f['p4_caisse']);fill(modal().locator('[name=fond_initial]'),1000);save()
     activate(page.locator('#nav-finance'));expect(page.locator('#finance-session option').filter(has_text='OUVERTE')).to_have_count(1);select(page.locator('#finance-session'),page.locator('#finance-session option').filter(has_text='OUVERTE').get_attribute('value'));page.keyboard.press('Alt+Shift+Digit4');save();expect(page.locator('#finance-rows')).to_contain_text('X')
     with page.expect_download() as download:activate(page.get_by_role('button',name='PDF historique',exact=True).first)
@@ -34,7 +35,20 @@ with sync_playwright() as p:
     with page.expect_download() as download:activate(page.get_by_role('button',name='Justificatif PDF',exact=True))
     download.value.save_as('qa/p45-transfert.pdf')
     logout();login('caisse.qa');tab('ventes');expect(page.get_by_role('button',name='Créer un retour',exact=True)).not_to_have_count(0);activate(page.get_by_role('button',name='Créer un retour',exact=True).first);fill(modal().locator('[name=q_0]'),1);fill(modal().locator('[name=justification]'),'Produit remis pour contrôle');save();tab('quarantaine');expect(page.locator('#finance-rows')).to_contain_text('EN_CONTROLE');expect(page.locator('#finance-rows')).to_contain_text('vendable 0');page.screenshot(path='qa/p45-quarantaine.png',full_page=True)
-    tab('retours');activate(page.get_by_role('button',name='Demander remboursement',exact=True).first);expect(modal().locator('[name=montant_ESPECES]')).not_to_have_value('');expect(modal().locator('[name=mode_CARTE]')).to_have_value('CARTE');fill(modal().locator('[name=justification]'),'Remboursement historique par moyens originaux');save();tab('remboursements');activate(page.get_by_role('button',name='Autoriser',exact=True).first);fill(modal().locator('[name=justification]'),'Responsable habilité valide');save();activate(page.get_by_role('button',name='Confirmer exécution',exact=True).first)
+    tab('retours')
+    with page.expect_response('**/retours/*/solde') as refund_response:
+        activate(page.get_by_role('button',name='Demander remboursement',exact=True).first)
+    assert refund_response.value.status==200
+    budget=refund_response.value.json()
+    originals=[row for row in budget['disponible_par_moyen'] if int(row['montant'])>0]
+    cards=[(index,row) for index,row in enumerate(originals) if row['mode']=='CARTE']
+    assert len(cards)==1
+    card_index,original_card=cards[0]
+    assert original_card['mode']=='CARTE' and original_card['moyen_id'] and original_card['libelle']=='CARTE QA'
+    card_key='CARTE:'+original_card['moyen_id']
+    expect(modal().locator('[name=montant_'+str(card_index)+']')).to_have_value(str(original_card['montant']))
+    expect(modal().locator('[name=mode_ESPECES]')).to_have_value('ESPECES')
+    expect(modal().locator('[name=montant_ESPECES]')).not_to_have_value('');expect(modal().locator('[name=mode_'+str(card_index)+']')).to_have_value(card_key);fill(modal().locator('[name=justification]'),'Remboursement historique par moyens originaux');save();tab('remboursements');activate(page.get_by_role('button',name='Autoriser',exact=True).first);fill(modal().locator('[name=justification]'),'Responsable habilité valide');save();activate(page.get_by_role('button',name='Confirmer exécution',exact=True).first)
     for field in modal().locator('input[name^=ref_]').all():fill(field,'REMBOURSEMENT-P45-QA')
     for field in modal().locator('textarea[name^=preuve_]').all():fill(field,'Justificatif indépendant de restitution constatée')
     fill(modal().locator('[name=justification]'),'Restitution effective');modal().locator('[name=confirme]').focus();page.keyboard.press('Space');save();expect(page.locator('#finance-rows')).to_contain_text('EXECUTE');page.screenshot(path='qa/p45-remboursement.png',full_page=True)

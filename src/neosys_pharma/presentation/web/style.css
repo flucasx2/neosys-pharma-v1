@@ -77,3 +77,38 @@ body.modal-open{overflow:hidden}.creation-dialog{width:min(840px,calc(100vw - 32
 /* P4-C.4 : presentation de l'encaissement groupé, indépendante du flux simple. */
 #cash-mode-switch [aria-pressed="true"]{background:var(--green);color:#fff}#cash-group-panel article{margin:14px 0}#cash-group-panel table{width:100%;min-width:620px;border-collapse:collapse;font-size:13px}#cash-group-panel th,#cash-group-panel td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}#cash-group-panel th{background:#f6f9f8;color:var(--muted);font-size:11px}#cash-group-panel input[type=checkbox]{width:auto;min-height:auto;accent-color:var(--green)}#cash-group-panel input[type=number]{min-width:110px;width:120px;padding:8px}#cash-group-panel button{width:auto;min-height:36px;padding:8px 12px;margin:3px;font-size:13px}#cash-group-panel button:disabled{opacity:.58;cursor:not-allowed}#cash-group-panel .cash-group-total{padding:12px 14px;border-radius:8px;background:#edf5ef;font-weight:650;font-variant-numeric:tabular-nums}#cash-group-panel .cash-group-payment{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:12px;align-items:end;margin:10px 0;padding:14px;border:1px solid var(--line);border-radius:8px}#cash-group-panel .cash-group-payment legend{font-weight:650}#cash-group-panel .cash-group-payment button{align-self:end}@media(max-width:760px){#cash-group-panel .cash-group-payment{grid-template-columns:1fr 1fr}#cash-group-panel .catalogue-heading{align-items:flex-start}}
 #cash-message.error{color:#922c2c;background:#fff1ef}#cash-group-review{font-variant-numeric:tabular-nums;overflow-wrap:anywhere}#cash-group-review li{margin:.35rem 0}
+
+/* B02 : table de la modale, hors du panneau de caisse. */
+.cash-payment-admin-table{width:100%;min-width:640px;table-layout:fixed;border-collapse:collapse;font-size:13px}
+.cash-payment-admin-table th,.cash-payment-admin-table td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;overflow-wrap:anywhere}
+.cash-payment-admin-table th{background:#f6f9f8;color:var(--muted);font-size:11px}
+.cash-payment-admin-table th:first-child{width:28%}
+.cash-payment-admin-table th:nth-child(2){width:22%}
+.cash-payment-admin-table th:nth-child(3){width:18%}
+.cash-payment-admin-table th:nth-child(4){width:17%}
+.cash-payment-admin-table th:last-child{width:15%}
+.cash-payment-admin-table button{width:auto;min-height:36px;padding:8px 10px;font-size:13px}
+
+/* B04 : tickets à gauche, règlements à droite ; protections de ventilation visibles. */
+#cash-group-panel:not([hidden]){display:grid;grid-template-columns:minmax(0,1.6fr) minmax(340px,1fr);gap:18px;align-items:start}
+#cash-group-panel>article{min-width:0}
+#cash-group-panel .cash-group-payment{grid-template-columns:minmax(0,1fr) minmax(100px,1fr);gap:8px;padding:10px}
+#cash-group-panel .cash-group-payment input{max-width:100%;min-width:0;width:100%}
+#cash-group-panel .cash-group-payment select{max-width:100%;min-width:0}
+#cash-group-panel .cash-group-payment label:has(input[aria-label^="Rendu espèces"]){display:none}
+#cash-group-review>p:first-child{padding:14px;background:#edf5ef;border-radius:8px;font-weight:650;line-height:1.8}
+@media(max-width:1050px){#cash-group-panel:not([hidden]){grid-template-columns:1fr}}
+
+.cash-financial-summary{white-space:pre-line;padding:14px;background:#edf5ef;border-radius:8px;line-height:1.8;font-variant-numeric:tabular-nums}
+
+/* B04 final : moyen, montant et suppression ; confirmation explicite dessous. */
+#cash-group-panel .cash-group-payment{grid-template-columns:minmax(0,1fr) minmax(90px,.7fr) auto;gap:6px 8px;padding:8px;align-items:end}
+#cash-group-panel .cash-group-payment legend{font-size:12px}
+#cash-group-panel .cash-group-payment>button{grid-column:3;grid-row:1;min-width:36px;margin:0}
+#cash-group-panel .cash-group-confirmation{grid-column:1/-1;font-size:12px}
+#cash-group-panel .cash-group-confirmation select{width:100%;font-size:13px}
+#cash-group-panel .cash-group-payment>select{grid-column:1;grid-row:1}
+#cash-group-panel .cash-group-payment>label:not(.cash-group-confirmation){grid-column:2;grid-row:1;font-size:12px}
+@media(max-width:480px){#cash-group-panel .cash-group-payment{grid-template-columns:minmax(0,1fr) minmax(80px,.65fr) 36px}#cash-group-panel .cash-group-payment select{font-size:12px}}
+
+.cash-group-confirmation-reference{display:block;overflow-wrap:anywhere;font-size:12px;line-height:1.4;font-weight:400}.cash-group-confirmation-reference:empty{display:none}

@@ -52,10 +52,20 @@ CAISSE_PERMISSIONS = (
     ("client.consulter", "Consulter les fiches client et leurs organismes associés"),
     ("client.gerer", "Créer et modifier les fiches client et leurs associations"),
 )
+P5CONF_PERMISSIONS = (
+    ("tiers_payant.organisme.gerer", "Créer et modifier les organismes de prise en charge"),
+)
+P5A_PERMISSIONS = (
+    ("tiers_payant.consulter", "Consulter conventions, adhésions et priorités de prise en charge"),
+    ("tiers_payant.convention.gerer", "Créer et versionner les conventions de prise en charge"),
+    ("tiers_payant.adhesion.consulter", "Consulter les bénéficiaires et adhésions de prise en charge"),
+    ("tiers_payant.adhesion.gerer", "Gérer les bénéficiaires et adhésions de prise en charge"),
+    ("tiers_payant.priorites.gerer", "Configurer et versionner les priorités de prise en charge"),
+)
 PERMISSIONS = P1_PERMISSIONS + P3_PERMISSIONS + P4_PERMISSIONS + CAISSE_PERMISSIONS + (
     ("catalogue.consulter", "Consulter le catalogue"),
     ("catalogue.gerer", "Gérer le catalogue"),
-)
+) + P5A_PERMISSIONS + P5CONF_PERMISSIONS
 ROLES = (
     ("OBSERVATEUR", "Observateur", ("organisation.consulter", "utilisateur.consulter", "role.consulter")),
     ("GESTION_ORGANISATION", "Gestion de l'organisation", tuple(code for code, _ in P1_PERMISSIONS)),
@@ -89,3 +99,20 @@ REGULARISATION_PERMISSIONS = (
     ('stock.quarantaine.decider','Décider la remise en vente ou le refus sanitaire'),
 )
 PERMISSIONS += REGULARISATION_PERMISSIONS
+
+P5C_PERMISSIONS = (
+ ('tiers_payant.creance.consulter','Consulter les créances et dossiers administratifs autorisés'),
+ ('tiers_payant.creance.constituer','Constituer les créances depuis les réalisations confirmées'),
+ ('tiers_payant.creance.completer','Compléter les versions administratives des créances'),
+ ('tiers_payant.creance.verifier','Contrôler les dossiers avant facturation'),
+)
+PERMISSIONS += P5C_PERMISSIONS
+
+P5C2_PERMISSIONS = (
+ ('tiers_payant.document.consulter','Consulter les préparations et documents organismes autorisés'),
+ ('tiers_payant.document.preparer','Préparer et abandonner les bordereaux et factures organismes'),
+ ('tiers_payant.document.valider','Contrôler les préparations de documents organismes'),
+ ('tiers_payant.document.emettre','Émettre des documents organismes en recette autorisée'),
+ ('tiers_payant.document.regrouper','Regrouper les factures émises et leurs récapitulatifs'),
+)
+PERMISSIONS += P5C2_PERMISSIONS

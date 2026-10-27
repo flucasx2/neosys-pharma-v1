@@ -8,6 +8,7 @@ from neosys_pharma.infrastructure.database import Base
 from neosys_pharma.infrastructure.montant_xaf import MontantXAF
 from neosys_pharma.infrastructure.vente_models import EntiteVente
 from neosys_pharma.infrastructure.client_models import ClientModel
+from neosys_pharma.domain.caisse import MODES_INITIAUX
 
 def now():return datetime.now(timezone.utc)
 def org_fk(local,table,remote='id'):
@@ -48,13 +49,29 @@ class SessionCaisseModel(EntiteVente,Base):
 class ParametrageCaisseModel(EntiteVente,Base):
     __tablename__='caisse_parametrages'
     __table_args__=scoped('caisse_param',UniqueConstraint('organisation_id'),CheckConstraint('revision > 0'))
-    modes:Mapped[list]=mapped_column(JSON,default=list)
+    modes:Mapped[list]=mapped_column(JSON,default=lambda:list(MODES_INITIAUX))
     ticket_appel:Mapped[bool]=mapped_column(default=False)
+    revision:Mapped[int]=mapped_column(default=1)
+
+class MoyenPaiementModel(EntiteVente,Base):
+    """Identité organisationnelle stable, distincte de sa famille financière."""
+    __tablename__='caisse_moyens_paiement'
+    __table_args__=scoped('moyen_paiement',
+        UniqueConstraint('organisation_id','code',name='uq_moyen_code_org'),
+        UniqueConstraint('id','organisation_id','mode',name='uq_moyen_mode_org'),
+        CheckConstraint("mode IN ('CARTE','MOBILE_MONEY','CHEQUE','VIREMENT')",name='ck_moyen_mode'),
+        CheckConstraint('revision > 0 AND length(trim(code)) > 0 AND length(trim(libelle)) > 0',name='ck_moyen_valeurs'))
+    code:Mapped[str]=mapped_column(String(80))
+    libelle:Mapped[str]=mapped_column(String(200))
+    mode:Mapped[str]=mapped_column(String(30))
+    actif:Mapped[bool]=mapped_column(default=True)
     revision:Mapped[int]=mapped_column(default=1)
 
 class ConfirmationReglementModel(EntiteVente,Base):
     __tablename__='caisse_confirmations'
-    __table_args__=scoped('confirmation',org_fk('vente_id','ventes'),org_fk('session_id','caisse_sessions'),org_fk('auteur_id','utilisateurs','id_utilisateur'),UniqueConstraint('organisation_id','mode','reference'),CheckConstraint('montant > 0'),CheckConstraint("mode IN ('CARTE','MOBILE_MONEY','CHEQUE','VIREMENT')"),CheckConstraint("source IN ('MANUEL_TERMINAL','MANUEL_JUSTIFICATIF','TECHNIQUE_PRESTATAIRE')"))
+    __table_args__=scoped('confirmation',ForeignKeyConstraint(['moyen_id','organisation_id','mode'],['caisse_moyens_paiement.id','caisse_moyens_paiement.organisation_id','caisse_moyens_paiement.mode'],name='fk_confirmation_moyen_org_mode'),CheckConstraint('(moyen_id IS NULL AND moyen_libelle IS NULL) OR (moyen_id IS NOT NULL AND moyen_libelle IS NOT NULL)',name='ck_confirmation_moyen_libelle'),org_fk('vente_id','ventes'),org_fk('session_id','caisse_sessions'),org_fk('auteur_id','utilisateurs','id_utilisateur'),UniqueConstraint('organisation_id','mode','reference'),CheckConstraint('montant > 0'),CheckConstraint("mode IN ('CARTE','MOBILE_MONEY','CHEQUE','VIREMENT')"),CheckConstraint("source IN ('MANUEL_TERMINAL','MANUEL_JUSTIFICATIF','TECHNIQUE_PRESTATAIRE')"))
+    moyen_id:Mapped[UUID|None]=mapped_column(Uuid)
+    moyen_libelle:Mapped[str|None]=mapped_column(String(200))
     vente_id:Mapped[UUID]=mapped_column(Uuid)
     session_id:Mapped[UUID]=mapped_column(Uuid)
     revision_vente:Mapped[int]=mapped_column()
@@ -83,12 +100,30 @@ class CompteFideliteModel(EntiteVente,Base):
 
 class CarteFideliteModel(EntiteVente,Base):
     __tablename__='fidelite_cartes'
-    __table_args__=scoped('carte_fidelite',org_fk('compte_id','fidelite_comptes'),org_fk('remplace_id','fidelite_cartes'),UniqueConstraint('organisation_id','code'),CheckConstraint("type IN ('PHYSIQUE','VIRTUELLE')"),CheckConstraint("etat IN ('ACTIVE','OPPOSEE','REMPLACEE')"))
+    __table_args__=scoped('carte_fidelite',org_fk('compte_id','fidelite_comptes'),org_fk('remplace_id','fidelite_cartes'),UniqueConstraint('organisation_id','code'),CheckConstraint("code_barres IS NULL OR (type='PHYSIQUE' AND length(trim(code_barres)) > 0)",name="ck_carte_barres_physique"),CheckConstraint("type IN ('PHYSIQUE','VIRTUELLE')"),CheckConstraint("etat IN ('ACTIVE','OPPOSEE','REMPLACEE')"))
     compte_id:Mapped[UUID]=mapped_column(Uuid)
     code:Mapped[str]=mapped_column(String(200))
+    code_barres:Mapped[str|None]=mapped_column(String(80))
     type:Mapped[str]=mapped_column(String(20))
     etat:Mapped[str]=mapped_column(String(20),default='ACTIVE')
     remplace_id:Mapped[UUID|None]=mapped_column(Uuid)
+
+class IdentifiantCarteFideliteModel(Base):
+    __tablename__='fidelite_cartes_identifiants'
+    __table_args__=(ForeignKeyConstraint(['carte_id','organisation_id'],['fidelite_cartes.id','fidelite_cartes.organisation_id'],name='fk_identifiant_carte_org'),CheckConstraint('length(valeur) > 0',name='ck_identifiant_non_vide'))
+    organisation_id:Mapped[UUID]=mapped_column(ForeignKey('organisations.id_organisation'),primary_key=True)
+    valeur:Mapped[str]=mapped_column(String(200),primary_key=True)
+    carte_id:Mapped[UUID]=mapped_column(Uuid,index=True)
+
+class DocumentCarteFideliteModel(EntiteVente,Base):
+    __tablename__='fidelite_cartes_documents'
+    __table_args__=scoped('document_carte',org_fk('carte_id','fidelite_cartes'),org_fk('auteur_id','utilisateurs','id_utilisateur'),UniqueConstraint('carte_id',name='uq_document_carte'))
+    carte_id:Mapped[UUID]=mapped_column(Uuid)
+    auteur_id:Mapped[UUID]=mapped_column(Uuid)
+    instantane:Mapped[dict]=mapped_column(JSON)
+    pdf:Mapped[bytes]=mapped_column(LargeBinary)
+    pdf_sha256:Mapped[str]=mapped_column(String(64))
+    date:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
 
 class BaremeFideliteModel(EntiteVente,Base):
     __tablename__='fidelite_baremes'
@@ -314,3 +349,31 @@ for dialect in ('sqlite','postgresql'):
     for sql in paid_guard_sql(dialect):
         table=sql.split(' ON ')[1].split(' ')[0] if dialect=='sqlite' else next(t for t in ('vente_demandes_remise','vente_lignes','ventes') if t+'_paye_' in sql)
         event.listen(Base.metadata.tables[table],'after_create',DDL(sql).execute_if(dialect=dialect))
+
+
+def cartes_identifiants_sql(dialect):
+    """Le registre unique protège aussi les collisions numéro ↔ code-barres concurrentes."""
+    unchanged=('id','organisation_id','compte_id','code','type','remplace_id')
+    if dialect=='sqlite':
+        changed=' OR '.join(f'NEW.{c} IS NOT OLD.{c}' for c in unchanged)
+        forbidden=f"{changed} OR (NEW.code_barres IS NOT OLD.code_barres AND (OLD.code_barres IS NOT NULL OR NEW.code_barres IS NULL OR OLD.type<>'PHYSIQUE' OR OLD.etat<>'ACTIVE' OR EXISTS(SELECT 1 FROM fidelite_cartes_documents WHERE carte_id=OLD.id)))"
+        return [
+            "CREATE TRIGGER carte_identifiants_insert AFTER INSERT ON fidelite_cartes BEGIN INSERT INTO fidelite_cartes_identifiants(organisation_id,valeur,carte_id) VALUES(NEW.organisation_id,NEW.code,NEW.id); INSERT INTO fidelite_cartes_identifiants(organisation_id,valeur,carte_id) SELECT NEW.organisation_id,NEW.code_barres,NEW.id WHERE NEW.code_barres IS NOT NULL AND NEW.code_barres<>NEW.code; END",
+            "CREATE TRIGGER carte_barres_insert AFTER UPDATE OF code_barres ON fidelite_cartes WHEN OLD.code_barres IS NULL AND NEW.code_barres IS NOT NULL AND NEW.code_barres<>NEW.code BEGIN INSERT INTO fidelite_cartes_identifiants(organisation_id,valeur,carte_id) VALUES(NEW.organisation_id,NEW.code_barres,NEW.id); END",
+            f"CREATE TRIGGER carte_identite_immutable BEFORE UPDATE ON fidelite_cartes WHEN {forbidden} BEGIN SELECT RAISE(ABORT, 'Identite de carte immuable'); END",
+            "CREATE TRIGGER carte_delete_immutable BEFORE DELETE ON fidelite_cartes BEGIN SELECT RAISE(ABORT, 'Carte historique a conserver'); END",
+            "CREATE TRIGGER carte_alias_valide BEFORE INSERT ON fidelite_cartes_identifiants WHEN NOT EXISTS(SELECT 1 FROM fidelite_cartes WHERE id=NEW.carte_id AND organisation_id=NEW.organisation_id AND (code=NEW.valeur OR code_barres=NEW.valeur)) BEGIN SELECT RAISE(ABORT, 'Alias de carte incoherent'); END",
+            *immutable_sql('fidelite_cartes_identifiants','sqlite'),*immutable_sql('fidelite_cartes_documents','sqlite')]
+    changed=' OR '.join(f'NEW.{c} IS DISTINCT FROM OLD.{c}' for c in unchanged)
+    return [
+        "CREATE OR REPLACE FUNCTION carte_identifiants_register() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF TG_OP='INSERT' THEN INSERT INTO fidelite_cartes_identifiants(organisation_id,valeur,carte_id) VALUES(NEW.organisation_id,NEW.code,NEW.id); END IF; IF NEW.code_barres IS NOT NULL AND NEW.code_barres<>NEW.code AND (TG_OP='INSERT' OR OLD.code_barres IS NULL) THEN INSERT INTO fidelite_cartes_identifiants(organisation_id,valeur,carte_id) VALUES(NEW.organisation_id,NEW.code_barres,NEW.id); END IF; RETURN NEW; END $$",
+        "CREATE TRIGGER carte_identifiants_register AFTER INSERT OR UPDATE OF code_barres ON fidelite_cartes FOR EACH ROW EXECUTE FUNCTION carte_identifiants_register()",
+        f"CREATE OR REPLACE FUNCTION carte_identite_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF TG_OP='DELETE' THEN RAISE EXCEPTION 'Carte historique a conserver'; END IF; IF {changed} OR (NEW.code_barres IS DISTINCT FROM OLD.code_barres AND (OLD.code_barres IS NOT NULL OR NEW.code_barres IS NULL OR OLD.type<>'PHYSIQUE' OR OLD.etat<>'ACTIVE' OR EXISTS(SELECT 1 FROM fidelite_cartes_documents WHERE carte_id=OLD.id))) THEN RAISE EXCEPTION 'Identite de carte immuable'; END IF; RETURN NEW; END $$",
+        "CREATE TRIGGER carte_identite_guard BEFORE UPDATE OR DELETE ON fidelite_cartes FOR EACH ROW EXECUTE FUNCTION carte_identite_guard()",
+        "CREATE OR REPLACE FUNCTION carte_alias_valide() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NOT EXISTS(SELECT 1 FROM fidelite_cartes WHERE id=NEW.carte_id AND organisation_id=NEW.organisation_id AND (code=NEW.valeur OR code_barres=NEW.valeur)) THEN RAISE EXCEPTION 'Alias de carte incoherent'; END IF; RETURN NEW; END $$",
+        "CREATE TRIGGER carte_alias_valide BEFORE INSERT ON fidelite_cartes_identifiants FOR EACH ROW EXECUTE FUNCTION carte_alias_valide()",
+        *immutable_sql('fidelite_cartes_identifiants','postgresql'),*immutable_sql('fidelite_cartes_documents','postgresql')]
+
+DocumentCarteFideliteModel.__table__.add_is_dependent_on(IdentifiantCarteFideliteModel.__table__)
+for dialect in ('sqlite','postgresql'):
+    for sql in cartes_identifiants_sql(dialect):event.listen(DocumentCarteFideliteModel.__table__,'after_create',DDL(sql).execute_if(dialect=dialect))

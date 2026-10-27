@@ -40,8 +40,13 @@ def close(c,a,s,count=None):
 def ret(c,a,e,q=1,status=201,key=None):
     data=c.get(root(a)+f'/recus/{e["id"]}/retournable');assert data.status_code==200,data.text
     row=data.json()['lignes'][0];return post(c,a,'/retours',{'encaissement_id':e['id'],'lignes':[{'ligne_id':row['ligne_id'],'stock_id':row['stock_id'],'quantite':q}],'justification':'Retour client reçu physiquement'},status,key)
-def refund(c,a,r,s,mode='ESPECES'):
-    s=current(c,a,s);d=post(c,a,'/remboursements',{'retour_id':r['id'],'session_id':s['id'],'revision':s['revision'],'reglements':[{'mode':mode,'montant':r['montant']}],'justification':'Remboursement historique'})
+def refund(c,a,r,s,mode='ESPECES',*,moyen_id=None,moyen_origine_id=None):
+    # Même identité : restitution exacte ; identités différentes : substitution
+    # soumise aux permissions et validations réelles du serveur.
+    payment={'mode':mode,'montant':r['montant']}
+    if moyen_id is not None:
+        payment.update(moyen_id=moyen_id,moyen_origine_id=moyen_origine_id)
+    s=current(c,a,s);d=post(c,a,'/remboursements',{'retour_id':r['id'],'session_id':s['id'],'revision':s['revision'],'reglements':[payment],'justification':'Remboursement historique'})
     d=post(c,a,f'/remboursements/{d["id"]}/autoriser',{'revision':d['revision'],'justification':'Responsable habilité'},200)
     return post(c,a,f'/remboursements/{d["id"]}/executer',{'revision':d['revision'],'justification':'Montant remis au titulaire','preuves':[{'reference':'REF-QA','preuve':'Restitution vérifiée'}]},200)
 
@@ -139,7 +144,7 @@ def test_retours_partiels_cumulatifs_quarantaine_remboursement_fidelite(raw_clie
 def test_paiement_acquis_restitution_preuve_et_blocage_z(raw_client,account):
     c,a=raw_client,account;v,s,*_=setup45(c,a)
     cf=cash_post(c,a,f'/ventes/{v["id"]}/confirmations',{'session_id':s['id'],'revision':v['revision'],'mode':'CARTE','montant':100,'reference':'ACQUIS-QA','source':'MANUEL_TERMINAL','preuve':'Terminal accepté'})
-    r=post(c,a,'/remboursements',{'confirmation_id':cf['id'],'session_id':s['id'],'revision':s['revision'],'reglements':[{'mode':'CARTE','montant':100}],'justification':'Client abandonne'})
+    r=post(c,a,'/remboursements',{'confirmation_id':cf['id'],'session_id':s['id'],'revision':s['revision'],'reglements':[{'mode':'CARTE','moyen_id':cf['moyen_id'],'moyen_origine_id':cf['moyen_id'],'montant':100}],'justification':'Client abandonne'})
     r=post(c,a,f'/remboursements/{r["id"]}/autoriser',{'revision':r['revision'],'justification':'Autorisé'},200)
     post(c,a,f'/remboursements/{r["id"]}/executer',{'revision':r['revision'],'justification':'Sans preuve','preuves':[{}]},422)
     post(c,a,f'/remboursements/{r["id"]}/executer',{'revision':r['revision'],'justification':'Preuve vide','preuves':[{'reference':'  ','preuve':' \t '}]},422)

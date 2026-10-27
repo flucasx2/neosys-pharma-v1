@@ -1,0 +1,102 @@
+name: neosys-pharma-dev
+
+services:
+  app:
+    platform: linux/amd64
+    build:
+      context: .
+      target: app
+    environment:
+      NEOSYS_DOCKER_ROLE: app
+      ENVIRONMENT: docker-development
+      PYTHONPATH: /opt/neosys/src
+      AUTH_COOKIE_SECURE: "false"
+      POSTGRES_PASSWORD_FILE: /run/secrets/dev_db_password
+    secrets: [dev_db_password]
+    ports:
+      - "127.0.0.1:8001:8000"
+    volumes:
+      - ./src:/opt/neosys/src:ro
+    networks: [frontend, development]
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    init: true
+
+  db:
+    image: postgres:18@sha256:885953109528ad3dfc90362b1a6f50a78620b5315be19f187753d267e484dc5b
+    platform: linux/amd64
+    environment:
+      POSTGRES_USER: neosys_dev
+      POSTGRES_DB: neosys_docker_dev
+      POSTGRES_PASSWORD_FILE: /run/secrets/dev_db_password
+    secrets: [dev_db_password]
+    volumes:
+      - development_data:/var/lib/postgresql
+    networks: [development]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U neosys_dev -d neosys_docker_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  test-db:
+    image: postgres:18@sha256:885953109528ad3dfc90362b1a6f50a78620b5315be19f187753d267e484dc5b
+    platform: linux/amd64
+    profiles: [test]
+    environment:
+      POSTGRES_USER: neosys_test
+      POSTGRES_DB: neosys_docker_test
+      POSTGRES_PASSWORD_FILE: /run/secrets/test_db_password
+    secrets: [test_db_password]
+    tmpfs:
+      - /var/lib/postgresql
+    networks: [testing]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U neosys_test -d neosys_docker_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  tests:
+    platform: linux/amd64
+    profiles: [test]
+    build:
+      context: .
+      target: tests
+    environment:
+      NEOSYS_DOCKER_ROLE: tests
+      ENVIRONMENT: docker-tests
+      AUTH_COOKIE_SECURE: "false"
+      POSTGRES_PASSWORD_FILE: /run/secrets/test_db_password
+    secrets: [test_db_password]
+    networks: [testing]
+    depends_on:
+      test-db:
+        condition: service_healthy
+    tmpfs:
+      - /tmp
+    init: true
+
+networks:
+  frontend:
+  development:
+    internal: true
+  testing:
+    internal: true
+
+volumes:
+  development_data:
+    external: true
+    name: neosys_pharma_dev_pgdata
+
+secrets:
+  dev_db_password:
+    file: ./.secrets/dev-db-password.txt
+  test_db_password:
+    file: ./.secrets/test-db-password.txt

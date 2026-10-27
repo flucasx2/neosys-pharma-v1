@@ -5,24 +5,52 @@ from playwright.sync_api import sync_playwright,expect
 f=json.loads(Path('/tmp/p1-browser-fixture.json').read_text());url='http://127.0.0.1:8000';Path('qa').mkdir(exist_ok=True)
 with sync_playwright() as p:
     browser=p.chromium.launch();context=browser.new_context(viewport={'width':1600,'height':1050},accept_downloads=True);page=context.new_page();errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
-    def activate(l):l.focus();page.keyboard.press('Enter')
+    def activate(l):expect(l).to_be_visible();expect(l).to_be_enabled();l.focus();page.keyboard.press('Enter')
     def fill(l,v):l.focus();page.keyboard.press('Control+A');page.keyboard.type(str(v))
     def choose(l,v):
         l.focus();page.keyboard.press('Home');values=l.locator('option').evaluate_all('(xs)=>xs.map(x=>x.value)');assert v in values
         for _ in range(values.index(v)):page.keyboard.press('ArrowDown')
         page.keyboard.press('Tab')
     def login(pg,user):
-        pg.goto(url)
-        for name,value in [('organisation_id',f['organisation_id']),('identifiant',user),('password',f['password'])]:pg.locator('#login-form [name='+name+']').focus();pg.keyboard.type(value)
-        pg.locator('#login-form button').focus();pg.keyboard.press('Enter');expect(pg.locator('#app-shell')).to_be_visible();pg.locator('#nav-encaissement').focus();pg.keyboard.press('Enter');expect(pg.locator('#cash-panel')).to_be_visible();expect(pg.get_by_role('button',name='F12 · Actualiser',exact=True)).to_be_visible()
+        pg.goto(url);expect(pg.locator('#login-panel')).to_be_visible()
+        for name,value in [('organisation_id',f['organisation_id']),('identifiant',user),('password',f['password'])]:
+            control=pg.locator('#login-form [name='+name+']');control.focus();pg.keyboard.type(value)
+            assert control.input_value()==value, 'Saisie de connexion incomplète : '+name
+        pg.locator('#login-form button').focus();pg.keyboard.press('Enter');pg.locator('#login-form button:enabled').wait_for(state='attached');expect(pg.locator('#app-shell')).to_be_visible();pg.locator('#nav-encaissement').focus();pg.keyboard.press('Enter');expect(pg.locator('#cash-panel')).to_be_visible();expect(pg.get_by_role('button',name='F12 · Actualiser',exact=True)).to_be_visible()
     def modal():return page.locator('dialog[open]').last
-    def save():activate(modal().get_by_role('button',name='Enregistrer',exact=True));expect(page.locator('dialog[open]')).to_have_count(0);expect(page.locator('#cash-panel')).to_have_attribute('aria-busy','false')
+    def save():activate(modal().get_by_role('button',name='Enregistrer',exact=True));page.locator('dialog[open] button[type=submit]:disabled').wait_for(state='detached');expect(page.locator('dialog[open]')).to_have_count(0);expect(page.locator('#cash-panel')).to_have_attribute('aria-busy','false')
     def shot(name):page.screenshot(path='qa/'+name,full_page=True)
     login(page,'caisse.qa')
-    activate(page.get_by_role('button',name='Moyens de paiement',exact=True));
+    # L'administration distingue les familles et les moyens nominatifs.
+    def save_payment_admin():
+        activate(modal().get_by_role('button',name='Enregistrer',exact=True))
+        page.locator('dialog[open] button[type=submit]:disabled').wait_for(state='detached')
+        expect(modal()).to_contain_text('Administration des moyens de paiement')
+        expect(page.locator('#cash-panel')).to_have_attribute('aria-busy','false')
+        activate(modal().get_by_role('button',name='Fermer',exact=True))
+        expect(page.locator('dialog[open]')).to_have_count(0)
+    activate(page.get_by_role('button',name='Moyens de paiement',exact=True))
+    expect(modal()).to_contain_text('Administration des moyens de paiement')
+    expect(modal().locator('[name=ESPECES]')).to_have_count(0)
+    activate(modal().get_by_role('button',name='Modifier les familles',exact=True))
+    expect(modal().locator('[name=ESPECES]')).to_be_checked()
     for code in ['ESPECES','CARTE']:
-        modal().locator('[name='+code+']').focus();page.keyboard.press('Space')
-    save()
+        box=modal().locator('[name='+code+']')
+        if not box.is_checked():box.focus();page.keyboard.press('Space')
+        expect(box).to_be_checked()
+    save_payment_admin()
+    activate(page.get_by_role('button',name='Moyens de paiement',exact=True))
+    activate(modal().get_by_role('button',name='Nouveau moyen de paiement',exact=True))
+    fill(modal().locator('[name=code]'),'CARTE_QA')
+    choose(modal().locator('[name=mode]'),'CARTE')
+    fill(modal().locator('[name=libelle]'),'CARTE QA')
+    expect(modal().locator('[name=actif]')).to_be_checked()
+    save_payment_admin()
+    payment_configuration=page.evaluate("async()=> (await cashRequest('/contexte')).configuration")
+    assert 'ESPECES' in payment_configuration['modes'] and 'CARTE' in payment_configuration['modes']
+    card_means=[m for m in payment_configuration['moyens'] if m['code']=='CARTE_QA']
+    assert len(card_means)==1 and card_means[0]['actif'] and card_means[0]['mode']=='CARTE'
+    card_mean=card_means[0];card_key='CARTE:'+card_mean['id']
     page.keyboard.press('Alt+Shift+Digit2');expect(modal()).to_be_visible();page.keyboard.press('Escape');expect(page.locator('dialog[open]')).to_have_count(0)
     page.keyboard.press('Alt+Shift+Digit2');choose(modal().locator('[name=caisse_id]'),f['p4_caisse']);fill(modal().locator('[name=fond_initial]'),1000);save();expect(page.get_by_role('button',name='Utiliser cette session',exact=True)).to_be_visible()
     # P4-C.4 : interactions visuelles avec réponses groupe simulées. Aucune
@@ -64,7 +92,7 @@ with sync_playwright() as p:
         route.fulfill(status=201 if request.method=='POST' else 200,json=data)
     def add_mock_confirmation(route):
         response=route.fetch(); data=response.json(); sale_id=urlparse(route.request.url).path.rsplit('/',1)[-1]; sales_cache[sale_id]=data
-        if sale_id==f['p44_vente_0']: data['confirmations']=[{'id':fake_confirmation,'mode':'CARTE','montant':'50','reference':'CARTE-MOCK-C44'}]
+        if sale_id==f['p44_vente_0']: data['confirmations']=[{'id':fake_confirmation,'mode':'CARTE','moyen_id':card_mean['id'],'moyen_libelle':card_mean['libelle'],'montant':'50','reference':'CARTE-MOCK-C44'}]
         route.fulfill(response=response,json=data)
     page.on('dialog',lambda dialog:dialog.accept())
     # ``*`` ne traverse pas les slashs de sous-routes Playwright : utiliser
@@ -79,8 +107,8 @@ with sync_playwright() as p:
     no_client_loyalty=page.locator('#cash-group-loyalty-'+f['p44_vente_0']);eligible_loyalty=page.locator('#cash-group-loyalty-'+f['p44_vente_1'])
     expect(no_client_loyalty).to_contain_text('Aucun client associé');expect(no_client_loyalty.locator('input')).to_have_count(0)
     expect(eligible_loyalty).to_contain_text('Cliente fidélité A');expect(eligible_loyalty.get_by_role('checkbox')).to_be_visible()
-    activate(page.get_by_role('button',name='Ajouter un règlement',exact=True)); page.locator('[aria-label="Mode règlement 1"]').select_option('CARTE'); page.locator('[aria-label="Montant règlement 1"]').fill('50'); page.locator('[aria-label="Confirmation règlement 1"]').select_option(fake_confirmation)
-    activate(page.get_by_role('button',name='Ajouter un règlement',exact=True)); page.locator('[aria-label="Mode règlement 2"]').select_option('ESPECES'); page.locator('[aria-label="Montant règlement 2"]').fill(str(2*int(f['p44_total'])-50))
+    activate(page.get_by_role('button',name='+ Mode de paiement',exact=True)); page.locator('[aria-label="Mode règlement 1"]').select_option(card_key); page.locator('[aria-label="Montant règlement 1"]').fill('50'); page.locator('[aria-label="Confirmation règlement 1"]').select_option(fake_confirmation)
+    activate(page.get_by_role('button',name='+ Mode de paiement',exact=True)); page.locator('[aria-label="Mode règlement 2"]').select_option('ESPECES'); page.locator('[aria-label="Montant règlement 2"]').fill(str(2*int(f['p44_total'])-50))
     activate(page.get_by_role('button',name='Enregistrer les règlements',exact=True)); expect(page.locator('#cash-group-panel')).to_have_attribute('aria-busy','false')
     assert len(grouped['ventes']) == 2 and len(grouped['reglements']) == 2, f"Réponse simulée inattendue avant ventilation: {grouped}"
     page.evaluate("window.__groupConfirmMessages=[]; window.confirm=(message)=>{window.__groupConfirmMessages.push(message); return true;}")
@@ -112,8 +140,8 @@ with sync_playwright() as p:
     expect(blocked_loyalty).to_contain_text('dette');expect(blocked_loyalty.locator('input')).to_have_count(0)
     first_loyalty.get_by_role('checkbox').check();third_loyalty.get_by_role('checkbox').check()
     due=3*int(f['p44_total']);first_payment=due//2
-    activate(page.get_by_role('button',name='Ajouter un règlement',exact=True));page.locator('[aria-label="Mode règlement 1"]').select_option('ESPECES');page.locator('[aria-label="Montant règlement 1"]').fill(str(first_payment))
-    activate(page.get_by_role('button',name='Ajouter un règlement',exact=True));page.locator('[aria-label="Mode règlement 2"]').select_option('ESPECES');page.locator('[aria-label="Montant règlement 2"]').fill(str(due-first_payment))
+    activate(page.get_by_role('button',name='+ Mode de paiement',exact=True));page.locator('[aria-label="Mode règlement 1"]').select_option('ESPECES');page.locator('[aria-label="Montant règlement 1"]').fill(str(first_payment))
+    activate(page.get_by_role('button',name='+ Mode de paiement',exact=True));page.locator('[aria-label="Mode règlement 2"]').select_option('ESPECES');page.locator('[aria-label="Montant règlement 2"]').fill(str(due-first_payment))
     activate(page.get_by_role('button',name='Enregistrer les règlements',exact=True));expect(page.locator('#cash-group-panel')).to_have_attribute('aria-busy','false');expect(page.locator('#cash-group-due')).to_contain_text(f'Règlements nets {due} FCFA')
     # Le gestionnaire de dialogues a déjà été enregistré une seule fois pour la page.
     activate(page.get_by_role('button',name='Proposer et enregistrer la ventilation automatique',exact=True));expect(page.locator('#cash-group-allocation-status')).to_contain_text('ventilation équilibrée')
@@ -172,13 +200,13 @@ with sync_playwright() as p:
     activate(page.get_by_role('button',name='Nouveau client',exact=True));fill(modal().locator('[name=nom]'),'élise fidélité');fill(modal().locator('[name=telephone]'),'070123456');save();expect(page.locator('#cash-selected-client')).to_contain_text('ÉLISE FIDÉLITÉ')
     activate(page.get_by_role('button',name='Ajouter / remplacer une carte',exact=True));fill(modal().locator('[name=code]'),'FIDELITE-QA-44');save()
     activate(page.get_by_role('button',name='Retirer la sélection',exact=True));page.keyboard.press('Alt+Shift+Digit3');fill(page.locator('#cash-client-search'),'FIDELITE-QA-44');expect(page.locator('#cash-clients button')).to_have_count(1);activate(page.locator('#cash-clients button'));expect(page.locator('#cash-selected-client')).to_contain_text('0 points')
-    page.keyboard.press('Alt+Shift+Digit6');choose(modal().locator('[name=mode]'),'CARTE');fill(modal().locator('[name=montant]'),50);fill(modal().locator('[name=reference]'),'TERM-P44-QA');fill(modal().locator('[name=preuve]'),'Ticket terminal accepté vérifié au clavier');save()
+    page.keyboard.press('Alt+Shift+Digit6');choose(modal().locator('[name=mode]'),card_key);fill(modal().locator('[name=montant]'),50);fill(modal().locator('[name=reference]'),'TERM-P44-QA');fill(modal().locator('[name=preuve]'),'Ticket terminal accepté vérifié au clavier');save()
     page.keyboard.press('Alt+Shift+Digit0');fill(modal().locator('[name=especes]'),1);modal().locator('[name=confirme]').focus();page.keyboard.press('Space');activate(modal().get_by_role('button',name='Enregistrer',exact=True));expect(modal().locator('.creation-dialog-error')).to_contain_text('intégralement');expect(modal().locator('[name=especes]')).to_have_value('1');shot('p44-reglement-erreur.png')
     modal().locator('[data-confirmation]').focus();page.keyboard.press('Space');fill(modal().locator('[name=especes]'),200);save();expect(page.locator('#cash-title')).to_contain_text('ENCAISSEE');expect(page.locator('#cash-receipt-summary')).to_contain_text('Points acquis 1');shot('p44-encaissement-fidelite.png')
     with page.expect_download() as dl:activate(page.get_by_role('button',name='Télécharger le reçu PDF',exact=True))
     dl.value.save_as('qa/p44-recu.pdf')
     activate(page.get_by_role('button',name='Barèmes fidélité',exact=True));expect(modal()).to_contain_text('ACQUISITION');shot('p44-baremes.png');page.keyboard.press('Escape')
     activate(page.get_by_role('button',name='Fermer ma session',exact=True));fill(modal().locator('[name=comptage_final]'),1000+3*int(f['p44_total'])+int(f['p44_total'])-50);fill(modal().locator('[name=justification]'),'Fin de service recette');save()
-    readonly=browser.new_context();rp=readonly.new_page();rp.on('pageerror',lambda e:errors.append(str(e)));login(rp,'caisse.lecture.qa');expect(rp.get_by_role('button',name='F2 · Ouvrir une session',exact=True)).to_have_count(0);expect(rp.get_by_role('button',name='Moyens de paiement',exact=True)).to_have_count(0);rp.locator('#cash-waiting tr').filter(has_text=f['p44_vente_4'][:8]).get_by_role('button').focus();rp.keyboard.press('Enter');expect(rp.locator('#cash-sale')).to_be_visible();expect(rp.get_by_role('button',name='F10 · Encaisser intégralement',exact=True)).to_have_count(0)
+    readonly=browser.new_context();rp=readonly.new_page();rp.on('pageerror',lambda e:errors.append(str(e)));login(rp,'caisse.lecture.qa');expect(rp.get_by_role('button',name='F2 · Ouvrir une session',exact=True)).to_have_count(0);expect(rp.get_by_role('button',name='Moyens de paiement',exact=True)).to_have_count(0);rp.locator('#cash-waiting tr').filter(has_text=f['p44_vente_4'][:8]).get_by_role('button').focus();rp.keyboard.press('Enter');expect(rp.locator('#cash-sale')).to_be_visible();expect(rp.get_by_role('button',name='F10 · Encaisser intégralement',exact=True)).to_have_count(0);expect(rp.get_by_role('button',name='F10 · Encaisser la part client',exact=True)).to_have_count(0)
     status=rp.evaluate('''async org=>{const csrf=document.cookie.split('; ').find(x=>x.startsWith('neosys_csrf=')).split('=')[1];return (await fetch('/api/caisses/organisations/'+org+'/sessions',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':decodeURIComponent(csrf),'X-Site-ID':document.querySelector('#sites').value},body:'{}'})).status}''',f['organisation_id']);assert status==403
     rp.screenshot(path='qa/p44-lecture-seule.png',full_page=True);assert not errors,errors;browser.close();print('P4.4/P4-C.4 Chromium : parcours individuel, groupé et fidélité par vente : OK')

@@ -54,6 +54,8 @@ class Controle(Mutation):
     conservation_conforme:bool
     justification:str=Field(min_length=1,max_length=2000)
 class ReglementRetour(Input):
+    moyen_id:UUID|None=None
+    moyen_origine_id:UUID|None=None
     mode:Mode
     mode_origine:Mode|None=None
     montant:Decimal=Field(gt=0,max_digits=18,decimal_places=0)
@@ -71,7 +73,7 @@ class Execution(Motif):preuves:list[Preuve]=Field(default_factory=list,max_lengt
 def finance_contexte(request:Request,s=Depends(service)):
     p=request.state.vente_permission;ids=locations(s.cash,p)
     period=s.s.scalar(select(PeriodeCaisseSiteModel).filter_by(organisation_id=s.org,site_id=s.site,etat='OUVERTE'))
-    return {'periode':serial(period) if period else None,'sessions':[s.cash.session_detail(x) for x in s.stock.lignes(SessionCaisseModel,site_id=s.site) if x.emplacement_id in ids],'coffres':[{'id':str(x.id_coffre),'nom':x.nom,'solde':str(s.solde_coffre(x.id_coffre))} for x in s.s.scalars(select(CoffreModel).where(CoffreModel.site_id==s.site,CoffreModel.actif.is_(True)))],'modes':s.cash.config()['modes']}
+    return {'periode':serial(period) if period else None,'sessions':[s.cash.session_detail(x) for x in s.stock.lignes(SessionCaisseModel,site_id=s.site) if x.emplacement_id in ids],'coffres':[{'id':str(x.id_coffre),'nom':x.nom,'solde':str(s.solde_coffre(x.id_coffre))} for x in s.s.scalars(select(CoffreModel).where(CoffreModel.site_id==s.site,CoffreModel.actif.is_(True)))],'modes':s.cash.config()['modes'],'moyens':s.cash.config()['moyens']}
 @router.get('/{genre}')
 def finance_liste(genre:Literal['clotures','transferts','retours','remboursements','mouvements'],page_:int=Query(1,alias='page',ge=1),page_size:int=Query(20,ge=1,le=100),s=Depends(service)):
     cls={'clotures':ClotureModel,'transferts':TransfertFondsModel,'retours':RetourVenteModel,'remboursements':RemboursementModel,'mouvements':MouvementFinancierModel}[genre]
@@ -174,9 +176,6 @@ def finance_ventes(request:Request,q:str=Query('',max_length=200),page_:int=Quer
 @router.get('/retours/{key}/solde')
 def finance_solde(key:UUID,s=Depends(service)):
     ret,enc=execute(lambda:s.retour_scope(key,'caisse.remboursement.demander'))
-    paid={m:sum((r.montant-r.rendu for r in s.stock.lignes(ReglementModel,encaissement_id=enc.id) if r.mode==m),Decimal(0)) for m in ('ESPECES','CARTE','MOBILE_MONEY','CHEQUE','VIREMENT')}
-    ids={r.id for r in s.stock.lignes(RetourVenteModel,encaissement_id=enc.id)}
-    for old in s.stock.lignes(RemboursementModel):
-        if old.retour_id in ids:
-            for p in old.reglements:paid[p.get('mode_origine',p['mode'])]-=Decimal(p['montant'])
-    return {'montant':str(ret.montant),'disponible_par_mode':{k:str(v) for k,v in paid.items()},'deja_demande':bool(s.stock.lignes(RemboursementModel,retour_id=ret.id))}
+    paid=execute(lambda:s.budget_reglements(enc))
+    modes={mode:str(sum((row['montant'] for row in paid.values() if row['mode']==mode),Decimal(0))) for mode in ('ESPECES','CARTE','MOBILE_MONEY','CHEQUE','VIREMENT')}
+    return {'montant':str(ret.montant),'disponible_par_mode':modes,'disponible_par_moyen':[{**row,'montant':str(row['montant'])} for row in paid.values()],'deja_demande':bool(s.stock.lignes(RemboursementModel,retour_id=ret.id))}

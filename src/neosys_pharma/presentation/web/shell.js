@@ -1,6 +1,8 @@
 "use strict";
 // Navigation de présentation uniquement ; authHas reste la source des droits UI.
 const shellViews={
+  creances:{title:"Créances organismes",allowed:()=>authHas("tiers_payant.creance.consulter")},
+  organismes:{title:"Organismes de prise en charge",allowed:()=>authHas("tiers_payant.consulter")||authHas("tiers_payant.organisme.gerer")},
   finance:{title:"Clôtures, fonds & retours",allowed:()=>authContext()?.permissions_site.some(p=>p.startsWith("caisse.cloture.")||p.startsWith("caisse.transfert.")||p.startsWith("caisse.remboursement.")||p==="caisse.fonds.gerer"||p==="vente.retour.gerer"||p.startsWith("stock.quarantaine."))},
   encaissement:{title:"Encaissement & Fidélité",allowed:()=>["caisse.consulter","caisse.encaisser","caisse.session.gerer","caisse.parametrer","fidelite.parametrer","fidelite.gerer"].some(p=>authHas(p))},
   proforma:{title:"Factures proforma",allowed:()=>authHas("proforma.consulter")||authHas("proforma.gerer")},
@@ -40,6 +42,8 @@ function shellNavigate(view,{focus=true,remember=true}={}){
   if(shellState.view==="stock")stockLoad();
   if(shellState.view==="vente")venteLoad();
   if(shellState.view==="clients")clientsLoad();
+  if(shellState.view==="organismes")organismesLoad();
+  if(shellState.view==="creances")creancesLoad();
   if(shellState.view==="proforma")proformaLoad();
   if(shellState.view==="encaissement")cashLoad();
   if(shellState.view==="finance")financeLoad();

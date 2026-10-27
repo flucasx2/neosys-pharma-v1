@@ -6,7 +6,7 @@ const cashGroupState = {
   mode: "INDIVIDUEL", page: 1, pageSize: 15, selected: new Map(), draft: null,
   saleDetails: new Map(), loyalty: new Map(), payments: [], allocations: [], busy: false,
   mutationRetry: null, finalisationKey: null, finalisationPayload: null,
-  finalisationEnabled: false,
+  finalisationEnabled: false, confirmationRefreshError: "", salesGeneration: 0,
 };
 const cg = id => document.getElementById("cash-group-" + id);
 const cgMoney = value => venteMoney(Number(value || 0));
@@ -136,20 +136,90 @@ function cgSyncFinaliseButton() {
 function cgBusy(value) {
   cashGroupState.busy = value;
   cg("panel").setAttribute("aria-busy", String(value));
-  if (value) for (const button of cg("panel").querySelectorAll("button")) button.disabled = true;
-  else { cgRenderSelection(); if (cashGroupState.draft) cgRenderDraft(); }
+  if (value) {
+    for (const button of cg("panel").querySelectorAll("button")) button.disabled = true;
+    cashGroupState.busyFields = [...cg("panel").querySelectorAll("input,select,textarea")].map(node => [node, node.disabled]);
+    for (const [node] of cashGroupState.busyFields) node.disabled = true;
+  } else {
+    for (const [node, disabled] of cashGroupState.busyFields || []) node.disabled = disabled;
+    cashGroupState.busyFields = [];
+    cgRenderSelection(); if (cashGroupState.draft) cgRenderDraft();
+  }
+  cgSyncConsultationButtons();
+}
+function cgSyncConsultationButtons() {
+  const allowed = authHas("caisse.consulter"), busy = cashGroupState.busy;
+  cg("reload").disabled = busy || !allowed || !cashGroupState.draft;
+  cg("resume").disabled = busy || !allowed || !cg("resume-id").value.trim();
+  cg("refresh").disabled = busy || !allowed;
+  cg("prev").disabled = busy || !allowed || cashGroupState.page <= 1;
+  cg("next").disabled = busy || !allowed || !cashGroupState.hasNextPage;
+}
+async function cgRefreshConfirmations(saleId = null) {
+  const draft = cashGroupState.draft;
+  if (!draft || (saleId && !draft.ventes.some(v => v.vente_id === saleId))) return;
+  if (cashGroupState.busy) {
+    cashGroupState.confirmationRefreshError = "Actualisez les confirmations après l’opération en cours.";
+    cgSyncFinaliseButton(); return;
+  }
+  const allocationEdits = [...cg("allocation-body").querySelectorAll('input[data-edited="true"]')].map(input => ({row:input.closest("tr").rowIndex, cell:[...input.closest("tr").querySelectorAll("input")].indexOf(input), value:input.value}));
+  cgBusy(true);
+  try {
+    const rows = draft.ventes.filter(v => !saleId || cashGroupState.confirmationRefreshError || v.vente_id === saleId);
+    const details = await Promise.all(rows.map(v => cashRequest(`/ventes/${v.vente_id}`)));
+    if (cashGroupState.draft !== draft) return;
+    if (!details.every((sale,index) => sale.id === rows[index].vente_id)) throw new Error("Identité de vente incohérente dans l’actualisation.");
+    for (const sale of details) cashGroupState.saleDetails.set(sale.id, sale);
+    cashGroupState.confirmationRefreshError = "";
+  } catch (error) {
+    cashGroupState.confirmationRefreshError = "Confirmations non actualisées : " + error.message;
+    cgMessage(cashGroupState.confirmationRefreshError, true);
+  } finally {
+    cgBusy(false);
+    if (cashGroupState.draft === draft) for (const edit of allocationEdits) {
+      const row=[...cg("allocation-body").querySelectorAll("tr")].find(row=>row.rowIndex===edit.row);
+      const input=row?.querySelectorAll("input")[edit.cell];
+      if(input){input.value=edit.value;input.dataset.edited="true";}
+    }
+    if(cashGroupState.draft === draft) cgRenderReview();
+  }
 }
 function cgResetDraftTransient() {
   cashGroupState.payments = [];
+  cashGroupState.paymentsHydrated = false;
+  cashGroupState.confirmationRefreshError = "";
   cashGroupState.allocations = [];
   cashGroupState.loyalty.clear();
   cashGroupState.mutationRetry = null;
   cashGroupState.finalisationKey = null;
   cashGroupState.finalisationPayload = null;
 }
-function cgInt(value) { return /^\d+$/.test(String(value)) ? Number(value) : NaN; }
+function cgInt(value) { const n=Number(value);return /^\d+$/.test(String(value))&&Number.isSafeInteger(n)?n:NaN; }
+function cgSaleDue(sale) {
+  if (sale.mode === "CREDIT") throw new Error("Une vente à crédit ne peut pas être encaissée dans ce parcours.");
+  if (sale.mode && sale.mode !== "SANS_TIERS") {
+    if (!sale.prise_en_charge) throw new Error("Confirmez la prise en charge de cette vente avant sa sélection.");
+    return Number(sale.prise_en_charge.part_client_xaf);
+  }
+  return Number(sale.totaux.ttc);
+}
+function cgCashChange(due, payments) {
+  due=cgInt(due);if(!Number.isFinite(due))throw new Error("Montant dû invalide.");
+  const result=payments.map(p=>({...p}));let gross=0,noncash=0;
+  for(const p of result){const amount=cgInt(p.montant);if(!Number.isFinite(amount)||amount<=0)throw new Error("Montant de règlement invalide.");gross+=amount;if(p.mode!=="ESPECES"){noncash+=amount;if(cgInt(p.rendu||0)!==0)throw new Error("Aucun rendu sur les moyens non espèces.");}p.rendu="0";}
+  if(!Number.isSafeInteger(gross)||noncash>due)throw new Error("Excédent non espèces ou montant non représentable exactement.");
+  let change=Math.max(0,gross-due);
+  for(let i=result.length-1;i>=0;i--){const p=result[i];if(p.mode!=="ESPECES")continue;const returned=Math.min(change,cgInt(p.montant)-1);p.rendu=String(returned);change-=returned;}
+  if(change)throw new Error("Retirez ou regroupez les lignes espèces inutiles : chaque règlement enregistré doit conserver un net positif.");
+  return result;
+}
+function cgCalculateChange(){
+  if(cashGroupState.busy||cashGroupState.draft?.dossier?.etat!=="BROUILLON")return;
+  cgAssertDraftSession();cashGroupState.payments=cgCashChange(cashGroupState.draft.totaux.du_xaf,cashGroupState.payments);cgRenderPayments();
+  cgMessage("Rendu espèces calculé. Enregistrez les règlements puis vérifiez leur ventilation ; les allocations manuelles ne sont pas modifiées.");
+}
 function cgSelectedTotal() {
-  return [...cashGroupState.selected.values()].reduce((sum, sale) => sum + Number(sale.totaux.ttc), 0);
+  return [...cashGroupState.selected.values()].reduce((sum, sale) => sum + cgSaleDue(sale), 0);
 }
 function cgScope() {
   return `${authState.me.organisation.id_organisation}:${authState.site}:${cashState.session?.id || ""}`;
@@ -186,17 +256,32 @@ function cgSetMode(mode) {
   $("cash-sale").hidden = group || !cashState.sale;
   if (group) cgLoadSales().catch(error => cgMessage(error.message, true));
 }
-async function cgLoadSales() {
-  await cgLoadActivation();
+function cgReadContext() {
+  return JSON.stringify([authState.me?.organisation?.id_organisation, authState.site, cashState.session?.id, cashGroupState.mode, shellState.view]);
+}
+async function cgLoadSales(adjustPage = true, propagate = false) {
+  const generation = cashGroupState.salesGeneration = (cashGroupState.salesGeneration || 0) + 1;
+  const context = cgReadContext(), page = cashGroupState.page;
+  const current = () => generation === cashGroupState.salesGeneration && context === cgReadContext() && page === cashGroupState.page;
+  await cgLoadActivation(current, propagate);
+  if (!current()) return;
   try {
     const remembered = localStorage.getItem(cgDraftStorageKey());
     if (remembered && !cg("resume-id").value) cg("resume-id").value = remembered;
   } catch (_) {}
-  const page = cashGroupState.page;
-  const result = await cashRequest(`/attente?page=${page}&page_size=${cashGroupState.pageSize}`);
+  let result;
+  try { result = await cashRequest(`/attente?page=${page}&page_size=${cashGroupState.pageSize}`); }
+  catch (error) { if (!current()) return; throw error; }
+  if (!current()) return;
+  const lastPage = Math.max(1, Math.ceil(result.total / cashGroupState.pageSize));
+  if (page > lastPage) {
+    cashGroupState.page = lastPage;
+    if (adjustPage) return cgLoadSales(false, propagate);
+    throw new Error("La liste a encore changé pendant la lecture. Actualisez à nouveau.");
+  }
   const body = cg("sales"); body.replaceChildren();
   for (const row of result.items) {
-    const tr = document.createElement("tr");
+    const tr = document.createElement("tr"); tr.dataset.venteId = row.id;
     const selectCell = document.createElement("td");
     const checkbox = document.createElement("input"); checkbox.type = "checkbox";
     checkbox.setAttribute("aria-label", `Sélectionner la vente ${row.id.slice(0, 8)}`);
@@ -205,11 +290,14 @@ async function cgLoadSales() {
       if (checkbox.checked) {
         try {
           const sale = await cashRequest(`/ventes/${row.id}`);
+          if (!current()) return;
           if (sale.etat !== "TRANSMISE") throw new Error("Cette vente n’est plus admissible. Actualisez la liste.");
+          cgSaleDue(sale);
           if (!authHas("caisse.encaisser", sale.emplacement_id)) throw new Error("Permission d’encaissement absente pour cet emplacement.");
           cashGroupState.selected.set(sale.id, sale); cashGroupState.saleDetails.set(sale.id, sale);
           await cgLoadLoyaltyForSale(sale);
-        } catch (error) { checkbox.checked = false; cgMessage(error.message, true); }
+          if (!current()) return;
+        } catch (error) { if (!current()) return; checkbox.checked = false; cgMessage(error.message, true); }
       } else cashGroupState.selected.delete(row.id);
       cgRenderSelection();
     });
@@ -221,25 +309,30 @@ async function cgLoadSales() {
   }
   cg("page").textContent = `${result.total} préparation(s) · page ${page}`;
   cg("prev").disabled = page <= 1; cg("next").disabled = page * cashGroupState.pageSize >= result.total;
-  cgRenderSelection();
+  cashGroupState.hasNextPage = page * cashGroupState.pageSize < result.total;
+  cgRenderSelection(); cgSyncConsultationButtons();
 }
-async function cgLoadActivation() {
+async function cgLoadActivation(current = () => true, propagate = false) {
   try {
     const result = await cgRequest("/activation");
+    if (!current()) return;
     cashGroupState.finalisationEnabled = result.finalisation_active === true;
   } catch (error) {
+    if (!current()) return;
     cashGroupState.finalisationEnabled = false;
     cgMessage(error.message, true);
+    if (propagate) throw error;
   }
+  if (!current()) return;
   cg("finalisation-note").textContent = cashGroupState.finalisationEnabled
     ? "L’API a autorisé la finalisation dans cet environnement. Vérifiez le récapitulatif avant validation."
     : "La finalisation groupée demeure désactivée par le serveur hors de la recette isolée.";
-  cg("finalise").textContent = cashGroupState.finalisationEnabled ? "Finaliser le dossier" : "Finalisation indisponible";
+  cg("finalise").textContent = cashGroupState.finalisationEnabled ? "Valider l’encaissement" : "Finalisation indisponible";
   if (cashGroupState.draft) cgSyncFinaliseButton();
 }
 function cgRenderSelection() {
   const rows = [...cashGroupState.selected.values()];
-  cg("selected-total").textContent = `${rows.length} ticket(s) sélectionné(s) · Total ${cgMoney(cgSelectedTotal())}`;
+  cg("selected-total").textContent = `${rows.length} ticket(s) sélectionné(s) · Parts clients à encaisser ${cgMoney(cgSelectedTotal())}`;
   cg("create").disabled = rows.length < 2 || !cashState.session || cashGroupState.busy;
   cg("add-selected").disabled = rows.length < 1 || !cashGroupState.draft || cashGroupState.busy;
 }
@@ -307,23 +400,32 @@ async function cgRemoveSale(id) {
     .map(row => ({ vente_id: row.vente_id, revision: row.revision_vente })));
 }
 async function cgResume() {
+  if (cashGroupState.busy || !authHas("caisse.consulter")) return;
   const id = cg("resume-id").value.trim();
   if (!id) throw new Error("Saisissez l’identifiant du dossier à consulter.");
+  if (cashGroupState.draft && id !== cashGroupState.draft.dossier.id && cgHasUnsavedFinancialChanges() && !window.confirm("Changer de dossier abandonne les saisies locales non enregistrées. Continuer ?")) return;
+  const same = cashGroupState.draft?.dossier.id === id;
+  if (same && cg("allocation-body").querySelector('[data-edited="true"]') && !window.confirm("Consulter remplace la ventilation locale non enregistrée. Continuer ?")) return;
   cgBusy(true);
   try {
     const draft = await cgRequest(`/${encodeURIComponent(id)}`);
+    if (!same) cgResetDraftTransient();
     cashGroupState.draft = draft; cashGroupState.mutationRetry = null;
     cgRememberDraft(draft.dossier.id);
     await cgLoadDraftSales(); cgRenderDraft(); cgMessage("Dossier rechargé depuis le serveur.");
-  } catch (error) { cgFailure(error); }
+  } catch (error) { cashGroupState.confirmationRefreshError = "Détails du dossier non actualisés : " + error.message; cgFailure(error); }
   finally { cgBusy(false); }
 }
 async function cgReload() {
-  if (!cashGroupState.draft) return;
+  if (!cashGroupState.draft || cashGroupState.busy || !authHas("caisse.consulter")) return;
+  if (cg("allocation-body").querySelector('[data-edited="true"]') && !window.confirm("Recharger remplace la ventilation manuelle non enregistrée par celle du serveur. Les lignes de règlement seront conservées. Continuer ?")) return;
+  cgBusy(true);
   try {
     cashGroupState.draft = await cgRequest(`/${cashGroupState.draft.dossier.id}`);
-    await cgLoadDraftSales(); cgRenderDraft(); cgMessage("Données du dossier rechargées.");
-  } catch (error) { cgFailure(error); }
+    await cgLoadDraftSales(); cgRenderDraft();
+    cgMessage("Dossier et confirmations actualisés. Saisies locales conservées ; vérifiez les écarts avant enregistrement.");
+  } catch (error) { cashGroupState.confirmationRefreshError = "Détails du dossier non actualisés : " + error.message; cgFailure(error); }
+  finally { cgBusy(false); }
 }
 async function cgLoadDraftSales() {
   cashGroupState.saleDetails.clear();
@@ -333,15 +435,18 @@ async function cgLoadDraftSales() {
     cashGroupState.saleDetails.set(row.vente_id, sale);
     await cgLoadLoyaltyForSale(sale);
   }));
+  cashGroupState.confirmationRefreshError = "";
 }
 function cgRenderDraft() {
   const d = cashGroupState.draft;
   cg("draft").hidden = !d;
+  cg("draft-tickets").hidden = !d;
   if (!d) return;
   // Un brouillon abandonné ne doit pas réhydrater les règlements du serveur
   // dans le formulaire éditable. Conserver les données historiques côté dossier.
   if (d.dossier.etat === "ABANDONNE") cashGroupState.payments = [];
-  else if (!cashGroupState.payments.length && d.reglements.length) cashGroupState.payments = d.reglements.map(row => ({ mode: row.mode, montant: String(row.montant), rendu: String(row.rendu), confirmation_id: row.confirmation_id }));
+  else if (!cashGroupState.paymentsHydrated && !cashGroupState.payments.length && d.reglements.length) cashGroupState.payments = d.reglements.map(row => ({ mode: row.mode, montant: String(row.montant), rendu: String(row.rendu), confirmation_id: row.confirmation_id, moyen_id:row.confirmation?.moyen_id||null }));
+  cashGroupState.paymentsHydrated = true;
   cashGroupState.allocations = d.allocations;
   cg("resume-id").value = d.dossier.id;
   cgRememberDraft(d.dossier.id);
@@ -367,8 +472,8 @@ function cgRenderDraft() {
   cg("due").textContent = `Total dû ${cgMoney(due)} · Règlements nets ${cgMoney(d.totaux.net_regle_xaf)} · Reste ${cgMoney(d.totaux.reste_xaf)}`;
   cgRenderPayments(); cgRenderAllocations(); cgRenderReview(); cgRenderReceipts();
   const editable = d.dossier.etat === "BROUILLON";
-  for (const id of ["add-payment", "save-payments", "auto", "save-allocations", "abandon", "add-selected"]) cg(id).disabled = !editable || cashGroupState.busy;
-  cgSyncFinaliseButton();
+  for (const id of ["add-payment", "calculate-change", "save-payments", "auto", "save-allocations", "abandon", "add-selected"]) cg(id).disabled = !editable || cashGroupState.busy;
+  cgSyncFinaliseButton(); cgSyncConsultationButtons();
 }
 function cgRenderLoyaltyCell(cell, sale) {
   cell.replaceChildren();
@@ -403,24 +508,37 @@ function cgLoyaltyPayload() {
   }
   return selected;
 }
+function cgHasUnsavedFinancialChanges() {
+  const saved = cashGroupState.draft?.reglements || [];
+  const pending = cashGroupState.payments;
+  if (saved.length !== pending.length) return true;
+  if (pending.some((row, index) => {
+    const original = saved[index];
+    return row.mode !== original.mode || cgInt(row.montant) !== cgInt(original.montant) ||
+      cgInt(row.rendu || 0) !== cgInt(original.rendu || 0) ||
+      (row.confirmation_id || null) !== (original.confirmation_id || null);
+  })) return true;
+  return Boolean(cg("allocation-body").querySelector('[data-edited="true"]'));
+}
 function cgCanFinalize() {
   const d = cashGroupState.draft;
-  return Boolean(!cashGroupState.busy && cashGroupState.finalisationEnabled && d &&
+  return Boolean(!cashGroupState.busy && !cashGroupState.confirmationRefreshError && cashGroupState.finalisationEnabled && d &&
     d.dossier.etat === "BROUILLON" && d.dossier.session_id === cashState.session?.id &&
     cashState.session?.etat === "OUVERTE" && Number(d.totaux.du_xaf) > 0 &&
     Number(d.totaux.reste_xaf) === 0 && Number(d.totaux.du_xaf) === Number(d.totaux.net_regle_xaf) &&
-    d.totaux.allocation_valide && d.ventes.length > 1 &&
+    d.totaux.allocation_valide && d.ventes.length > 1 && !cgHasUnsavedFinancialChanges() &&
+    cashGroupState.payments.every(p => !p.confirmation_id || cgConfirmationOptions(p.mode, cgInt(p.montant), p.moyen_id || null).some(c => c.id === p.confirmation_id)) &&
     d.ventes.every(row => {
       const sale = cashGroupState.saleDetails.get(row.vente_id);
       const loyalty = cashGroupState.loyalty.get(row.vente_id);
       return sale && authHas("caisse.encaisser", sale.emplacement_id) && loyalty && loyalty.status !== "loading" && loyalty.status !== "error";
     }));
 }
-function cgConfirmationOptions(mode, amount) {
+function cgConfirmationOptions(mode, amount, moyenId=null) {
   const choices = [];
   for (const [saleId, sale] of cashGroupState.saleDetails) for (const confirmation of sale.confirmations || []) {
-    if (confirmation.mode === mode && Number(confirmation.montant) === amount) {
-      choices.push({ id: confirmation.id, label: `${saleId.slice(0, 8)} · ${confirmation.reference} · ${cgMoney(confirmation.montant)}` });
+    if (confirmation.mode === mode && (confirmation.moyen_id||null) === moyenId && Number(confirmation.montant) === amount) {
+      choices.push({ id: confirmation.id, label: `${confirmation.moyen_libelle || confirmation.mode} · ${saleId.slice(0, 8)} · ${confirmation.reference} · ${cgMoney(confirmation.montant)}` });
     }
   }
   return choices;
@@ -432,40 +550,53 @@ function cgRenderPayments() {
     const fieldset = document.createElement("fieldset"); fieldset.className = "cash-group-payment";
     const legend = document.createElement("legend"); legend.textContent = `Règlement ${index + 1}`; fieldset.append(legend);
     const mode = document.createElement("select"); mode.disabled = cashGroupState.draft?.dossier?.etat !== "BROUILLON"; mode.setAttribute("aria-label", `Mode règlement ${index + 1}`);
-    for (const code of modes) mode.add(new Option(code.replaceAll("_", " "), code));
-    if (payment.mode && modes.includes(payment.mode)) mode.value = payment.mode;
+    for (const choice of cashPaymentChoices(cashState.context.configuration,true)) mode.add(new Option(choice.libelle,choice.key));
+    const current=payment.mode+(payment.moyen_id?":"+payment.moyen_id:"");if(payment.mode&&![...mode.options].some(o=>o.value===current))mode.add(new Option("Moyen historique / indisponible",current));
+    if (payment.mode && modes.includes(payment.mode)) mode.value = payment.mode+(payment.moyen_id?":"+payment.moyen_id:"");
     const amountLabel = document.createElement("label"); amountLabel.textContent = payment.mode === "ESPECES" ? "Espèces reçues (XAF)" : "Montant confirmé (XAF)";
     const amount = document.createElement("input"); amount.disabled = cashGroupState.draft?.dossier?.etat !== "BROUILLON"; amount.type = "number"; amount.min = "0"; amount.step = "1"; amount.value = payment.montant ?? ""; amount.setAttribute("aria-label", `Montant règlement ${index + 1}`); amountLabel.append(amount);
     fieldset.append(mode, amountLabel);
-    const changeLabel = document.createElement("label"); changeLabel.textContent = "Rendu espèces (XAF)";
-    const change = document.createElement("input"); change.disabled = payment.mode !== "ESPECES" || cashGroupState.draft?.dossier?.etat !== "BROUILLON"; change.type = "number"; change.min = "0"; change.step = "1"; change.value = payment.rendu || "0"; change.setAttribute("aria-label", `Rendu espèces règlement ${index + 1}`); changeLabel.append(change); fieldset.append(changeLabel);
-    const confirmationLabel = document.createElement("label"); confirmationLabel.textContent = "Confirmation P4.5";
+    const confirmationLabel = document.createElement("label"); confirmationLabel.textContent = "Confirmation du paiement";
     const confirmation = document.createElement("select"); confirmation.disabled = payment.mode === "ESPECES" || cashGroupState.draft?.dossier?.etat !== "BROUILLON"; confirmation.setAttribute("aria-label", `Confirmation règlement ${index + 1}`);
     confirmation.add(new Option(payment.mode === "ESPECES" ? "Sans confirmation espèces" : "Choisir une confirmation existante", ""));
-    for (const choice of cgConfirmationOptions(payment.mode, cgInt(payment.montant))) confirmation.add(new Option(choice.label, choice.id));
+    for (const choice of cgConfirmationOptions(payment.mode, cgInt(payment.montant),payment.moyen_id||null)) confirmation.add(new Option(choice.label, choice.id));
     confirmation.value = payment.confirmation_id || "";
-    confirmationLabel.append(confirmation); fieldset.append(confirmationLabel);
-    const remove = document.createElement("button"); remove.type = "button"; remove.className = "secondary"; remove.textContent = "Supprimer cette ligne";
+    confirmationLabel.className = "cash-group-confirmation";
+    const confirmationInfo = document.createElement("span"); confirmationInfo.className = "cash-group-confirmation-reference"; confirmationInfo.setAttribute("aria-live", "polite");
+    if (payment.mode !== "ESPECES") { confirmationLabel.append(confirmation, confirmationInfo); fieldset.append(confirmationLabel); }
+    const remove = document.createElement("button"); remove.type = "button"; remove.className = "secondary"; remove.textContent = "×"; remove.setAttribute("aria-label", `Supprimer le règlement ${index + 1}`);
     remove.addEventListener("click", () => { cashGroupState.payments.splice(index, 1); cgRenderPayments(); }); fieldset.append(remove);
     const updateConfirmationChoices = () => {
-      const previous = confirmation.value; confirmation.replaceChildren();
-      confirmation.add(new Option(payment.mode === "ESPECES" ? "Sans confirmation espèces" : "Choisir une confirmation existante", ""));
-      for (const choice of cgConfirmationOptions(payment.mode, cgInt(payment.montant))) confirmation.add(new Option(choice.label, choice.id));
-      if ([...confirmation.options].some(option => option.value === previous)) confirmation.value = previous;
+      const selected = payment.confirmation_id || "";
+      confirmation.replaceChildren();
+      confirmation.add(new Option("Choisir une confirmation existante", ""));
+      const choices = cgConfirmationOptions(payment.mode, cgInt(payment.montant), payment.moyen_id || null);
+      for (const choice of choices) confirmation.add(new Option(choice.label, choice.id));
+      const match = choices.find(choice => choice.id === selected);
+      if (match) payment.confirmation_label = match.label;
+      confirmationInfo.textContent = selected ? (match ? match.label : "À vérifier : " + (payment.confirmation_label || selected)) : "";
+      if (selected && ![...confirmation.options].some(option => option.value === selected)) {
+        confirmation.add(new Option("Confirmation conservée mais incompatible / indisponible : resélection explicite requise", selected));
+        confirmation.setCustomValidity("Vérifiez la confirmation, le fournisseur et le montant.");
+      } else confirmation.setCustomValidity("");
+      confirmation.value = selected;
     };
-    mode.addEventListener("change", () => { payment.mode = mode.value; payment.confirmation_id = null; payment.rendu = "0"; cgRenderPayments(); });
-    amount.addEventListener("input", () => { payment.montant = amount.value; payment.confirmation_id = null; updateConfirmationChoices(); cgRenderReview(); });
-    change.addEventListener("input", () => { payment.rendu = change.value; cgRenderReview(); });
-    confirmation.addEventListener("change", () => { payment.confirmation_id = confirmation.value || null; cgRenderReview(); });
+    updateConfirmationChoices();
+    mode.addEventListener("change", () => { const choice=cashPaymentChoices(cashState.context.configuration,true).find(c=>c.key===mode.value);if(!choice)return;if(payment.confirmation_id){if(!window.confirm("Changer de moyen retire la sélection de confirmation de cette ligne. Le paiement indépendant acquis reste conservé. Continuer ?")){mode.value=current;return;}payment.confirmation_id=null;payment.confirmation_label="";}payment.mode=choice.mode;payment.moyen_id=choice.moyen_id; payment.rendu = "0"; cgRenderPayments(); });
+    amount.addEventListener("input", () => { payment.montant = amount.value; updateConfirmationChoices(); cgRenderReview(); });
+    confirmation.addEventListener("change", () => { payment.confirmation_id = confirmation.value || null; updateConfirmationChoices(); cgRenderReview(); });
     root.append(fieldset);
   }
   cgRenderReview();
 }
 function cgPaymentPayload() {
+  if (cashGroupState.confirmationRefreshError) throw new Error(cashGroupState.confirmationRefreshError);
   if (!cashGroupState.payments.length) throw new Error("Ajoutez au moins un règlement.");
+  cashGroupState.payments = cgCashChange(cashGroupState.draft.totaux.du_xaf, cashGroupState.payments);
   return cashGroupState.payments.map((payment, index) => {
     const amount = cgInt(payment.montant), change = cgInt(payment.rendu || "0");
     if (!Number.isSafeInteger(amount) || amount <= 0 || !Number.isSafeInteger(change) || change < 0 || change >= amount) throw new Error(`Règlement ${index + 1} : montants XAF entiers invalides ou rendu supérieur au montant reçu.`);
+    if (payment.confirmation_id && !cgConfirmationOptions(payment.mode, amount, payment.moyen_id || null).some(c => c.id === payment.confirmation_id)) throw new Error(`Règlement ${index + 1} : confirmation incompatible ou indisponible, vérifiez explicitement la sélection.`);
     if (payment.mode !== "ESPECES" && !payment.confirmation_id) throw new Error(`Règlement ${index + 1} : sélectionnez une confirmation P4.5.`);
     if (payment.mode === "ESPECES" && payment.confirmation_id) throw new Error("Les espèces ne peuvent pas porter de confirmation externe.");
     return { mode: payment.mode, montant: String(amount), rendu: String(payment.mode === "ESPECES" ? change : 0), confirmation_id: payment.mode === "ESPECES" ? null : payment.confirmation_id };
@@ -550,15 +681,19 @@ async function cgAutoAllocate() {
 function cgRenderReview() {
   const root = cg("review"); if (!root) return; root.replaceChildren();
   const d = cashGroupState.draft; if (!d) return;
+  if (cashGroupState.confirmationRefreshError) { const warning=document.createElement("p"); warning.textContent=cashGroupState.confirmationRefreshError; root.append(warning); }
   const due = Number(d.totaux.du_xaf || 0);
   const payments = cashGroupState.payments.length ? cashGroupState.payments : d.reglements.map(row => ({ ...row }));
-  const net = payments.reduce((sum, row) => sum + Math.max(0, Number(row.montant || 0) - Number(row.rendu || 0)), 0);
+  const summary = document.createElement("p"); summary.setAttribute("role", "status"); summary.setAttribute("aria-live", "polite");
+  cashRenderFinancialSummary(summary, d.totaux.du_xaf, payments.map(row=>({...row,montant:row.montant||"0"})));
+  root.append(summary);
+  try {
+    const calculated = d.dossier.etat === "BROUILLON" ? cgCashChange(d.totaux.du_xaf, payments) : payments;
+    calculated.forEach((row,index)=>{payments[index].rendu=row.rendu;const input=cg("payments").querySelectorAll('input[aria-label^="Rendu espèces"]')[index];if(input)input.value=row.rendu;});
+  } catch(error) { const note=document.createElement("p");note.textContent=error.message;root.append(note); }
   const list = document.createElement("ul");
-  for (const line of [`Tickets : ${d.ventes.length}`, `Total dû : ${cgMoney(due)}`, `Règlements nets : ${cgMoney(net)}`, `Écart à régler : ${cgMoney(due - net)}`, `Ventilation : ${d.totaux.allocation_valide ? "valide" : "à vérifier"}`]) {
-    const item = document.createElement("li"); item.textContent = line; list.append(item);
-  }
-  for (const payment of payments) {
-    const item = document.createElement("li"); item.textContent = `${payment.mode} · brut ${cgMoney(payment.montant)} · rendu ${cgMoney(payment.rendu || 0)} · net ${cgMoney(Number(payment.montant || 0) - Number(payment.rendu || 0))}`; list.append(item);
+  for (const line of [`Tickets : ${d.ventes.length}`, `Total des tickets (part client) : ${cgMoney(due)}`, `Ventilation : ${d.totaux.allocation_valide ? "valide" : "à vérifier"}`]) {
+    const item=document.createElement("li");item.textContent=line;list.append(item);
   }
   const allocatedBySale = new Map();
   for (const row of [...cg("allocation-body").querySelectorAll("tr")]) {
@@ -579,6 +714,12 @@ function cgRenderReview() {
   }
   root.append(list);
   cg("allocation-status").textContent = `Total dû ${cgMoney(d.totaux.du_xaf)} · Total alloué ${cgMoney(d.totaux.alloue_xaf)} · ${d.totaux.allocation_valide ? "ventilation équilibrée" : "ventilation non validée"}`;
+  if (cgHasUnsavedFinancialChanges()) {
+    const note = document.createElement("p");
+    note.textContent = "Modifications non enregistrées : enregistrez les règlements et la ventilation avant de finaliser.";
+    root.append(note);
+  }
+  cgSyncFinaliseButton();
 }
 async function cgAbandon() {
   const d = cashGroupState.draft; if (!d || d.dossier.etat !== "BROUILLON") return;
@@ -606,11 +747,48 @@ function cgRenderReceipts() {
     button.addEventListener("click", () => cashPDF(`/recus/${receipt.id}/pdf`, false).catch(cgFailure)); actions.append(button);
   }
 }
+function cgForgetFinalizedSales(draft) {
+  cashGroupState.salesGeneration = (cashGroupState.salesGeneration || 0) + 1;
+  cashState.epoch++;
+  const ids = new Set(draft.ventes.map(row => row.vente_id));
+  for (const id of ids) { cashGroupState.selected.delete(id); cashGroupState.saleDetails.delete(id); }
+  for (const row of cg("sales").querySelectorAll("tr")) if (ids.has(row.dataset.venteId)) row.remove();
+  for (const row of $("cash-waiting").querySelectorAll("tr")) if (ids.has(row.dataset.venteId)) row.remove();
+  if (ids.has(cashState.sale?.id)) { cashState.sale = null; cashState.account = null; cashState.fidelityInfo = null; }
+}
+async function cgRefreshAfterFinalization() {
+  const draft = cashGroupState.draft;
+  if (cashGroupState.busy || draft?.dossier.etat !== "FINALISE" || !authHas("caisse.consulter")) return;
+  const context = cgReadContext();
+  const current = () => cashGroupState.draft === draft && context === cgReadContext();
+  cgBusy(true);
+  try {
+    await cgOriginalLoad(true);
+    if (!current()) return;
+    await cgLoadSales(true, true);
+    if (!current()) return;
+    const details = await Promise.all(draft.ventes.map(row => cashRequest(`/ventes/${row.vente_id}`)));
+    if (!current()) return;
+    details.forEach((sale,index) => {
+      if (sale.id !== draft.ventes[index].vente_id || sale.etat !== "ENCAISSEE") throw new Error("État de vente non confirmé par la lecture.");
+    });
+    details.forEach(sale => cashGroupState.saleDetails.set(sale.id, sale));
+    cgMessage("Encaissement effectué. Listes, session et historique actualisés ; reçus conservés.");
+  } catch (error) {
+    if (current()) {
+      cgMessage("Encaissement effectué ; seule l’actualisation a échoué : " + error.message, true);
+      const retry = document.createElement("button"); retry.type = "button"; retry.textContent = "Réessayer l’actualisation";
+      retry.addEventListener("click", () => cgRefreshAfterFinalization());
+      $("cash-message").append(retry);
+    }
+  } finally { if (cashGroupState.draft === draft) cgBusy(false); }
+}
 async function cgFinalize() {
   if (cashGroupState.busy) return;
   if (!cgCanFinalize()) throw new Error("Le dossier, la session ou les allocations ne permettent pas la finalisation. Rechargez et vérifiez les données.");
   const d = cashGroupState.draft;
-  let revisionConflict = false;
+  let revisionConflict = false, finalized = false;
+  const context = cgReadContext();
   const payload = { revision: d.dossier.revision, revision_session: cashState.session.revision, fidelite: cgLoyaltyPayload() };
   const fingerprint = JSON.stringify(payload);
   if (cashGroupState.finalisationPayload !== fingerprint) {
@@ -620,14 +798,18 @@ async function cgFinalize() {
   }
   const recap = [...cg("review").querySelectorAll("li")].map(item => item.textContent).join("\n");
   if (!window.confirm(`Finaliser définitivement ce dossier ?\n\n${recap}\n\nCette opération encaisse toutes les ventes du dossier.`)) return;
+  cashGroupState.salesGeneration = (cashGroupState.salesGeneration || 0) + 1;
+  cashState.epoch++;
   cgBusy(true);
   try {
     const result = await cgMutation(`/${d.dossier.id}/finaliser`, "POST", payload, cashGroupState.finalisationKey);
     cashGroupState.mutationRetry = null;
-    cashGroupState.draft = result;
+    if (context !== cgReadContext() || cashGroupState.draft !== d) return;
     if (result.dossier?.etat !== "FINALISE" || !result.resultat?.recu_collectif || !Array.isArray(result.resultat?.recus_individuels)) {
       throw new Error("La réponse du serveur ne contient pas le résultat finalisé attendu. Rechargez le dossier pour vérifier son état.");
     }
+    cashGroupState.draft = result; finalized = true;
+    cgForgetFinalizedSales(result);
     cashGroupState.finalisationKey = null; cashGroupState.finalisationPayload = null;
     cgClearFinalizationKey(d.dossier.id);
     try { localStorage.removeItem(cgLoyaltyStorageKey(d.dossier.id)); } catch (_) {}
@@ -640,12 +822,14 @@ async function cgFinalize() {
       revisionConflict = true;
     }
   } finally { cgBusy(false); }
+  if (finalized) await cgRefreshAfterFinalization();
   if (revisionConflict) {
     cg("status").textContent += " · Conflit de révision, données rechargées";
     cgMessage("Le serveur a détecté une modification concurrente. Vérifiez les montants et la ventilation avant de confirmer à nouveau.", true);
   }
 }
 function cgReset() {
+  cashGroupState.salesGeneration = (cashGroupState.salesGeneration || 0) + 1;
   cashGroupState.mode = "INDIVIDUEL";
   cashGroupState.page = 1; cashGroupState.selected.clear(); cashGroupState.saleDetails.clear(); cashGroupState.draft = null;
   cashGroupState.loyalty.clear();
@@ -667,15 +851,18 @@ cg("create").addEventListener("click", () => cgCreateDraft().catch(cgFailure));
 cg("add-selected").addEventListener("click", () => cgAddSelected().catch(cgFailure));
 cg("resume").addEventListener("click", () => cgResume());
 cg("reload").addEventListener("click", () => cgReload());
-cg("add-payment").addEventListener("click", () => { cashGroupState.payments.push({ mode: (cashState.context?.configuration?.modes || ["ESPECES"])[0], montant: "", rendu: "0", confirmation_id: null }); cgRenderPayments(); });
+cg("add-payment").addEventListener("click", () => { const choice=cashPaymentChoices(cashState.context.configuration,true)[0];if(!choice){cgMessage('Aucun moyen de paiement actif.',true);return;}cashGroupState.payments.push({ mode: choice.mode, moyen_id:choice.moyen_id, montant: "", rendu: "0", confirmation_id: null }); cgRenderPayments(); });
+cg("calculate-change").addEventListener("click",()=>{try{cgCalculateChange();}catch(e){cgFailure(e);}});
 cg("save-payments").addEventListener("click", () => cgSavePayments().catch(cgFailure));
 cg("auto").addEventListener("click", () => cgAutoAllocate().catch(cgFailure));
 cg("save-allocations").addEventListener("click", () => cgSaveAllocations().catch(cgFailure));
 cg("abandon").addEventListener("click", () => cgAbandon());
 $("cash-group-finalise").addEventListener("click", () => cgFinalize().catch(cgFailure));
 cg("create").disabled = true; cg("add-selected").disabled = true;
+cg("resume-id").addEventListener("input", cgSyncConsultationButtons);
 cg("resume-id").addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); cgResume(); } });
 try { cg("resume-id").value = localStorage.getItem(cgDraftStorageKey()) || ""; } catch (_) {}
+cgSyncConsultationButtons();
 
 // Reprendre l'actualisation existante sans modifier le parcours individuel.
 const cgOriginalLoad = cashLoad;
@@ -684,6 +871,7 @@ cashLoad = async function (propagate = false) {
   if (cashGroupState.mode === "GROUPE" && authState.me && shellState.view === "encaissement") {
     await cgLoadSales().catch(error => cgMessage(error.message, true));
   }
+  if (cashGroupState.draft?.dossier.etat === "BROUILLON") await cgRefreshConfirmations();
 };
 const cgOriginalReset = authReset;
 authReset = function () { cgReset(); cgOriginalReset(); };

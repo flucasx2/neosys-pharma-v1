@@ -1,4 +1,6 @@
-from neosys_pharma.infrastructure import caisse_models, regularisation_models, client_models
+from neosys_pharma.infrastructure import facturation_organisme_models
+from neosys_pharma.infrastructure import creance_models
+from neosys_pharma.infrastructure import caisse_models, regularisation_models, client_models, tiers_payants_models, prise_en_charge_models
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
