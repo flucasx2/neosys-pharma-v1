@@ -8,7 +8,14 @@ with sync_playwright() as p:
     page.on('pageerror',lambda e:errors.append(str(e)));page.goto('http://127.0.0.1:8000')
     def login(name):
         for k,v in {'organisation_id':f['organisation_id'],'identifiant':name,'password':f['password']}.items():page.locator(f'#login-form [name="{k}"]').fill(v)
-        page.locator('#login-form button').click();expect(page.locator('#app-shell')).to_be_visible();page.locator('#nav-stock').click();expect(page.locator('#stock-rows')).to_have_attribute('aria-busy','false')
+        page.locator('#login-form button').click();page.locator('#login-form button:enabled').wait_for(state='attached');expect(page.locator('#app-shell')).to_be_visible()
+        # Attendre le chargement réellement déclenché par la navigation, avant son rendu.
+        with page.expect_request(lambda r:r.method=='GET' and '/api/stock/organisations/'+f['organisation_id']+'/' in r.url and '/contextes' not in r.url) as stock_request:
+            page.locator('#nav-stock').click()
+        stock_response=stock_request.value.response()
+        assert stock_response is not None and stock_response.status==200
+        stock_response.finished()
+        expect(page.locator('#stock-rows')).to_have_attribute('aria-busy','false')
     def ready():
         expect(page.locator('#stock-rows')).to_have_attribute('aria-busy','false');expect(page.locator('#etats-rows')).to_have_attribute('aria-busy','false')
     def kind(value):
@@ -19,7 +26,11 @@ with sync_playwright() as p:
         ready()
     def shot(name):page.screenshot(path='qa/'+name,full_page=True)
     login('stock.qa');page.on('request',lambda r:documents.append(r.url) if r.resource_type=='document' else None)
-    page.locator('[data-stock-view="etats"]').click();expect(page.locator('#etats-panel')).to_be_visible();expect(page.locator('#etats-summary')).to_contain_text('30 résultat(s)');ready()
+    with page.expect_response(lambda r:'/etats/stocks?' in r.url) as first_report:
+        page.locator('[data-stock-view="etats"]').click()
+    assert first_report.value.status==200
+    first_report.value.finished()
+    expect(page.locator('#etats-panel')).to_be_visible();expect(page.locator('#etats-summary')).to_contain_text('30 résultat(s)');ready()
     expect(page.locator('#etats-rows tr')).to_have_count(25)
     page.locator('#etats-next').click();expect(page.locator('#etats-page')).to_have_text('Page 2 sur 2');expect(page.locator('#etats-rows tr')).to_have_count(5)
     page.locator('#etats-search').fill('LOT-P3-01');apply();expect(page.locator('#etats-rows tr')).to_have_count(2);shot('p3-etats-stocks.png')

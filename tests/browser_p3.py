@@ -10,13 +10,26 @@ with sync_playwright() as p:
     page.on('pageerror',lambda e:(errors.append(str(e)),print('Erreur JavaScript P3 :',e)));page.goto('http://127.0.0.1:8000')
     def login(user):
         for k,v in {'organisation_id':f['organisation_id'],'identifiant':user,'password':f['password']}.items():page.locator(f'#login-form [name="{k}"]').fill(v)
-        page.locator('#login-form button').click();expect(page.locator('#app-shell')).to_be_visible();page.locator('#nav-stock').click();expect(page.locator('#stock-pane')).to_be_visible();expect(page.locator('#stock-rows')).to_have_attribute('aria-busy','false')
-    def tab(name):page.locator(f'[data-stock-view="{name}"]').click();expect(page.locator('#stock-rows')).to_have_attribute('aria-busy','false')
+        page.locator('#login-form button').click();page.locator('#login-form button:enabled').wait_for(state='attached');expect(page.locator('#app-shell')).to_be_visible()
+        with page.expect_request(lambda r:r.method=='GET' and '/api/stock/organisations/'+f['organisation_id']+'/' in r.url and '/contextes' not in r.url) as initial_stock_request:
+            page.locator('#nav-stock').click()
+        initial_stock_response=initial_stock_request.value.response()
+        assert initial_stock_response is not None and initial_stock_response.status==200
+        initial_stock_response.finished()
+        expect(page.locator('#stock-pane')).to_be_visible();expect(page.locator('#stock-rows')).to_have_attribute('aria-busy','false')
+    def tab(name):
+        with page.expect_request(lambda r:r.method=='GET' and '/api/stock/organisations/'+f['organisation_id']+'/'+name+'?' in r.url) as stock_request:
+            page.locator(f'[data-stock-view="{name}"]').click()
+        response=stock_request.value.response()
+        assert response is not None and response.status==200
+        response.finished()
+        expect(page.locator('#stock-rows')).to_have_attribute('aria-busy','false')
     def modal():return page.locator('dialog[open]').last
     def fields(values):
         for k,v in values.items():modal().locator(f'[name="{k}"]').fill(str(v))
     def save():
         m=modal();m.get_by_role('button',name='Enregistrer',exact=True).click()
+        page.locator('dialog[open] button[type=submit]:disabled').wait_for(state='detached')
         try:expect(m).not_to_be_visible()
         except AssertionError:
             print('P3 modale restée ouverte :',m.inner_text())
@@ -43,7 +56,7 @@ with sync_playwright() as p:
     modal().locator('[name="emplacement_id"]').select_option(f['location_id']);fields({'quantite':10,'origine':'Entrée physique de recette','justification':'Dix boîtes constatées'});save();expect(page.locator('#stock-rows tr')).to_have_count(1);expect(page.locator('#stock-rows tr td').nth(3)).to_have_text('10')
     page.locator('#stock-rows').get_by_role('button',name='Réserver',exact=True).click();expect(modal().locator('[name="emplacement_id"]')).to_have_value(f['location_id']);expect(modal().get_by_role('button',name='Résultats précédents',exact=True)).to_be_disabled();expect(modal().get_by_role('button',name='Résultats suivants',exact=True)).to_be_disabled();modal().locator('[name="recherche"]').fill('St');expect(modal().locator('[name="conditionnement_id"]')).to_have_value('');expect(modal().locator('[name="produit_id"]')).to_have_value('');expect(modal().locator('[name="lot_id"] option')).to_have_count(1);package();fields({'quantite':3,'origine':'Préparation sans vente'})
     refresh_url=re.compile(r'/api/stock/organisations/[^/]+/stocks\?');page.route(refresh_url,lambda route:route.fulfill(status=503,json={'detail':'Actualisation indisponible pour recette'}),times=1)
-    m=modal();m.get_by_role('button',name='Enregistrer',exact=True).click();expect(m.locator('[role="alert"]')).to_contain_text('Enregistrement effectué. L’actualisation a échoué');expect(m.locator('[name="quantite"]')).to_have_value('3');shot('p3-erreur-actualisation.png');page.unroute(refresh_url)
+    m=modal();m.get_by_role('button',name='Enregistrer',exact=True).click();m.locator('button[type=submit]:disabled').wait_for(state='detached');expect(m.locator('[role="alert"]')).to_contain_text('Enregistrement effectué. L’actualisation a échoué');expect(m.locator('[name="quantite"]')).to_have_value('3');shot('p3-erreur-actualisation.png');page.unroute(refresh_url)
     m.get_by_role('button',name='Réessayer l’actualisation',exact=True).click();expect(m).not_to_be_visible();expect(page.locator('#stock-message')).to_contain_text('Enregistrement réussi');expect(page.locator('#stock-rows tr td').nth(4)).to_have_text('3');expect(page.locator('#stock-rows tr td').nth(5)).to_have_text('7');shot('p3-stocks-reserves.png')
     tab('reservations');page.locator('#stock-rows').get_by_role('button',name='Libérer').click();save();tab('stocks');expect(page.locator('#stock-rows tr td').nth(4)).to_have_text('0')
     page.locator('#stock-rows').get_by_role('button',name='Sortir',exact=True).click();fields({'quantite':99,'origine':'Test insuffisance'});m=modal();m.get_by_role('button',name='Enregistrer',exact=True).click();expect(m.locator('[role="alert"]')).to_contain_text('insuffisant');expect(m.locator('[name="quantite"]')).to_have_value('99');page.once('dialog',lambda d:d.accept());m.get_by_role('button',name='Annuler',exact=True).click();expect(m).not_to_be_visible()

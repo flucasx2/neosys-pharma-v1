@@ -12,11 +12,22 @@ from neosys_pharma.application.stock_service import StockService
 from neosys_pharma.application.vente_service import VenteService
 from neosys_pharma.application.caisse_service import CaisseService
 from neosys_pharma.application.stock_service import serial as stock_serial
-from neosys_pharma.infrastructure.catalogue_models import ProduitModel
+from neosys_pharma.infrastructure.catalogue_models import ProduitModel,NatureMedicamentModel
+from sqlalchemy import select
 from neosys_pharma.infrastructure.caisse_models import CompteFideliteModel
 from neosys_pharma.infrastructure.client_models import ClientModel
 f=json.loads(Path('/tmp/p1-browser-fixture.json').read_text());org,site,loc=[UUID(f[k]) for k in ('organisation_id','site_id','location_id')]
 with SessionLocal() as s:
+    # Produit synthétique admissible à la fidélité : aucune règle métier modifiée.
+    nature=s.scalar(select(NatureMedicamentModel).where(
+        NatureMedicamentModel.organisation_id==org,NatureMedicamentModel.code=='COSMETIQUE'))
+    if nature is None:
+        nature=NatureMedicamentModel(id_nature=uuid4(),organisation_id=org,code='COSMETIQUE',nom='Cosmétique QA',actif=True)
+        s.add(nature);s.flush()
+    product=s.get(ProduitModel,UUID(f['p4_product']))
+    assert product.organisation_id==org
+    product.nature_id=nature.id_nature;s.commit()
+    assert product.nature_id==nature.id_nature and nature.code=='COSMETIQUE'
     repo=SqlAlchemySecuriteRepository(s);users={}
     for name,permissions in [('caisse.qa',tuple(p for p,n in CAISSE_PERMISSIONS)+('organisation.consulter','vente.consulter')),('caisse.lecture.qa',('organisation.consulter','caisse.consulter','fidelite.consulter'))]:
         r=Role(organisation_id=org,code=name,nom=name,type_role=TypeRole.PERSONNALISE);repo.ajouter(r)

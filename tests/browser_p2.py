@@ -12,12 +12,14 @@ with sync_playwright() as p:
     page.goto('http://127.0.0.1:8000')
     def login(identifiant):
         for name,value in {'organisation_id':fixture['organisation_id'],'identifiant':identifiant,'password':fixture['password']}.items():page.locator(f'#login-form [name="{name}"]').fill(value)
-        page.locator('#login-form button').click();expect(page.locator('#app-shell')).to_be_visible()
+        page.locator('#login-form button').click();page.locator('#login-form button:enabled').wait_for(state='attached');expect(page.locator('#app-shell')).to_be_visible()
     def fill(form,values):
         for name,value in values.items():form.locator(f'[name="{name}"]').fill(value)
     def submit(form,modal=None):
         form.locator('button[type="submit"]' if modal else 'button:not([type="button"])').click()
-        if modal:expect(page.locator(modal)).not_to_be_visible()
+        if modal:
+            form.locator('button[type=submit]:disabled').wait_for(state='detached')
+            expect(page.locator(modal)).not_to_be_visible()
         expect(page.locator('#catalogue-message')).to_contain_text('Enregistrement réussi')
         expect(page.locator('#security-operation')).to_be_enabled()
     def new_meta(typ,values,parent=None):

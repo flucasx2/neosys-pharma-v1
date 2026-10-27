@@ -30,7 +30,7 @@ async function scenarios(w,sources){
   if(route==='/ventes/'+sale.id)return structuredClone(persisted);
   throw Error('Route simulée inattendue : '+route);
  };
- w.eval('cashState.sale='+JSON.stringify(sale)+';cashState.session={id:"session-fictive",revision:1};cashState.context={configuration:{ticket_appel:false}};');
+ w.eval('cashState.sale='+JSON.stringify(sale)+';cashState.session={id:"session-fictive",revision:1};cashState.context={configuration:{ticket_appel:false,modes:["ESPECES"],moyens:[]}};');
  w.$('cash-client-search').value='CARTE-FICTIVE';await w.cashSearch();
  w.$('cash-clients').querySelector('button').click();await Promise.resolve();await Promise.resolve();
  assert(w.eval('cashState.account.id')===account.id,'Titulaire explicite perdu');
