@@ -14,7 +14,7 @@ from test_regularisation import grant45,ret
 from neosys_pharma.domain.configuration_convention import configuration_validee,verifier_preuve
 from neosys_pharma.domain.creances import controle_administratif,ENGAGEMENTS
 from neosys_pharma.domain.organisation.permissions_systeme import permission_id,P5C_PERMISSIONS
-from neosys_pharma.infrastructure.securite_models import RoleModel,RolePermissionModel
+from neosys_pharma.infrastructure.securite_models import PermissionModel,RoleModel,RolePermissionModel
 from neosys_pharma.infrastructure.tiers_payants_models import ConfigurationConventionModel,AdhesionOrganismeModel
 from neosys_pharma.infrastructure.creance_models import CreanceOrganismeModel,VersionDossierCreanceModel
 pytest_plugins=('test_vente',)
@@ -36,8 +36,15 @@ def prepare(c,a,configured=True,single_payeur=False):
     gen=db(c);s=next(gen)
     try:
         role=s.scalar(select(RoleModel).where(RoleModel.organisation_id==a['org'],RoleModel.code=='CATALOGUE'))
-        for code in [x[0] for x in P5C_PERMISSIONS]+['tiers_payant.adhesion.gerer']:
-            s.add(RolePermissionModel(role_id=role.id_role,permission_id=permission_id(code)))
+        codes=[x[0] for x in P5C_PERMISSIONS]+['tiers_payant.adhesion.gerer']
+        # Migration-cycle fixtures can intentionally run before the latest
+        # additive permission migration. Never create a role link before its
+        # permission row exists; the query below otherwise autoflushes it.
+        available=set(s.scalars(select(PermissionModel.code).where(PermissionModel.code.in_(codes))))
+        for code in codes:
+            if code in available:
+                s.add(RolePermissionModel(role_id=role.id_role,permission_id=permission_id(code)))
+        s.flush()
         rows=s.scalars(select(AdhesionOrganismeModel).where(AdhesionOrganismeModel.organisation_id==a['org'])).all()
         ads=[(str(x.id),x.revision) for x in rows]
         if configured:

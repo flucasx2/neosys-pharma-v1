@@ -11,7 +11,7 @@ from alembic.config import Config
 from neosys_pharma.infrastructure.config import get_settings
 from neosys_pharma.infrastructure.database import get_db_session
 from neosys_pharma.presentation.app import create_app
-from neosys_pharma.infrastructure.creance_models import CreanceOrganismeModel
+from neosys_pharma.infrastructure.creance_models import CompensationCreanceOrganismeModel,CreanceOrganismeModel
 from neosys_pharma.infrastructure.prise_en_charge_models import RealisationPriseEnChargeModel
 from neosys_pharma.application.stock_service import StockService
 from neosys_pharma.application.facturation_organisme_service import FacturationOrganismeService
@@ -34,11 +34,21 @@ def cycle(url,monkeypatch):
         def sessions():
             with factory() as s:yield s
         app.dependency_overrides[get_db_session]=sessions
-        with TestClient(app) as c:
-            a=account_fixture.__wrapped__(c);sale,session,calc=prepare(c,a);real,_=realise(c,a,sale,session,calc)
-            claim=validate_claim(c,a,claim_post(c,a,'',{'realisation_id':real['id']},201)['creances'][0])
-            instant=datetime.fromisoformat(real['realisee_le'])
-            realisation_day=instant.astimezone(timezone.utc).date() if instant.tzinfo else instant.date()
+        # Current application code reads the REG-01 compensation register even
+        # while this test stages a legacy 20261019_05 row. Provide only its
+        # empty ORM table during fixture creation, then remove it before the
+        # actual migration upgrade so 20261028_02 still creates it normally.
+        compensation_table=CompensationCreanceOrganismeModel.__table__
+        assert not sa.inspect(engine).has_table(compensation_table.name)
+        compensation_table.create(engine)
+        try:
+            with TestClient(app) as c:
+                a=account_fixture.__wrapped__(c);sale,session,calc=prepare(c,a);real,_=realise(c,a,sale,session,calc)
+                claim=validate_claim(c,a,claim_post(c,a,'',{'realisation_id':real['id']},201)['creances'][0])
+                instant=datetime.fromisoformat(real['realisee_le'])
+                realisation_day=instant.astimezone(timezone.utc).date() if instant.tzinfo else instant.date()
+        finally:
+            compensation_table.drop(engine)
         command.upgrade(cfg,'20261019_06')
         command.upgrade(cfg,'head');command.check(cfg);engine.dispose()
         with factory() as s:

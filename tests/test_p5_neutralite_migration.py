@@ -82,7 +82,13 @@ def test_cycle_additif_preserve_modes_historiques(tmp_path, monkeypatch):
         for definition in checks_p5.values():
             assert all(mode in definition for mode in (*modes_historiques, "PRISE_EN_CHARGE"))
         assert vente_modes(historique_id) == valeurs_historiques
+        # Alembic check is valid only at the current graph head. The P5-C1
+        # additive migration follows neutrality in this checkout.
+        command.upgrade(cfg, "head")
+        assert revision() == "20261028_02"
         command.check(cfg)
+        command.downgrade(cfg, "20261028_01")
+        assert revision() == "20261028_01"
 
         generique_id = insert_vente("PRISE_EN_CHARGE")
         avant_refus = (revision(), triggers(), mode_checks(), vente_modes(historique_id, generique_id))
@@ -104,6 +110,8 @@ def test_cycle_additif_preserve_modes_historiques(tmp_path, monkeypatch):
         assert revision() == "20261028_01"
         assert triggers() == triggers_p4
         assert vente_modes(historique_id) == valeurs_historiques
+        command.upgrade(cfg, "head")
+        assert revision() == "20261028_02"
         command.check(cfg)
     finally:
         engine.dispose()
