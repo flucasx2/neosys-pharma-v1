@@ -15,7 +15,6 @@ from neosys_pharma.infrastructure.facturation_organisme_models import (
 from neosys_pharma.infrastructure.creance_models import CreanceOrganismeModel,VersionDossierCreanceModel
 from neosys_pharma.infrastructure.vente_models import VenteModel
 from neosys_pharma.infrastructure.client_models import OrganismePriseEnChargeModel
-from neosys_pharma.infrastructure.regularisation_models import RetourVenteModel
 from neosys_pharma.infrastructure.prise_en_charge_models import RealisationPriseEnChargeModel
 
 POLICY={
@@ -92,16 +91,20 @@ def rechercher(organisme_id:UUID|None=None,statut:Literal['A_COMPLETER','A_CONTR
         raise HTTPException(422,'Période inversée.')
     c=CreanceOrganismeModel;v=VersionDossierCreanceModel;r=RealisationPriseEnChargeModel
     latest=select(func.max(v.revision)).where(v.creance_id==c.id,v.organisation_id==s.org).correlate(c).scalar_subquery()
-    has_return=exists(select(RetourVenteModel.id).where(RetourVenteModel.encaissement_id==r.encaissement_id,
-        RetourVenteModel.organisation_id==s.org))
     q=select(c).join(VenteModel,VenteModel.id==c.vente_id).join(r,r.id==c.realisation_id).join(v,(v.creance_id==c.id)&(v.revision==latest)).where(
         c.organisation_id==s.org,c.site_id==s.site,VenteModel.emplacement_id.in_(creance_api.perimetre(s.creances)))
     if organisme_id:q=q.where(c.organisme_id==organisme_id)
-    if statut=='EN_ANOMALIE':q=q.where((v.etat==statut)|has_return)
-    elif statut:q=q.where(v.etat==statut,~has_return)
     if date_debut:q=q.where(r.realisee_le>=datetime.combine(date_debut,time.min,tzinfo=timezone.utc))
     if date_fin:q=q.where(r.realisee_le<datetime.combine(date_fin+timedelta(days=1),time.min,tzinfo=timezone.utc))
-    total,rows=s.stock.repo.paginer(q.order_by(c.cree_le.desc(),c.id),page,page_size)
+    ordered=q.order_by(c.cree_le.desc(),c.id)
+    if statut:
+        # Le statut effectif dépend des écritures compensatoires; un simple
+        # EXISTS(retour) continuerait à masquer les retours déjà régularisés.
+        candidates=s.s.scalars(ordered).all()
+        rows=[row for row in candidates if s.creances.detail(row.id)['etat_effectif']==statut]
+        total=len(rows);rows=rows[(page-1)*page_size:page*page_size]
+    else:
+        total,rows=s.stock.repo.paginer(ordered,page,page_size)
     def result():
         items=[]
         for row in rows:

@@ -204,6 +204,7 @@ def assert_p1_permissions_after_downgrade(connection):
     retained = {
         'tiers_payant.creance.consulter', 'tiers_payant.creance.constituer',
         'tiers_payant.creance.completer', 'tiers_payant.creance.verifier',
+        'tiers_payant.creance.regulariser',
         'tiers_payant.document.consulter', 'tiers_payant.document.preparer',
         'tiers_payant.document.valider', 'tiers_payant.document.emettre',
         'tiers_payant.document.regrouper',

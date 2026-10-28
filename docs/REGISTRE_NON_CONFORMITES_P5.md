@@ -106,7 +106,7 @@ OBS-CAT-01 partiellement ouverte : faux succès de fin de lots reproduit et corr
 
 - C1-ENV-01 — Ouvert : PostgreSQL natif non exécuté dans cette reprise ; courses et migration protégées préparées, aucun ignoré présenté comme réussi.
 - C1-ENV-02 — Ouvert : Chromium absent ; installation échouée (ZIP tronqué), 23 assertions DOM Créances et 38 Conventions avec HTTP simulé seulement. Recette finale consolidée maintenue.
-- C1-REG-01 — Ouvert : registres compensatoires de créances après retour à livrer avec l'incrément de régularisation ; engagement bloqué dès un retour de la vente, montant source inchangé. Aucun avoir artificiel.
+- C1-REG-01 — Incrément 1 préparé localement : registre append-only de compensation par créance/retour, allocation uniquement si la part P5-B identifie un payeur unique ; source et snapshot initiaux inchangés. Multi-organismes, historiques incomplets, créances engagées/présentées/facturées restent bloqués. Tests préparés, base jamais exécutée ; statut ouvert jusqu'à recette technique ciblée.
 - C1-LEG-01 — Ouvert : réalisation historique sans exigences documentaires figées non facturable ; reprise administrative à définir explicitement, sans prendre des clauses courantes pour historiques.
 - C1-FAC-02 — Implémenté localement : champs/pièces FACTURATION facultatifs au comptoir, droits/finance toujours obligatoires ; compléments versionnés et contrôle distinct avant engagement. Facturation effective reste hors P5-C.1 et devra appeler le garde transactionnel.
 - C1-MIG-01 — Corrigé dans le test : inspection SQLite périmée après migration externe ; connexion d'inspection renouvelée, assertions conservées.
@@ -125,7 +125,7 @@ L'incident réel PharmaGabon reste ouvert faute de reproduction avec son fichier
 | C2-JSON-01 | UUID bruts dans le snapshot de récapitulatif non sérialisables | Corrigé par encodage JSON explicite ; nominal facture/récap/lot réussi |
 | C2-RETOUR-01 | Retour post-facture laissait créer un récapitulatif | Reproduit 201 au lieu de 409 ; contrôle des retours propagé au récapitulatif et au lot, deux tests verts et PDF initial inchangé |
 | C2-TOTAL-01 | Total multi-créances pouvait dépasser INTEGER 32 bits | BIGINT + somme exacte bornée ; test 3 milliards et contrôle Alembic réussis sous SQLite, natif ouvert |
-| C1-REG-01 | Compensations de créances, avoirs, annulations documentaires/rejets | Toujours ouvert ; tous les engagements affectés sont bloqués sans réécrire les sources financières |
+| C1-REG-01 | Compensations de créances, avoirs, annulations documentaires/rejets | Incrément 1 préparé : retours non engagés avec ventilation historique univoque seulement ; avoirs, annulations documentaires/rejets et cas ambigus toujours bloqués ; recette technique ciblée requise |
 | C2-TEST-01 | Fixture de migration réinstallait un catalogue déjà migré | Correction limitée au test ; aucune permission automatique ni règle métier retirée |
 
 OBS-CAT-01 (incident réel PharmaGabon) et CAP-P5-01 (plafonds consommables non arbitrés) restent ouverts. Les contrôles C2 ne lèvent aucune réserve historique non couverte. Aucun push, migration conservée, déploiement ou activation de l'encaissement groupé.

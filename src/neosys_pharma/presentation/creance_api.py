@@ -17,7 +17,8 @@ vente_api.POLICY.update({
     'creances_sources':'tiers_payant.creance.consulter','creances_liste':'tiers_payant.creance.consulter',
     'creance_detail':'tiers_payant.creance.consulter','creance_historique':'tiers_payant.creance.consulter',
     'creances_constituer':'tiers_payant.creance.constituer','creance_completer':'tiers_payant.creance.completer',
-    'creance_verifier':'tiers_payant.creance.verifier','creance_engagement':'tiers_payant.creance.verifier'})
+    'creance_verifier':'tiers_payant.creance.verifier','creance_engagement':'tiers_payant.creance.verifier',
+    'creance_regulariser':'tiers_payant.creance.regulariser'})
 router=APIRouter(prefix='/api/tiers-payants/organisations/{organisation_id}/creances',tags=['Créances organismes'],dependencies=[Depends(vente_api.contexte)])
 
 
@@ -62,6 +63,7 @@ class Verification(vente_api.Revision):
     conforme:bool=Field(strict=True)
     motif:str=Field(min_length=1,max_length=2000)
 class Engagement(vente_api.Revision):operation:Literal['PRESENTER','GENERER_FACTURE','VALIDER_FACTURE','EMETTRE_FACTURE']
+class Regularisation(vente_api.Mutation):retour_id:UUID;motif:str=Field(min_length=1,max_length=2000)
 
 
 @router.post('',status_code=201,name='creances_constituer')
@@ -92,6 +94,13 @@ def completer(ident:UUID,data:Complement,s=Depends(service)):
 def verifier(ident:UUID,data:Verification,s=Depends(service)):
     execute(lambda:s.obtenir(ident,'tiers_payant.creance.verifier'))
     return mutate(s,data,'VERIFIER:'+str(ident),lambda:s.verifier(ident,data.revision,data.motif,data.conforme))
+
+
+@router.post('/{ident}/compensations-retour',name='creance_regulariser')
+def regulariser(ident:UUID,data:Regularisation,s=Depends(service)):
+    execute(lambda:s.obtenir(ident,'tiers_payant.creance.regulariser'))
+    return mutate(s,data,'REGULARISER_RETOUR:'+str(ident),
+        lambda:s.regulariser_retour(ident,data.retour_id,data.motif))
 
 
 @router.post('/{ident}/controle-engagement',name='creance_engagement')

@@ -26,9 +26,69 @@ def cycle(url,monkeypatch):
         assert 'uq_tp_creance_source' in {x['name'] for x in i.get_unique_constraints('tiers_payant_creances')}
         assert 'fk_tp_creance_realisation_scope' in {x['name'] for x in i.get_foreign_keys('tiers_payant_creances')}
         assert 'uq_tp_creance_revision' in {x['name'] for x in i.get_unique_constraints('tiers_payant_creances_versions')}
+        assert 'tiers_payant_compensations_creances' in i.get_table_names()
+        assert 'uq_tp_compensation_creance_retour' in {x['name'] for x in i.get_unique_constraints('tiers_payant_compensations_creances')}
+        assert {'ck_tp_compensation_creance_montant','ck_tp_compensation_creance_hash'} <= {
+            x['name'] for x in i.get_check_constraints('tiers_payant_compensations_creances')}
+        if engine.dialect.name=='sqlite':
+            with engine.connect() as c:
+                names={x[0] for x in c.execute(sa.text(
+                    "SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='tiers_payant_compensations_creances'"))}
+            assert {'tiers_payant_compensations_creances_update_immutable',
+                    'tiers_payant_compensations_creances_delete_immutable'} <= names
+        elif engine.dialect.name=='postgresql':
+            with engine.connect() as c:
+                names={x[0] for x in c.execute(sa.text(
+                    "SELECT tgname FROM pg_trigger WHERE tgrelid=to_regclass(:table) AND NOT tgisinternal"),
+                    {'table':'tiers_payant_compensations_creances'})}
+            assert 'tiers_payant_compensations_creances_immutable' in names
         with Session(engine) as s:assert s.get(OrganismePriseEnChargeModel,payer).nom=='Historique fictif'
         command.downgrade(cfg,'20261019_04');command.upgrade(cfg,'head');command.check(cfg)
         with Session(engine) as s:assert s.get(OrganismePriseEnChargeModel,payer).revision==1
+        if engine.dialect.name=='sqlite':
+            from sqlalchemy.exc import DBAPIError
+            with engine.connect() as c:
+                c.exec_driver_sql('PRAGMA foreign_keys=OFF')
+                c.execute(sa.text(f"INSERT INTO tiers_payant_compensations_creances "
+                    "(id,organisation_id,creance_id,retour_id,montant_xaf,snapshot,snapshot_hash,motif,auteur_id,cree_le) "
+                    "VALUES (:id,:org,:creance,:retour,10,'{}',:hash,'preuve jetable',:auteur,'2026-10-28T00:00:00+00:00')"),
+                    {'id':str(uuid4()),'org':str(org),'creance':str(uuid4()),'retour':str(uuid4()),
+                     'hash':'a'*64,'auteur':str(uuid4())})
+                c.commit()
+                with pytest.raises(DBAPIError):
+                    c.execute(sa.text(f"UPDATE tiers_payant_compensations_creances SET montant_xaf=11"));c.commit()
+                c.rollback()
+                with pytest.raises(DBAPIError):
+                    c.execute(sa.text(f"DELETE FROM tiers_payant_compensations_creances"));c.commit()
+                c.rollback()
+            with pytest.raises(RuntimeError,match='Downgrade refusé'):
+                command.downgrade(cfg,'20261028_01')
+        elif engine.dialect.name=='postgresql':
+            from sqlalchemy.exc import DBAPIError
+            with engine.connect() as c:
+                triggers={x[0] for x in c.execute(sa.text(
+                    "SELECT tgname FROM pg_trigger WHERE tgrelid=to_regclass(:table) AND NOT tgisinternal"),
+                    {'table':'tiers_payant_compensations_creances'})}
+            assert 'tiers_payant_compensations_creances_immutable' in triggers
+            # Ce témoin invalide les FK uniquement pendant l'insertion; il
+            # permet de vérifier les triggers immuables sans créer de faux
+            # dossier métier dans les tables P4/P5 parentes.
+            values={'id':str(uuid4()),'org':str(org),'creance':str(uuid4()),'retour':str(uuid4()),
+                'hash':'b'*64,'auteur':str(uuid4())}
+            with engine.begin() as c:
+                c.execute(sa.text('SET session_replication_role = replica'))
+                c.execute(sa.text("INSERT INTO tiers_payant_compensations_creances "
+                    "(id,organisation_id,creance_id,retour_id,montant_xaf,snapshot,snapshot_hash,motif,auteur_id,cree_le) "
+                    "VALUES (:id,:org,:creance,:retour,10,'{}'::json,:hash,'preuve jetable',:auteur,'2026-10-28T00:00:00+00:00')"),values)
+                c.execute(sa.text('SET session_replication_role = origin'))
+            for statement in (
+                "UPDATE tiers_payant_compensations_creances SET montant_xaf=11",
+                "DELETE FROM tiers_payant_compensations_creances",
+            ):
+                with pytest.raises(DBAPIError):
+                    with engine.begin() as c:c.execute(sa.text(statement))
+            with pytest.raises(RuntimeError,match='Downgrade refusé'):
+                command.downgrade(cfg,'20261028_01')
     finally:engine.dispose();get_settings.cache_clear()
 
 

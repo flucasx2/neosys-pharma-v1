@@ -103,6 +103,8 @@ class FacturationOrganismeService:
                 EngagementCreanceModel.genre==row.genre,EngagementCreanceModel.organisation_id==self.org))
             if reservation is not None and reservation.preparation_id!=row.id:
                 raise ConflitStock('Créance déjà engagée dans une préparation incompatible.')
+            if self.creances.solde_effectif(claim)<=0:
+                raise ConflitStock('Créance entièrement compensée : aucun solde à présenter.')
             output.append({'creance_id':str(ident),'revision':revision})
         return output
 
@@ -166,9 +168,12 @@ class FacturationOrganismeService:
             for part in c.snapshot['lignes']:
                 raw=part['etape']['snapshot_droits'].get('dossier_documentaire_json')
                 if raw:beneficiary=json.loads(raw).get('beneficiaire',{}).get('nom') or beneficiary
+            effective=self.creances.solde_effectif(c)
             lines.append({'reference':str(c.id),'detail':f"Vente {c.vente_id} / bénéficiaire {beneficiary} / convention {convention.code} v{convention.version}",
-                'montant_xaf':c.montant_xaf})
-            dossiers.append({'creance':serial(c),'version_administrative':serial(v)})
+                'montant_xaf':effective})
+            dossiers.append({'creance':serial(c),'version_administrative':serial(v),
+                'compensations':[serial(x) for x in self.creances.compensations(c)],
+                'solde_effectif_xaf':effective})
         presentation=self._presentation(row)
         return {'genre':row.genre,'reference':reference,'reference_validation':reference_validation,
             'emetteur':{'organisation_id':str(self.org),'nom':org.nom_commercial,'raison_sociale':org.raison_sociale,
@@ -210,7 +215,8 @@ class FacturationOrganismeService:
             pdf=pdf,pdf_sha256=sha256(pdf).hexdigest(),auteur_id=self.stock.user)
         for item in v.selection:
             claim=self.creances.obtenir(UUID(item['creance_id']))
-            self.stock.ajouter(LigneDocumentOrganismeModel,document_id=doc.id,creance_id=claim.id,genre=row.genre,montant_xaf=claim.montant_xaf)
+            self.stock.ajouter(LigneDocumentOrganismeModel,document_id=doc.id,creance_id=claim.id,genre=row.genre,
+                montant_xaf=self.creances.solde_effectif(claim))
             if row.genre=='FACTURE':
                 dossier=self.creances.version(claim)
                 self.creances._version(claim,dossier.revision+1,'FACTURE',dossier.complements,dossier.anomalies,'Facture de recette '+reference)
@@ -230,9 +236,10 @@ class FacturationOrganismeService:
                 LigneDocumentOrganismeModel.document_id==document.id,LigneDocumentOrganismeModel.organisation_id==self.org)):
             claim=self.creances.obtenir(line.creance_id)
             self.creances.vente(claim.vente_id,'tiers_payant.document.regrouper')
-            if self.creances.retours(claim):
+            result=self.creances.detail(claim.id)
+            if result['retours_a_regulariser'] or result['retours_ambigus']:
                 raise ConflitStock('Facture affectée par un retour non régularisé : regroupement interdit.')
-            if self.creances.version(claim).etat!='FACTURE' or claim.montant_xaf!=line.montant_xaf:
+            if self.creances.version(claim).etat!='FACTURE' or result['solde_effectif_xaf']!=line.montant_xaf:
                 raise ConflitStock('Facture et créance incohérentes ; engagement interdit.')
 
     def regrouper(self,genre,ids,motif):

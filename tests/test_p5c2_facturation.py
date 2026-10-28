@@ -100,6 +100,8 @@ def test_regroupement_multi_creances_bordereau_facture_pdf_historique(raw_client
     assert 'BROUILLON' in text and 'NON EMIS' in text and str(sum(x['montant_xaf'] for x in claims)) in text
     post(c,a,'/preparations',payload,409)
     emitted=emit(c,a,draft,monkeypatch,'BOR/TEST/001');doc=emitted['document'];assert doc['total_xaf']==sum(x['montant_xaf'] for x in claims)
+    assert all(line['montant_xaf']==c.get(root(a)+f"/creances/{line['reference']}").json()['solde_effectif_xaf']
+        for line in emitted['document']['snapshot']['lignes'])
     (tmp_path/'bordereau-organisme-recette.pdf').write_bytes(c.get(root(a)+f"/documents/emis/{emitted['document']['id']}/pdf").content)
     invoice=post(c,a,'/preparations',body(claims,'FACTURE',ident),201)
     invoice=emit(c,a,invoice,monkeypatch,'FAC/TEST/001');doc=invoice['document']

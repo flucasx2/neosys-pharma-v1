@@ -8,11 +8,14 @@ from neosys_pharma.application.tiers_payants_service import TiersPayantsService
 from neosys_pharma.domain.creances import controle_administratif, ENGAGEMENTS
 from neosys_pharma.domain.configuration_convention import texte
 from neosys_pharma.domain.stock import ConflitStock
-from neosys_pharma.infrastructure.creance_models import CreanceOrganismeModel, VersionDossierCreanceModel
+from neosys_pharma.infrastructure.creance_models import (CreanceOrganismeModel, VersionDossierCreanceModel,
+    CompensationCreanceOrganismeModel)
 from neosys_pharma.infrastructure.prise_en_charge_models import (RealisationPriseEnChargeModel, CalculPriseEnChargeVenteModel,
     LigneCalculPriseEnChargeModel, PartCalculPriseEnChargeModel, EtapeCalculPriseEnChargeModel)
-from neosys_pharma.infrastructure.regularisation_models import RetourVenteModel
+from neosys_pharma.infrastructure.regularisation_models import RetourVenteModel, LigneRetourVenteModel
 from neosys_pharma.infrastructure.vente_models import VenteModel
+from neosys_pharma.infrastructure.facturation_organisme_models import EngagementCreanceModel, LigneDocumentOrganismeModel
+from neosys_pharma.domain.compensation_creance import organisme_unique
 
 
 class CreanceService:
@@ -49,13 +52,100 @@ class CreanceService:
         return self.s.scalars(select(RetourVenteModel).where(RetourVenteModel.organisation_id==self.org,
             RetourVenteModel.encaissement_id==real.encaissement_id).order_by(RetourVenteModel.date,RetourVenteModel.id)).all()
 
+    def _ventilation_retour(self, row, retour):
+        """Retourne les parts certaines par organisme; toute ambiguïté bloque."""
+        real=self.s.get(RealisationPriseEnChargeModel,row.realisation_id)
+        source=retour.instantane.get('prise_en_charge') or {}
+        if (source.get('realisation_id'),source.get('calcul_id'))!=(str(real.id),str(real.calcul_id)):
+            raise ConflitStock('Le retour ne référence pas exactement la réalisation historique.')
+        if retour.montant_organismes_xaf is None:
+            raise ConflitStock('Retour historique sans ventilation organismes : régularisation manuelle requise.')
+        calc_lines={x.ligne_vente_id:x for x in self.s.scalars(select(LigneCalculPriseEnChargeModel).where(
+            LigneCalculPriseEnChargeModel.calcul_id==real.calcul_id,
+            LigneCalculPriseEnChargeModel.organisation_id==self.org)).all()}
+        allocations={};total=0
+        return_lines=self.s.scalars(select(LigneRetourVenteModel).where(
+            LigneRetourVenteModel.retour_id==retour.id,LigneRetourVenteModel.organisation_id==self.org)).all()
+        if not return_lines:
+            raise ConflitStock('Détail de lignes de retour absent : ventilation impossible.')
+        evidence=[]
+        for returned in return_lines:
+            snap=returned.instantane
+            try:amount=int(snap['part_organismes_xaf'])
+            except (KeyError,TypeError,ValueError):
+                raise ConflitStock('Part organismes absente ou invalide dans le snapshot du retour.')
+            if amount<0:raise ConflitStock('Part organismes négative dans le snapshot du retour.')
+            calc_line=calc_lines.get(returned.ligne_id)
+            if calc_line is None:raise ConflitStock('Ligne retournée absente du calcul financier historique.')
+            parts=self.s.scalars(select(PartCalculPriseEnChargeModel).where(
+                PartCalculPriseEnChargeModel.ligne_calcul_id==calc_line.id,
+                PartCalculPriseEnChargeModel.organisation_id==self.org,
+                PartCalculPriseEnChargeModel.type_part=='ORGANISME',
+                PartCalculPriseEnChargeModel.montant_xaf>0)).all()
+            try:
+                payeur=organisme_unique([(part.organisme_id,part.montant_xaf) for part in parts],
+                    amount,calc_line.total_organismes_xaf)
+            except ValueError as exc:
+                raise ConflitStock(str(exc)) from exc
+            if payeur is None:
+                continue
+            part=next(part for part in parts if part.organisme_id==payeur)
+            allocations[payeur]=allocations.get(payeur,0)+amount
+            total+=amount
+            evidence.append({'ligne_retour_id':str(returned.id),'ligne_vente_id':str(returned.ligne_id),
+                'quantite':returned.quantite,'montant_organismes_xaf':amount,'part_calcul_id':str(part.id),
+                'organisme_id':str(payeur),'snapshot_ligne':snap})
+        try:source_total=int(source.get('montant_organismes_xaf',-1))
+        except (TypeError,ValueError):raise ConflitStock('Total organismes absent ou invalide dans le snapshot du retour.')
+        if total!=retour.montant_organismes_xaf or total!=source_total:
+            raise ConflitStock('Le total du retour diffère de ses lignes ou de son snapshot financier.')
+        return allocations,{'retour':serial(retour),'realisation_id':str(real.id),'calcul_id':str(real.calcul_id),
+            'lignes':evidence,'total_organismes_xaf':total}
+
+    def compensations(self,row):
+        rows=self.s.scalars(select(CompensationCreanceOrganismeModel).where(
+            CompensationCreanceOrganismeModel.creance_id==row.id,
+            CompensationCreanceOrganismeModel.organisation_id==self.org).order_by(
+                CompensationCreanceOrganismeModel.cree_le,CompensationCreanceOrganismeModel.id)).all()
+        for item in rows:
+            digest=sha256(json.dumps(item.snapshot,sort_keys=True,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
+            if digest!=item.snapshot_hash or item.snapshot.get('total_organismes_xaf')!=item.montant_xaf:
+                raise ConflitStock('Intégrité du registre de compensation non vérifiable.')
+        return rows
+
+    def solde_effectif(self,row):
+        amount=row.montant_xaf-sum(x.montant_xaf for x in self.compensations(row))
+        if amount<0:raise ConflitStock('Les écritures dépassent le montant initial de la créance.')
+        return amount
+
+    def _retours_a_regulariser(self,row,retours,compensations):
+        existing={x.retour_id:x.montant_xaf for x in compensations}
+        pending=[];ambiguities=[]
+        for retour in retours:
+            try:allocations,_=self._ventilation_retour(row,retour)
+            except ConflitStock as exc:
+                ambiguities.append({'retour_id':str(retour.id),'motif':str(exc)});continue
+            expected=allocations.get(row.organisme_id,0)
+            recorded=existing.get(retour.id,0)
+            if recorded!=expected:
+                pending.append({'retour_id':str(retour.id),'montant_attendu_xaf':expected,
+                    'montant_compense_xaf':recorded})
+        return pending,ambiguities
+
     def detail(self, ident):
-        row=self.obtenir(ident);version=self.version(row);retours=self.retours(row)
+        row=self.obtenir(ident);version=self.version(row);retours=self.retours(row);compensations=self.compensations(row)
         anomalies=list(version.anomalies)
-        if retours:anomalies.append('RETOUR_A_REGULARISER : aucune réduction silencieuse de la créance.')
-        return serial(row)|{'dossier':serial(version),'etat_effectif':'EN_ANOMALIE' if retours else version.etat,
-            'facturable':version.etat=='VALIDE_POUR_FACTURATION' and not anomalies,
-            'anomalies_effectives':anomalies,'retours':[serial(x) for x in retours]}
+        pending,ambiguities=self._retours_a_regulariser(row,retours,compensations)
+        if pending:anomalies.append('RETOUR_A_REGULARISER : compensation explicite requise.')
+        if ambiguities:anomalies.append('RETOUR_AMBIGU : ventilation historique insuffisante; blocage conservé.')
+        montant_compense=sum(x.montant_xaf for x in compensations)
+        solde=self.solde_effectif(row)
+        return serial(row)|{'dossier':serial(version),'etat_effectif':'EN_ANOMALIE' if pending or ambiguities else version.etat,
+            'facturable':version.etat=='VALIDE_POUR_FACTURATION' and not anomalies and solde>0,
+            'anomalies_effectives':anomalies,'retours':[serial(x) for x in retours],
+            'compensations':[serial(x) for x in compensations],'montant_compense_xaf':montant_compense,
+            'solde_effectif_xaf':solde,
+            'retours_a_regulariser':pending,'retours_ambigus':ambiguities}
 
     def _version(self, row, revision, etat, complements, anomalies, motif):
         return self.stock.ajouter(VersionDossierCreanceModel,creance_id=row.id,revision=revision,etat=etat,
@@ -124,12 +214,48 @@ class CreanceService:
     def verifier(self, ident, revision, motif, conforme):
         row,previous=self.courant(ident,revision,'tiers_payant.creance.verifier')
         anomalies=controle_administratif(row.exigences,previous.complements)
-        if conforme and (anomalies or self.retours(row)):
+        pending,ambiguities=self._retours_a_regulariser(row,self.retours(row),self.compensations(row))
+        if conforme and (anomalies or pending or ambiguities):
             raise ConflitStock('Dossier incomplet ou retour à régulariser : validation pour facturation interdite.')
         self._version(row,revision+1,'VALIDE_POUR_FACTURATION' if conforme else 'EN_ANOMALIE',previous.complements,
             anomalies,texte(motif,'Motif de contrôle',2000))
         self.tiers._audit('CREANCE',row.id,'DOSSIER_CONTROLE',{'revision':revision+1,'conforme':conforme})
         return self.detail(row.id)
+
+    def regulariser_retour(self,ident,retour_id,motif):
+        self.tiers._organisation_verrouillee()
+        row=self.obtenir(ident,'tiers_payant.creance.regulariser')
+        retours={x.id:x for x in self.retours(row)}
+        retour=retours.get(retour_id)
+        if retour is None:raise LookupError('Retour absent de la réalisation de cette créance.')
+        if self.s.scalar(select(EngagementCreanceModel).where(
+                EngagementCreanceModel.creance_id==row.id,
+                EngagementCreanceModel.organisation_id==self.org)) is not None:
+            raise ConflitStock('Créance déjà engagée : compensation C1 interdite.')
+        if self.s.scalar(select(LigneDocumentOrganismeModel).where(
+                LigneDocumentOrganismeModel.creance_id==row.id,
+                LigneDocumentOrganismeModel.organisation_id==self.org)) is not None:
+            raise ConflitStock('Créance déjà présentée ou facturée : traitement documentaire hors périmètre.')
+        if self.version(row).etat=='FACTURE':
+            raise ConflitStock('Créance déjà facturée : traitement documentaire hors périmètre.')
+        existing=self.s.scalar(select(CompensationCreanceOrganismeModel).where(
+            CompensationCreanceOrganismeModel.creance_id==row.id,
+            CompensationCreanceOrganismeModel.retour_id==retour.id,
+            CompensationCreanceOrganismeModel.organisation_id==self.org))
+        if existing:raise ConflitStock('Ce retour a déjà été compensé pour cette créance.')
+        allocations,evidence=self._ventilation_retour(row,retour)
+        amount=allocations.get(row.organisme_id,0)
+        if amount<=0:raise ConflitStock('Ce retour ne porte aucune part positive sur cette créance.')
+        total=sum(x.montant_xaf for x in self.compensations(row))
+        if total+amount>row.montant_xaf:
+            raise ConflitStock('La compensation dépasserait le montant initial de la créance.')
+        motif=texte(motif,'Motif de compensation',2000)
+        digest=sha256(json.dumps(evidence,sort_keys=True,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
+        item=self.stock.ajouter(CompensationCreanceOrganismeModel,creance_id=row.id,retour_id=retour.id,
+            montant_xaf=amount,snapshot=evidence,snapshot_hash=digest,motif=motif,auteur_id=self.stock.user)
+        self.tiers._audit('CREANCE',row.id,'COMPENSATION_RETOUR',{'retour_id':str(retour.id),
+            'montant_xaf':amount,'snapshot_hash':digest,'solde_effectif_xaf':row.montant_xaf-total-amount})
+        return self.detail(row.id)|{'compensation':serial(item)}
 
     def autoriser_engagement(self, ident, revision, operation):
         """Garde à appeler DANS la transaction de tout futur module de facturation.
@@ -143,4 +269,4 @@ class CreanceService:
         if result['dossier']['revision']!=revision or not result['facturable']:
             raise ConflitStock('Engagement refusé : dossier incomplet, non vérifié, modifié ou retour à régulariser.')
         return {'autorise':True,'operation':operation,'creance_id':str(row.id),'revision':revision,
-            'snapshot_hash':row.snapshot_hash,'controle_seulement':True}
+            'snapshot_hash':row.snapshot_hash,'montant_effectif_xaf':result['solde_effectif_xaf'],'controle_seulement':True}
