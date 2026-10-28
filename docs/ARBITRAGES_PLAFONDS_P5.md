@@ -21,3 +21,8 @@ Exemple à arbitrer : organisme A limité à 50 000 XAF par année ; 40 000 déj
 Choix techniques proposés après arbitrage : journal append-only des réservations/consommations/restitutions, références de vente/ligne/snapshot et opération idempotente, verrouillage déterministe des compteurs, aucune modification des anciens snapshots. Il s'agit d'une proposition technique ; elle ne tranche aucune règle contractuelle du tableau.
 
 Les développements indépendants peuvent continuer. Le calcul confirmé d'une clause de plafond non interprétable doit rester refusé ; ne pas contourner ce refus pour commencer P5-C.
+
+
+## Décision courante du 28 octobre 2026 — périmètre neutralité V1
+
+Pour les nouvelles confirmations V1, les anciennes formulations principal facultatif/secondaires multiples/transmission systématique du reliquat sont remplacées par un principal obligatoire, au plus un complémentaire et une conduite contractuelle explicite. Un plafond par ligne atteint déclenche la politique PLAFOND ; un reliquat hors plafond déclenche ECART. CLIENT, SUIVANT et BLOQUER doivent être définis dans chaque convention ; aucun transfert automatique. Les compteurs périodiques et les arbitrages du tableau restent hors de la correction. Voir [contrat et limites](P5_NEUTRALITE_ORGANISMES_20261028.md). Préparé, non testé et non appliqué sur une base ; aucune décision historique supprimée.

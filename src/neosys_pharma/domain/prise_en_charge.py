@@ -22,6 +22,8 @@ class StatutCalcul(StrEnum):
 
 
 class CodeBlocage(StrEnum):
+    COORDINATION_INVALIDE = "COORDINATION_INVALIDE"
+    SOLDE_NON_AUTORISE = "SOLDE_NON_AUTORISE"
     PRIORITES_ABSENTES = "PRIORITES_ABSENTES"
     PRIORITES_INVALIDES = "PRIORITES_INVALIDES"
     PRIORITES_HORS_PERIODE = "PRIORITES_HORS_PERIODE"
@@ -133,6 +135,7 @@ class ConventionCalcul:
     baremes: tuple[RegleCouverture, ...]
     exclusions_produits: tuple[UUID, ...] = ()
     exclusions_categories: tuple[str, ...] = ()
+    coordination_json: str | None = None
 
     def __post_init__(self) -> None:
         if self.version < 1 or not self.code.strip():
@@ -205,6 +208,7 @@ class DemandeCalculPriseEnCharge:
     date_calcul: date
     lignes: tuple[LigneVenteCalcul, ...]
     parametrage: ParametragePrioriteCalcul | None
+    exiger_v1: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,6 +320,7 @@ def _stage_zero(priority: PrioriteCalcul, line: LigneVenteCalcul, remaining: int
     snapshot = ()
     if convention is not None:
         snapshot = (
+            ("coordination_json", convention.coordination_json),
             ("code", convention.code), ("version", convention.version),
             ("statut", convention.statut), ("date_debut", convention.date_debut),
             ("date_fin", convention.date_fin), ("reference", convention.reference_contractuelle),
@@ -474,7 +479,7 @@ def _controle_eligibilite(priority: PrioriteCalcul, request: DemandeCalculPriseE
 class CalculateurPriseEnCharge:
     """Calcule une simulation immuable et globale pour une vente."""
 
-    VERSION = "p5-b.1/1"
+    VERSION = "p5-b.1/2"
 
     def calculer(self, request: DemandeCalculPriseEnCharge) -> ResultatCalculPriseEnCharge:
         if not request.lignes:
@@ -482,6 +487,12 @@ class CalculateurPriseEnCharge:
         for line in request.lignes:
             _xaf(line.net_xaf, "net_xaf")
         total = sum(line.net_xaf for line in request.lignes)
+        if request.exiger_v1:
+            from neosys_pharma.domain.coordination_prise_en_charge import ordonner_v1
+            try:
+                request = ordonner_v1(request)
+            except ValueError as exc:
+                return self._result(request, total, (), (BlocageCalcul(CodeBlocage.COORDINATION_INVALIDE, str(exc)),))
         blockers = list(_validate_priority_list(request))
         if blockers:
             return self._result(request, total, (), tuple(blockers))
@@ -492,6 +503,7 @@ class CalculateurPriseEnCharge:
         line_results: list[LigneResultatCalcul] = []
         for line in request.lignes:
             remaining = line.net_xaf
+            client_explicit = 0
             stages: list[EtapeCalcul] = []
             shares: dict[UUID, int] = {}
             line_blocked = False
@@ -501,6 +513,16 @@ class CalculateurPriseEnCharge:
                 ineligible = _controle_eligibilite(priority, request)
                 if ineligible is not None:
                     stages.append(_stage_zero(priority, line, remaining, ineligible))
+                    if request.exiger_v1 and remaining:
+                        event = "REFUS" if ineligible == CodeEtape.DROITS_REFUSES else "DROITS"
+                        action = json.loads(convention.coordination_json)["traitements_solde"][event]
+                        if action == "CLIENT":
+                            client_explicit += remaining
+                            remaining = 0
+                        elif action == "BLOQUER":
+                            blockers.append(BlocageCalcul(CodeBlocage.SOLDE_NON_AUTORISE, "Droits: traitement contractuel bloquant.", line.ligne_id, priority.organisme_id))
+                            line_blocked = True
+                            break
                     continue
                 if remaining == 0:
                     stages.append(_stage_zero(priority, line, remaining, CodeEtape.APPLIQUE))
@@ -515,6 +537,15 @@ class CalculateurPriseEnCharge:
                     break
                 if line.produit_id in convention.exclusions_produits or line.categorie_id in convention.exclusions_categories:
                     stages.append(_stage_zero(priority, line, remaining, CodeEtape.EXCLUSION_CONTRACTUELLE))
+                    if request.exiger_v1:
+                        action = json.loads(convention.coordination_json)["traitements_solde"]["EXCLUSION"]
+                        if action == "CLIENT":
+                            client_explicit += remaining
+                            remaining = 0
+                        elif action == "BLOQUER":
+                            blockers.append(BlocageCalcul(CodeBlocage.SOLDE_NON_AUTORISE, "Exclusion: traitement contractuel bloquant.", line.ligne_id, priority.organisme_id))
+                            line_blocked = True
+                            break
                     continue
                 matches = []
                 for rule in convention.baremes:
@@ -546,6 +577,7 @@ class CalculateurPriseEnCharge:
                     rule.code,
                     (("code", convention.code), ("version", convention.version),
                      ("reference", convention.reference_contractuelle),
+                     ("coordination_json", convention.coordination_json),
                      ("taux_numerateur", rule.taux_numerateur),
                      ("taux_denominateur", rule.taux_denominateur),
                      ("plafond_ligne_xaf", rule.plafond_ligne_xaf),
@@ -557,10 +589,23 @@ class CalculateurPriseEnCharge:
                                         item.categories_ids, item.arrondi) for item in convention.baremes))),
                     _stage_zero(priority, line, remaining, CodeEtape.APPLIQUE).snapshot_droits,
                 ))
+                if request.exiger_v1 and remaining:
+                    event = "PLAFOND" if rule.plafond_ligne_xaf is not None and amount == rule.plafond_ligne_xaf else "ECART"
+                    action = json.loads(convention.coordination_json)["traitements_solde"][event]
+                    if action == "CLIENT":
+                        client_explicit += remaining
+                        remaining = 0
+                    elif action == "BLOQUER":
+                        blockers.append(BlocageCalcul(CodeBlocage.SOLDE_NON_AUTORISE, "Solde contractuellement bloquant: " + event, line.ligne_id, priority.organisme_id))
+                        line_blocked = True
+                        break
+            if request.exiger_v1 and remaining and not line_blocked:
+                blockers.append(BlocageCalcul(CodeBlocage.SOLDE_NON_AUTORISE, "Aucun organisme suivant autorisé pour le solde.", line.ligne_id))
+                line_blocked = True
             line_results.append(LigneResultatCalcul(
                 line.ligne_id, line.net_xaf, tuple(stages),
                 tuple(sorted(shares.items(), key=lambda item: str(item[0]))),
-                None if line_blocked else remaining,
+                None if line_blocked else remaining + client_explicit,
             ))
 
         if blockers:

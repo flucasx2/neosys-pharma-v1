@@ -1,4 +1,5 @@
 """Contrats configurés, preuves par vente, isolation et snapshots historiques."""
+from p5_coordination_fixtures import conditions_v1
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from uuid import UUID, uuid4
@@ -25,7 +26,7 @@ def definition():
 
 
 def body(organism):
-    return {'organisme_id':organism['id'],'revision_organisme':organism['revision'],
+    return {'conditions':conditions_v1([organism['id']]),'organisme_id':organism['id'],'revision_organisme':organism['revision'],
         'version_attendue':0,'code':'CONTRAT','reference_contractuelle':'Contrat QA',
         'date_debut':str(date.today()),'date_fin':str(date.today()+timedelta(days=30)),'statut':'ACTIVE',
         'extensions_p5b':{'schema_version':1,'baremes':[{'code':'BASE','taux_numerateur':80,'taux_denominateur':100,
@@ -113,7 +114,7 @@ def test_vente_preuves_bloquantes_revision_refus_snapshot_et_non_reutilisation(r
         'date_fin':contract['date_fin'],'droits_statut':'CONFIRMES','reference_verification_droits':'DROITS-QA',
         'droits_verifies_le':datetime.now(timezone.utc).isoformat()})
     post(c,a,'/priorites',{'date_debut':str(date.today()),'date_fin':contract['date_fin'],'motif':'QA',
-        'priorites':[{'organisme_id':org['id'],'convention_id':contract['id'],'rang':1,'role':'SECONDAIRE'}]})
+        'priorites':[{'organisme_id':org['id'],'convention_id':contract['id'],'rang':1,'role':'PRINCIPAL'}]})
     sale=line(c,a,create(c,a,poste,mode='MUTUELLE'),product,pack)
     prefix=root(a)+'/ventes/'+sale['id'];calc=prefix+'/prise-en-charge'
     assert c.post(calc+'/simuler',json={'beneficiaire_id':beneficiary['id']}).json()['statut']=='BLOQUE'

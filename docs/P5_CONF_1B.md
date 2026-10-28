@@ -69,3 +69,8 @@ Les conventions historiques sans configuration conservent leur interprétation P
 - Pas de connexion externe, pas d'identifiants de portail, pas de scan médical stocké. Politique de conservation des documents binaires et autorisations dédiées à définir avec P5-C ; les références présentes sont protégées par les permissions vente/tiers payant.
 
 La fermeture de ces limites et la validation PostgreSQL/Chromium/humaine conditionnent la clôture de P5-CONF.1b. Le présent incrément ne valide ni P5-B complet ni P5-C.
+
+
+## Addendum courant — 28 octobre 2026, neutralité V1
+
+La décision du propriétaire remplace, pour les nouvelles confirmations V1, les anciennes règles de principal facultatif et secondaires multiples : exactement un principal et au plus un complémentaire. Organismes, conventions, affiliations et rangs existants sont réutilisés ; le rôle reste contextuel. Les clauses `conditions` schéma 2 définissent les ordres autorisés par bénéficiaire et les traitements explicites du solde. Schéma 1 conservé en lecture, insuffisant pour une nouvelle confirmation. Voir [contrat complet et limites](P5_NEUTRALITE_ORGANISMES_20261028.md). Code/tests préparés uniquement, aucune migration ni test exécuté, aucune acceptation nouvelle. Les sections précédentes sont des preuves historiques conservées.

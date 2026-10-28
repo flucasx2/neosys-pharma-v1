@@ -154,7 +154,7 @@ def test_dossiers_incomplets_modifies_retours_refuses_et_retrait(raw_client,acco
     post(c,a,f'/preparations/{ident}/valider',{'revision':1,'motif':'Révision documentaire périmée'},409)
     grant45(c,a);ret(c,a,enc,1)
     search=c.get(root(a)+'/documents/creances',params={'statut':'EN_ANOMALIE'});assert search.status_code==200,search.text
-    assert search.json()['total']==3
+    assert search.json()['total']==2
     assert c.get(root(a)+'/documents/creances',params={'statut':'VALIDE_POUR_FACTURATION'}).json()['total']==0
     post(c,a,f'/preparations/{ident}/valider',{'revision':1,'motif':'Retour non compensé'},409)
 
@@ -219,7 +219,7 @@ def test_modification_apres_validation_bloque_emission_et_listes_paginees(raw_cl
     assert c.get(root(a)+'/documents/creances',params={'date_debut':'2099-01-01'}).json()['total']==0
     assert c.get(root(a)+'/documents/creances',params={'date_fin':'9999-12-31'}).status_code==422
     refs=c.get(root(a)+'/documents/organismes',params={'q':'fictif','page_size':1}).json()
-    assert refs['total']==3 and len(refs['items'])==1
+    assert refs['total']==2 and len(refs['items'])==1
     assert c.get(root(a)+'/documents/organismes',params={'q':'inexistant'}).json()['total']==0
 
 

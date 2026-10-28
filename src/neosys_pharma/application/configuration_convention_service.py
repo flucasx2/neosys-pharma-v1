@@ -49,7 +49,7 @@ class ConfigurationConventionService:
             organisme_id=organisme.id, code=code, version=latest+1,
             date_debut=data['date_debut'], date_fin=data.get('date_fin'),
             statut=data['statut'], reference_contractuelle=data.get('reference_contractuelle'),
-            conditions={'schema_version': 1}, extensions_p5b=data['extensions_p5b'])
+            conditions=data.get('conditions', {'schema_version': 1}), extensions_p5b=data['extensions_p5b'])
         extension = data['extensions_p5b']
         if type(extension.get('schema_version')) is not int or extension.get('schema_version') != 1:
             raise ValueError('Version de barèmes invalide.')
@@ -77,7 +77,7 @@ class ConfigurationConventionService:
                 if obj is None or obj.organisation_id != self.org:
                     raise ValueError('Produit ou catégorie absent de cette organisation.')
         payload = {k: data[k] for k in ('organisme_id', 'date_debut', 'date_fin', 'statut', 'reference_contractuelle', 'extensions_p5b')}
-        row = self.tiers.creer_convention(payload | {'code': code, 'conditions': {'schema_version': 1}})
+        row = self.tiers.creer_convention(payload | {'code': code, 'conditions': data.get('conditions', {'schema_version': 1})})
         configuration = ConfigurationConventionModel(organisation_id=self.org, convention_id=UUID(row['id']),
             schema_version=1, definition=config, auteur_id=self.tiers.auteur_id)
         self.s.add(configuration); self.s.flush()

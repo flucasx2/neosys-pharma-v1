@@ -93,7 +93,7 @@ def test_constitution_confirmee_idempotence_et_controle_facturation(raw_client,a
     assert post(c,a,'',body,201,key)==result
     again=post(c,a,'',body,201)
     assert {x['id'] for x in again['creances']}=={x['id'] for x in result['creances']}
-    assert len(result['creances'])==3
+    assert len(result['creances'])==2
     assert sum(x['montant_xaf'] for x in result['creances'])==calc['total_organismes_xaf']
     claim=result['creances'][0];ident=claim['id'];assert claim['exigences']
     assert claim['etat_effectif']=='A_COMPLETER' and not claim['facturable']
@@ -161,7 +161,7 @@ def test_rollback_constitution_complete(raw_client,account,monkeypatch):
     with monkeypatch.context() as m:
         m.setattr(CreanceService,'_version',fail);post(c,a,'',{'realisation_id':real['id']},422)
     assert c.get(root(a)+'/creances').json()['total']==0
-    assert len(post(c,a,'',{'realisation_id':real['id']},201)['creances'])==3
+    assert len(post(c,a,'',{'realisation_id':real['id']},201)['creances'])==2
 
 
 @pytest.mark.parametrize('operation',['constitution','revision'])
@@ -208,8 +208,8 @@ def test_concurrence_postgresql_reelle(raw_client,account,operation):
         if claim:assert r2=='CONFLIT' and r1['dossier']['revision']==2
         else:assert {x['id'] for x in r1['creances']}=={x['id'] for x in r2['creances']}
         with Session(engine) as s:
-            assert s.scalar(select(func.count()).select_from(CreanceOrganismeModel))==3
-            assert s.scalar(select(func.count()).select_from(VersionDossierCreanceModel))==(4 if claim else 3)
+            assert s.scalar(select(func.count()).select_from(CreanceOrganismeModel))==2
+            assert s.scalar(select(func.count()).select_from(VersionDossierCreanceModel))==(3 if claim else 2)
     finally:release.set();pool.shutdown(wait=True,cancel_futures=True)
 
 
@@ -234,7 +234,7 @@ def test_contraintes_source_et_organisation(raw_client,account):
         with pytest.raises(DBAPIError,match='UNIQUE|unique'):
             s.execute(VersionDossierCreanceModel.__table__.insert().values(data|{'id':uuid4()}));s.commit()
         s.rollback()
-        assert s.scalar(select(func.count()).select_from(CreanceOrganismeModel))==3
+        assert s.scalar(select(func.count()).select_from(CreanceOrganismeModel))==2
     finally:gen.close()
 
 
@@ -258,5 +258,5 @@ def test_downgrade_refuse_sur_creances_existantes(raw_client,account,tmp_path,mo
     try:
         cfg=Config('alembic.ini');command.stamp(cfg,'20261019_05')
         with pytest.raises(RuntimeError,match='conserver'):command.downgrade(cfg,'20261019_04')
-        with sqlite3.connect(path) as probe:assert probe.execute('select count(*) from tiers_payant_creances').fetchone()[0]==3
+        with sqlite3.connect(path) as probe:assert probe.execute('select count(*) from tiers_payant_creances').fetchone()[0]==2
     finally:get_settings.cache_clear()

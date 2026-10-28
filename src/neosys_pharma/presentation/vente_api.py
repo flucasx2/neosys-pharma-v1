@@ -55,7 +55,7 @@ class Destinataire(Input):
 class Creation(Mutation):
     emplacement_id:UUID
     poste_id:UUID
-    mode:Literal['SANS_TIERS','CNAMGS','MUTUELLE','CNAMGS_MUTUELLE','CREDIT']='SANS_TIERS'
+    mode:Literal['SANS_TIERS','PRISE_EN_CHARGE','CNAMGS','MUTUELLE','CNAMGS_MUTUELLE','CREDIT']='SANS_TIERS'
     client_id:UUID|None=None
     destinataire:Destinataire|None=None
 class Ligne(Revision):

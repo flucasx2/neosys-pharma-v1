@@ -1,4 +1,26 @@
-# Reprise courante — 27 octobre 2026
+# Reprise courante — 28 octobre 2026
+
+Mise à jour pour le transfert sélectif P5 Neutralité. Les décisions ci-dessous remplacent les instructions opérationnelles de la section historique du 27 octobre ; les preuves et décisions de cette section restent conservées.
+
+## Références Git et preuves P4
+
+`origin/main` vérifié à `3ca0eebe9e3756aca77ba8ac6d9e991a92c13c93`. La fusion P4 #14 est `13af7dcb47ef22fbabe658ba5c5cfe8e387587e8` ; la fusion P4 #15 est `3ca0eebe9e3756aca77ba8ac6d9e991a92c13c93`. Les commits sources `c88151d4d5e899c564c8cddb6a8760de3f99875a` et `37ed8350bf840e676fc3f4f3cd4fb6f30601c45f` sont ancêtres de cette référence.
+
+Le checkout `dev/codex-docker` reste au HEAD `b223ca2c86fe93bac811f3d6e146034dff3c8acf` et n’a pas été modifié. La préparation se trouve dans le worktree `codex/p5-neutralite-organismes`, basé sur `origin/main`.
+
+## État P5 Neutralité
+
+Le transfert ciblé comprend le code, les fixtures et tests de neutralité, les mises à jour documentaires P5 et la migration additive `20261028_01`, dont le parent a été ajusté à `20261022_02`, tête P4 de `origin/main`, pour préserver une tête Alembic unique. Le diff de `tests/test_p5c2_migration.py` depuis la source n’a pas été transféré : la version de `main`, incluant le test de changement de jour UTC, reste intacte. Aucun conflit de code P4 n’a été constaté dans les changements retenus.
+
+Sur le checkout source, après la correction de comparaison UTC : SQLite ciblé 82 réussis / 0 échoué / 6 ignorés ; PostgreSQL ciblé 46 réussis / 0 échoué / 1 ignoré ; `tests/test_p5_neutralite_integration.py` 6/6 réussis sur chaque dialecte ; cycle de migration PostgreSQL validé séparément. Ces preuves ne remplacent pas les tests ciblés du nouveau HEAD.
+
+## État de validation et autorisations
+
+Le contrôle statique de cette préparation est consigné dans `PROGRESS.md` et `docs/P5_NEUTRALITE_ORGANISMES_20261028.md`. Aucun test avec base n’a été exécuté sur le nouveau worktree. Des tests ciblés sur ce worktree nécessitent l’autorisation de base jetable correspondante. Aucun commit, push, merge, déploiement ou opération GitHub n’est effectué.
+
+---
+
+## Historique de reprise — 27 octobre 2026 (contenu conservé, état remplacé le 28 octobre)
 
 > **Décision du propriétaire — références Git du 27 octobre 2026.** Publication : `origin/main` attendu à `2910cc60e8c8287a587ce8ff8e3f48c95be1ba39`. `main` local conservé à `fe53c42dc89d79618290b182aae29b01d8cb42d6`, aucune synchronisation autorisée. La différence est acceptée comme anomalie connue ; l'ancien audit reste inchangé avec son échec conservé. Adaptation ciblée proposée pour contrôler séparément les deux SHA, à autoriser avant application. Les preuves locales sont acceptées. Préparation du plan de commits uniquement : aucun commit, intégration, merge ou push autorisé à cette étape.
 

@@ -299,9 +299,6 @@ class VerificationConventionInput(Mutation):
 
 @router.post("/conventions-configurees", status_code=201, name="conventions_configurees_creer")
 def convention_configuree_creer(data: ConventionConfigureeInput, s=Depends(service)):
-    if data.conditions != {"schema_version": 1} or type(data.conditions.get("schema_version")) is not int:
-        from fastapi import HTTPException
-        raise HTTPException(422, "Conditions non prises en charge; aucun champ contractuel ne peut être ignoré.")
     return mutate(s, data, "CONVENTION_CONFIGUREE", lambda: ConfigurationConventionService(s).creer(data.model_dump(exclude={"cle"})))
 
 
