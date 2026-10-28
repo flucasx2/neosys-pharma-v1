@@ -14,7 +14,8 @@ from neosys_pharma.infrastructure.prise_en_charge_models import (RealisationPris
     LigneCalculPriseEnChargeModel, PartCalculPriseEnChargeModel, EtapeCalculPriseEnChargeModel)
 from neosys_pharma.infrastructure.regularisation_models import RetourVenteModel, LigneRetourVenteModel
 from neosys_pharma.infrastructure.vente_models import VenteModel
-from neosys_pharma.infrastructure.facturation_organisme_models import EngagementCreanceModel, LigneDocumentOrganismeModel
+from neosys_pharma.infrastructure.facturation_organisme_models import (EngagementCreanceModel, LigneDocumentOrganismeModel,
+    PreparationOrganismeModel, VersionPreparationOrganismeModel, DocumentOrganismeModel)
 from neosys_pharma.domain.compensation_creance import organisme_unique
 
 
@@ -146,6 +147,123 @@ class CreanceService:
             'compensations':[serial(x) for x in compensations],'montant_compense_xaf':montant_compense,
             'solde_effectif_xaf':solde,
             'retours_a_regulariser':pending,'retours_ambigus':ambiguities}
+
+    def rapprochement(self, ident):
+        """Projection de lecture des liens C1/P4/C2 ; n'écrit aucun état métier."""
+        claim=self.obtenir(ident)
+        base=self.detail(ident)  # réutilise le calcul de solde et l'intégrité REG-01
+        vente=self.vente(claim.vente_id,'tiers_payant.creance.consulter')
+        retours={x.id:x for x in self.retours(claim)}
+        compensations={x.retour_id:x for x in self.compensations(claim)}
+        retours_projection=[]
+        blockers=[]
+        for retour_id,retour in retours.items():
+            comp=compensations.get(retour_id)
+            item={'retour_id':str(retour.id),'source_p4':serial(retour),
+                'compensation_existante':serial(comp) if comp else None,'lien':{}}
+            try:
+                self.stock.access('caisse.remboursement.demander',self.site,vente.emplacement_id)
+                item['lien']['solde_remboursement']=f'/api/regularisations/organisations/{self.org}/retours/{retour.id}/solde'
+            except PermissionError:
+                pass
+            try:
+                allocations,evidence=self._ventilation_retour(claim,retour)
+                expected=allocations.get(claim.organisme_id,0)
+                item|={'ventilation':'CERTAINE','preuve_historique':evidence,
+                    'montant_certain_xaf':expected,'compensation_manquante':expected>0 and comp is None,
+                    'compensation_conforme':(comp.montant_xaf==expected) if comp else expected==0}
+                if expected>0 and comp is None:
+                    blockers.append({'code':'COMPENSATION_ABSENTE','retour_id':str(retour.id),
+                        'motif':'Une part historique certaine existe sans écriture REG-01.'})
+                elif comp and comp.montant_xaf!=expected:
+                    blockers.append({'code':'COMPENSATION_INCOHERENTE','retour_id':str(retour.id),
+                        'motif':'Le montant REG-01 diffère de la ventilation financière historique certaine.'})
+            except ConflitStock as exc:
+                reason=str(exc)
+                ambiguous='Part retournée multi-organismes ou sans payeur unique.' in reason
+                code='VENTILATION_AMBIGUE' if ambiguous else 'SOURCE_INSUFFISANTE'
+                item|={'ventilation':code,'preuve_historique':None,'montant_certain_xaf':None,
+                    'compensation_manquante':False,'motif':reason}
+                blockers.append({'code':code,'retour_id':str(retour.id),'motif':reason})
+            retours_projection.append(item)
+
+        engagements=self.s.scalars(select(EngagementCreanceModel).join(PreparationOrganismeModel,
+            (PreparationOrganismeModel.id==EngagementCreanceModel.preparation_id)&
+            (PreparationOrganismeModel.organisation_id==EngagementCreanceModel.organisation_id)).where(
+            EngagementCreanceModel.creance_id==claim.id,EngagementCreanceModel.organisation_id==self.org,
+            PreparationOrganismeModel.site_id==self.site,
+            PreparationOrganismeModel.organisation_id==self.org).order_by(EngagementCreanceModel.genre)).all()
+        preparations=[];documents=[];states=set()
+        for engagement in engagements:
+            prep=self.s.scalar(select(PreparationOrganismeModel).where(
+                PreparationOrganismeModel.id==engagement.preparation_id,
+                PreparationOrganismeModel.organisation_id==self.org,
+                PreparationOrganismeModel.site_id==self.site))
+            if prep is None:
+                blockers.append({'code':'SOURCE_INSUFFISANTE','engagement_id':str(engagement.id),
+                    'motif':'Préparation référencée par l’engagement absente du périmètre courant.'})
+                continue
+            versions=self.s.scalars(select(VersionPreparationOrganismeModel).join(PreparationOrganismeModel,
+                (PreparationOrganismeModel.id==VersionPreparationOrganismeModel.preparation_id)&
+                (PreparationOrganismeModel.organisation_id==VersionPreparationOrganismeModel.organisation_id)).where(
+                VersionPreparationOrganismeModel.preparation_id==prep.id,
+                VersionPreparationOrganismeModel.organisation_id==self.org,
+                PreparationOrganismeModel.site_id==self.site,
+                PreparationOrganismeModel.organisation_id==self.org).order_by(
+                    VersionPreparationOrganismeModel.revision.desc())).all()
+            latest=versions[0] if versions else None
+            doc=self.s.scalar(select(DocumentOrganismeModel).join(LigneDocumentOrganismeModel,
+                LigneDocumentOrganismeModel.document_id==DocumentOrganismeModel.id).where(
+                    LigneDocumentOrganismeModel.creance_id==claim.id,
+                    LigneDocumentOrganismeModel.organisation_id==self.org,
+                    DocumentOrganismeModel.preparation_id==prep.id,
+                    DocumentOrganismeModel.organisation_id==self.org,
+                    DocumentOrganismeModel.site_id==self.site))
+            preparations.append({'engagement':serial(engagement),'preparation':serial(prep),
+                'version_courante':serial(latest) if latest else None,
+                'lien':{'preparation':f'/api/tiers-payants/organisations/{self.org}/documents/preparations/{prep.id}',
+                    'historique':f'/api/tiers-payants/organisations/{self.org}/documents/preparations/{prep.id}/historique'}})
+            if latest is None:
+                blockers.append({'code':'SOURCE_INSUFFISANTE','engagement_id':str(engagement.id),
+                    'motif':'Aucune version de préparation n’est disponible pour cet engagement.'})
+            if doc:
+                documents.append({'document':{'id':str(doc.id),'preparation_id':str(doc.preparation_id),
+                    'site_id':str(doc.site_id),'organisme_id':str(doc.organisme_id),'genre':doc.genre,
+                    'reference':doc.reference,'reference_validation':doc.reference_validation,
+                    'total_xaf':doc.total_xaf,'snapshot':doc.snapshot,'pdf_sha256':doc.pdf_sha256,
+                    'emis_le':doc.emis_le.isoformat() if doc.emis_le else None},'lien_pdf':
+                    f'/api/tiers-payants/organisations/{self.org}/documents/emis/{doc.id}/pdf'})
+                states.add('BORDEREAU_EMIS' if doc.genre=='BORDEREAU' else 'FACTURE_EMISE')
+                if doc.genre=='FACTURE':
+                    states.add('REGLEMENT_NON_VERIFIABLE')
+                    blockers.append({'code':'REGLEMENT_NON_VERIFIABLE','document_id':str(doc.id),
+                        'motif':'Aucune donnée P5-C4 de règlement organisme n’est disponible ; aucun règlement n’est présumé absent.'})
+            elif latest and latest.etat in ('PREPARATION','VALIDEE'):
+                states.add('PREPARATION_NON_EMISE')
+        if not engagements and not documents:
+            states.add('SANS_ENGAGEMENT')
+
+        for item in retours_projection:
+            if item['ventilation']=='VENTILATION_AMBIGUE':states.add('VENTILATION_AMBIGUE')
+            elif item['ventilation']=='SOURCE_INSUFFISANTE':states.add('SOURCE_INSUFFISANTE')
+        for blocker in blockers:
+            if blocker['code'] in ('SOURCE_INSUFFISANTE','REGLEMENT_NON_VERIFIABLE'):
+                states.add(blocker['code'])
+        info={'creance_id':str(claim.id),'organisme_id':str(claim.organisme_id),
+            'realisation_id':str(claim.realisation_id),'retours_a_rapprocher':[
+                {'retour_id':x['retour_id'],'montant_certain_xaf':x['montant_certain_xaf']}
+                for x in retours_projection if x['ventilation']=='CERTAINE' and x['montant_certain_xaf']>0],
+            'decisions_requises':[x['code'] for x in blockers]}
+        return {'creance':{'id':str(claim.id),'lien':
+                f'/api/tiers-payants/organisations/{self.org}/creances/{claim.id}',
+                'montant_initial_xaf':claim.montant_xaf,
+                'snapshot':base['snapshot'],'snapshot_hash':claim.snapshot_hash,
+                'montant_compense_xaf':base['montant_compense_xaf'],
+                'solde_effectif_xaf':base['solde_effectif_xaf']},
+            'retours':retours_projection,'compensations':[serial(x) for x in compensations.values()],
+            'engagements':preparations,'documents_originaux':documents,
+            'informations_regularisation':info,'etats_projection':sorted(states),
+            'motifs_blocage':blockers}
 
     def _version(self, row, revision, etat, complements, anomalies, motif):
         return self.stock.ajouter(VersionDossierCreanceModel,creance_id=row.id,revision=revision,etat=etat,
