@@ -47,7 +47,7 @@ def convention(c, a, organism, code, start, end):
         "organisme_id": organism["id"], "code": code,
         "reference_contractuelle": "CTR-" + code,
         "date_debut": start.isoformat(), "date_fin": end.isoformat() if end else None,
-        "conditions": {"reference": "conditions-fictives-v1"},
+        "conditions": {"schema_version": 1},
         "extensions_p5b": {"plafonds": [], "exclusions": [], "baremes": []},
     })
 

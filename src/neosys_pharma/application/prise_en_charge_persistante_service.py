@@ -1,4 +1,5 @@
 """Simulation et confirmation du snapshot P5-B.2 dans la transaction appelante."""
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -31,7 +32,7 @@ class PriseEnChargePersistanteService:
         self.organisation_id, self.site_id = stock.org, site_id
         self.simulator = SimulationPriseEnChargeService()
 
-    def _calculate(self, vente_id, beneficiaire_id=None):
+    def _calculate(self, vente_id, beneficiaire_id=None, *, confirmation=False):
         sale = self.session.scalar(select(VenteModel).where(
             VenteModel.id == vente_id,
             VenteModel.organisation_id == self.organisation_id,
@@ -39,12 +40,16 @@ class PriseEnChargePersistanteService:
         ))
         if not sale:
             raise PermissionError("Vente absente du site ou de l'organisation courante.")
+        if sale.etat in ("ENCAISSEE", "ANNULEE"):
+            raise ValueError("Vente terminale : consulter le snapshot historique sans recalcul.")
         finance = VenteService(self.stock, self.site_id).finance(sale)
         net_by_line = {UUID(line_id): values["ttc"] for line_id, values in finance["lignes"].items()}
         request = construire_demande(
             self.session, sale.id, self.organisation_id, self.site_id,
             self.stock.jour, beneficiaire_id, net_by_line,
         )
+        if confirmation:
+            request = replace(request, exiger_v1=True)
         return sale, self.simulator.simuler(request)
 
     def simuler(self, vente_id, beneficiaire_id=None):
@@ -84,7 +89,7 @@ class PriseEnChargePersistanteService:
         ))
         if existing:
             raise ConflitStock("Une prise en charge est déjà confirmée pour cette vente.")
-        _, result = self._calculate(vente_id, beneficiaire_id)
+        _, result = self._calculate(vente_id, beneficiaire_id, confirmation=True)
         if result.statut != StatutCalcul.ADMISSIBLE:
             raise ValueError("Prise en charge bloquée : " + "; ".join(b.message for b in result.blocages))
         snapshot = result.snapshot.en_json()
@@ -114,7 +119,8 @@ class PriseEnChargePersistanteService:
             self.stock.ajouter(PartCalculPriseEnChargeModel,
                 ligne_calcul_id=line_id, type_part="CLIENT", organisme_id=None,
                 montant_xaf=int(line_result.part_client_xaf or 0), rang=None)
-            for rank, (organisme_id, amount) in enumerate(line_result.parts_organismes_xaf, start=1):
+            for organisme_id, amount in line_result.parts_organismes_xaf:
+                rank = next(stage.rang for stage in line_result.etapes if stage.organisme_id == organisme_id)
                 self.stock.ajouter(PartCalculPriseEnChargeModel,
                     ligne_calcul_id=line_id, type_part="ORGANISME",
                     organisme_id=organisme_id, montant_xaf=amount, rang=rank)

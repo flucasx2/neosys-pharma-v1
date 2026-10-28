@@ -54,13 +54,14 @@ def _uuid_list(value, label):
 def projeter_convention(row: ConventionOrganismeModel) -> ConventionCalcul:
     """Schéma pris en charge dans `extensions_p5b`, version 1.
 
-    `conditions` est réservé à la portée contractuelle et doit être vide ou
-    contenir seulement `schema_version: 1`; il n'est pas calculé par P5-B.2.
+    `conditions` conserve le schéma historique 1 en lecture et projette les
+    clauses explicites de coordination du schéma 2 pour les confirmations V1.
     """
-    conditions = row.conditions or {}
-    _keys(conditions, {"schema_version"}, "conditions")
-    if conditions and conditions.get("schema_version") != 1:
-        raise RegleConventionInvalide("Version de conditions non prise en charge.")
+    from neosys_pharma.domain.coordination_prise_en_charge import valider_conditions
+    try:
+        coordination = valider_conditions(row.conditions or {})
+    except ValueError as exc:
+        raise RegleConventionInvalide(str(exc)) from exc
     data = row.extensions_p5b or {}
     _keys(data, {"schema_version", "baremes", "exclusions"}, "extensions_p5b")
     if data.get("schema_version") != 1:
@@ -100,7 +101,7 @@ def projeter_convention(row: ConventionOrganismeModel) -> ConventionCalcul:
         organisme_id=row.organisme_id, code=row.code, version=row.version,
         date_debut=row.date_debut, date_fin=row.date_fin, statut=row.statut,
         reference_contractuelle=row.reference_contractuelle,
-        baremes=tuple(rules),
+        baremes=tuple(rules), coordination_json=coordination,
         exclusions_produits=_uuid_list(exclusions["produits_ids"], "exclusions.produits_ids"),
         exclusions_categories=tuple(categories),
     )
@@ -228,4 +229,5 @@ def construire_demande(session, vente_id: UUID, organisation_id: UUID, site_id: 
         date_calcul, lines,
         ParametragePrioriteCalcul(config.id, organisation_id, config.version, config.version,
                                   config.date_debut, config.date_fin, config.statut == "ACTIVE", tuple(priorities)),
+        exiger_v1=sale.mode == "PRISE_EN_CHARGE",
     )

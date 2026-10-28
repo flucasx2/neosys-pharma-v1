@@ -18,7 +18,7 @@ def service(base=Depends(vente.service)):return ProformaService(base.stock,base.
 class Creation(vente.Mutation):
     emplacement_id:UUID
     destinataire:vente.Destinataire
-    mode:Literal['SANS_TIERS','CNAMGS','MUTUELLE','CNAMGS_MUTUELLE','CREDIT']='SANS_TIERS'
+    mode:Literal['SANS_TIERS','PRISE_EN_CHARGE','CNAMGS','MUTUELLE','CNAMGS_MUTUELLE','CREDIT']='SANS_TIERS'
     vente_id:UUID|None=None
     revision_vente:int|None=Field(default=None,strict=True,ge=1)
 class Destinataire(vente.Revision):destinataire:vente.Destinataire

@@ -140,3 +140,15 @@ OBS-CAT-01 (incident réel PharmaGabon) et CAP-P5-01 (plafonds consommables non 
 | FID-REG-01 | Ancien test de remboursement groupé, ligne 907 de test_caisse.py : attendu strict ignorant quatre champs de fournisseurs d'audit | Échec reproduit à l'identique au parent 9c273a94 intact. Test et règles financières non modifiés ; correction distincte à autoriser. Sélection de régressions : 25 réussies, 1 échouée |
 
 Rapport et protocole limité : `CORRECTIONS_P4_FID_004_CLI_005.md`. Pas de migration. Les anomalies et arbitrages précédents restent inchangés.
+
+
+## 28 octobre 2026 — neutralité des organismes, correction préparée
+
+| ID | Écart | Traitement local | Statut |
+|---|---|---|---|
+| P5-NEUT-01 | Modes vente/proforma nominatifs | Mode générique additif, anciens modes conservés | Préparé, non testé |
+| P5-NEUT-02 | Priorité organisationnelle sans choix contractuel bénéficiaire | Intersection des ordres autorisés par conventions et bénéficiaire, cardinalité V1 | Préparé, non testé |
+| P5-NEUT-03 | Solde automatiquement imputé au client | Clauses explicites REFUS/DROITS/EXCLUSION/PLAFOND/ECART, blocage conservateur | Préparé, non testé |
+| P5-NEUT-04 | Rangs des parts reconstruits selon UUID | Persistance du rang effectivement calculé | Préparé, non testé |
+
+Détails, tests et limites : [livraison ciblée](P5_NEUTRALITE_ORGANISMES_20261028.md). Aucun écart déclaré clos ; autorisation d'exécution des tests et validation contractuelle attendues. Historique conservé.

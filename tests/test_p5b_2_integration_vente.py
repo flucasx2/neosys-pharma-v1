@@ -1,4 +1,5 @@
 """P5-B.2 HTTP/SQL intégration ciblée sur SQLite isolé, sans preuve PG native."""
+from p5_coordination_fixtures import conditions_v1
 pytest_plugins = ("test_vente",)
 from datetime import date, datetime, timezone
 from uuid import uuid4
@@ -23,10 +24,11 @@ from neosys_pharma.infrastructure.prise_en_charge_models import (
 )
 
 
-def test_simulation_et_confirmation_persistent_idempotent_et_immuable(raw_client, account):
+@pytest.mark.parametrize("mode", ["PRISE_EN_CHARGE", "CNAMGS"])
+def test_simulation_et_confirmation_persistent_idempotent_et_immuable(raw_client, account, mode):
     client, acc = raw_client, account
     product, pack, post_id, till_id = setup(client, acc)
-    sale = line(client, acc, create(client, acc, post_id, mode="MUTUELLE"), product, pack)
+    sale = line(client, acc, create(client, acc, post_id, mode=mode), product, pack)
     day = date.today()
     organisme_id, convention_id = uuid4(), uuid4()
     beneficiary_id, adhesion_id, config_id = uuid4(), uuid4(), uuid4()
@@ -45,7 +47,7 @@ def test_simulation_et_confirmation_persistent_idempotent_et_immuable(raw_client
         session.add(ConventionOrganismeModel(
             id=convention_id, organisation_id=acc["org"], organisme_id=organisme_id,
             code="CONV-TEST", version=1, reference_contractuelle="REF-TEST",
-            date_debut=day, date_fin=None, statut="ACTIVE", conditions={"schema_version": 1},
+            date_debut=day, date_fin=None, statut="ACTIVE", conditions=conditions_v1([organisme_id]),
             extensions_p5b={"schema_version": 1,
                 "baremes": [{"code": "BASE", "taux_numerateur": 80,
                     "taux_denominateur": 100, "plafond_ligne_xaf": None,

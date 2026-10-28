@@ -1,4 +1,5 @@
 """P5-B.3 : encaissement de la part client et retours sur une base de test."""
+from p5_coordination_fixtures import conditions_v1
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -34,7 +35,7 @@ from neosys_pharma.infrastructure.tiers_payants_models import (
 )
 
 
-def _prepare(c, a):
+def _prepare(c, a, *, inversion=False, inversion_refusee=False):
     product, pack, post_id, till_id = setup(c, a)
     # Le test utilise une vente > 1 000 XAF afin d'observer le barème approuvé
     # 1 point / 1 000 XAF, tout en conservant le prix catalogue du test P4.
@@ -91,11 +92,19 @@ def _prepare(c, a):
     sale = act(c, a, sale, "transmettre", caisse_id=till_id)
 
     day = date.today(); beneficiary_id = uuid4(); config_id = uuid4()
-    payer_ids, contract_ids, adhesion_ids = [uuid4() for _ in range(3)], [uuid4() for _ in range(3)], [uuid4() for _ in range(3)]
+    payer_ids, contract_ids, adhesion_ids = [uuid4() for _ in range(2)], [uuid4() for _ in range(2)], [uuid4() for _ in range(2)]
     gen = db(c); s = next(gen)
     try:
         from neosys_pharma.infrastructure.client_models import OrganismePriseEnChargeModel
-        names = ("Principal fictif", "Secondaire fictif A", "Secondaire fictif B")
+        names = ("Principal fictif", "Complémentaire fictif")
+        def clauses(index):
+            order = list(reversed(payer_ids)) if inversion else payer_ids
+            if inversion_refusee and index == 0:
+                order = payer_ids
+            primary_index = 1 if inversion else 0
+            data = conditions_v1(order, ecart="SUIVANT" if index == primary_index else "CLIENT")
+            data["coordination"]["ordres"][0]["beneficiaires_ids"] = [str(beneficiary_id)] if inversion else []
+            return data
         for i, (payer_id, contract_id, adhesion_id, name) in enumerate(
             zip(payer_ids, contract_ids, adhesion_ids, names, strict=True)):
             s.add(OrganismePriseEnChargeModel(id=payer_id, organisation_id=a["org"],
@@ -103,7 +112,7 @@ def _prepare(c, a):
             s.add(ConventionOrganismeModel(id=contract_id, organisation_id=a["org"],
                 organisme_id=payer_id, code=f"P5B3-CONV-{i}", version=1,
                 reference_contractuelle=f"P5B3-REF-{i}", date_debut=day,
-                date_fin=None, statut="ACTIVE", conditions={"schema_version": 1},
+                date_fin=None, statut="ACTIVE", conditions=clauses(i),
                 extensions_p5b={"schema_version": 1,
                     "baremes": [{"code": "BASE", "taux_numerateur": 20,
                         "taux_denominateur": 100, "plafond_ligne_xaf": None,

@@ -108,7 +108,7 @@ def test_401_403_csrf_et_lecture_seule(raw_client,account):
     c.headers['X-Site-ID']=str(a['other']);assert c.get(root(a)+f'/{v["id"]}').status_code==403
 
 
-@pytest.mark.parametrize('mode',['CNAMGS','MUTUELLE','CNAMGS_MUTUELLE','CREDIT'])
+@pytest.mark.parametrize('mode',['PRISE_EN_CHARGE','CNAMGS','MUTUELLE','CNAMGS_MUTUELLE','CREDIT'])
 def test_modes_financiers_sans_permission_tiers_restant_non_validables(raw_client,account,mode):
     c,a=raw_client,account;prod,pack,pid,_=setup(c,a);v=line(c,a,create(c,a,pid,mode=mode),prod,pack)
     assert v['part_client'] is None and not v['prise_en_charge_disponible']

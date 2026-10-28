@@ -72,6 +72,8 @@ class TiersPayantsService:
         return serial(row)
 
     def creer_convention(self, data: dict) -> dict:
+        from neosys_pharma.domain.coordination_prise_en_charge import valider_conditions
+        valider_conditions(data.get("conditions") or {})
         self._organisation_verrouillee()
         organisme = self._organisme(data["organisme_id"])
         if not organisme.actif:
