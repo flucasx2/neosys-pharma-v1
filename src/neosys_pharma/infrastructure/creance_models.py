@@ -43,7 +43,27 @@ class VersionDossierCreanceModel(EntiteVente, Base):
     cree_le:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
 
 
-for model in (CreanceOrganismeModel,VersionDossierCreanceModel):
+class CompensationCreanceOrganismeModel(EntiteVente, Base):
+    """Écritures append-only reliant une créance à un retour P4 déterminé."""
+    __tablename__='tiers_payant_compensations_creances'
+    __table_args__=scoped('tp_compensation_creance',
+        org_fk('creance_id','tiers_payant_creances'),
+        org_fk('retour_id','vente_retours'),
+        org_fk('auteur_id','utilisateurs','id_utilisateur'),
+        UniqueConstraint('creance_id','retour_id',name='uq_tp_compensation_creance_retour'),
+        CheckConstraint('montant_xaf > 0',name='ck_tp_compensation_creance_montant'),
+        CheckConstraint('length(snapshot_hash) = 64',name='ck_tp_compensation_creance_hash'))
+    creance_id:Mapped[UUID]=mapped_column(Uuid,index=True)
+    retour_id:Mapped[UUID]=mapped_column(Uuid,index=True)
+    montant_xaf:Mapped[int]=mapped_column(Integer)
+    snapshot:Mapped[dict]=mapped_column(JSON)
+    snapshot_hash:Mapped[str]=mapped_column(String(64))
+    motif:Mapped[str]=mapped_column(String(2000))
+    auteur_id:Mapped[UUID]=mapped_column(Uuid)
+    cree_le:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
+
+
+for model in (CreanceOrganismeModel,VersionDossierCreanceModel,CompensationCreanceOrganismeModel):
     for dialect in ('sqlite','postgresql'):
         for sql in immutable_sql(model.__tablename__,dialect):
             event.listen(model.__table__,'after_create',DDL(sql).execute_if(dialect=dialect))

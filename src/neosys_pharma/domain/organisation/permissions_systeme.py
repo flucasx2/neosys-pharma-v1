@@ -106,6 +106,7 @@ P5C_PERMISSIONS = (
  ('tiers_payant.creance.constituer','Constituer les créances depuis les réalisations confirmées'),
  ('tiers_payant.creance.completer','Compléter les versions administratives des créances'),
  ('tiers_payant.creance.verifier','Contrôler les dossiers avant facturation'),
+ ('tiers_payant.creance.regulariser','Enregistrer une compensation liée à un retour non engagé'),
 )
 PERMISSIONS += P5C_PERMISSIONS
 

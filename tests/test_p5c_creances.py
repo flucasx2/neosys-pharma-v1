@@ -31,8 +31,8 @@ def post(c,a,path,body,status=200,key=None):
     return _post(c,root(a)+'/creances'+path,{'cle':str(key or uuid4()),**body},status)
 
 
-def prepare(c,a,configured=True):
-    sale,session,profile,loyalty,bene,product,payers=_prepare(c,a)
+def prepare(c,a,configured=True,single_payeur=False):
+    sale,session,profile,loyalty,bene,product,payers=_prepare(c,a,single_payeur=single_payeur)
     gen=db(c);s=next(gen)
     try:
         role=s.scalar(select(RoleModel).where(RoleModel.organisation_id==a['org'],RoleModel.code=='CATALOGUE'))
@@ -116,11 +116,82 @@ def test_retours_bloquent_engagement_sans_recalculer_creances(raw_client,account
     claim=post(c,a,'',{'realisation_id':real['id']},201)['creances'][0];ident=claim['id']
     post(c,a,f'/{ident}/complements',{'revision':1,'complements':complete(claim),'motif':'Pièces reçues'})
     post(c,a,f'/{ident}/verifier',{'revision':2,'conforme':True,'motif':'Contrôlé'})
-    grant45(c,a);ret(c,a,enc,1)
+    grant45(c,a);returned=ret(c,a,enc,1)
     current=c.get(root(a)+f'/creances/{ident}').json()
     assert current['etat_effectif']=='EN_ANOMALIE' and not current['facturable'] and current['retours']
     assert current['snapshot']==claim['snapshot'] and current['montant_xaf']==claim['montant_xaf']
     for operation in ENGAGEMENTS:post(c,a,f'/{ident}/controle-engagement',{'revision':3,'operation':operation},409)
+    # Une ligne ventilée sur plusieurs organismes ne permet aucune répartition
+    # compensatoire certaine ; la route doit refuser sans écriture partielle.
+    post(c,a,f'/{ident}/compensations-retour',{'retour_id':returned['id'],
+        'motif':'Tentative de ventilation ambiguë'},409)
+    current=c.get(root(a)+f'/creances/{ident}').json()
+    assert current['montant_xaf']==claim['montant_xaf'] and current['solde_effectif_xaf']==claim['montant_xaf']
+    assert current['compensations']==[] and current['retours_ambigus']
+    for operation in ENGAGEMENTS:post(c,a,f'/{ident}/controle-engagement',{'revision':3,'operation':operation},409)
+
+
+def test_compensation_partielle_certaine_conserve_historique_et_est_idempotente(raw_client,account):
+    c,a=raw_client,account;sale,session,calc=prepare(c,a,single_payeur=True);real,enc=realise(c,a,sale,session,calc)
+    claims=post(c,a,'',{'realisation_id':real['id']},201)['creances'];assert len(claims)==1
+    claim=claims[0];grant45(c,a);returned=ret(c,a,enc,1)
+    assert returned['montant_organismes_xaf']>0
+    payload={'retour_id':returned['id'],'motif':'Compensation calculée depuis le retour historique'};key=uuid4()
+    first=post(c,a,f"/{claim['id']}/compensations-retour",payload,200,key)
+    assert post(c,a,f"/{claim['id']}/compensations-retour",payload,200,key)==first
+    assert first['compensation']['montant_xaf']==returned['montant_organismes_xaf']
+    assert first['compensation']['snapshot']['total_organismes_xaf']==returned['montant_organismes_xaf']
+    assert first['compensation']['snapshot']['lignes'][0]['montant_organismes_xaf']==returned['montant_organismes_xaf']
+    assert first['montant_xaf']==claim['montant_xaf'] and first['snapshot']==claim['snapshot']
+    assert first['solde_effectif_xaf']==claim['montant_xaf']-returned['montant_organismes_xaf']
+    assert first['compensation']['montant_xaf']==returned['montant_organismes_xaf']
+    assert 'montant_client_xaf' not in first['compensation']
+    post(c,a,f"/{claim['id']}/compensations-retour",payload,409,uuid4())
+    current=c.get(root(a)+f"/creances/{claim['id']}").json()
+    assert len(current['compensations'])==1 and current['montant_xaf']==claim['montant_xaf']
+    assert current['snapshot']==claim['snapshot'] and current['solde_effectif_xaf']==first['solde_effectif_xaf']
+
+
+def test_compensation_complete_bloque_nouvel_engagement_documentaire(raw_client,account):
+    c,a=raw_client,account;sale,session,calc=prepare(c,a,single_payeur=True);real,enc=realise(c,a,sale,session,calc)
+    claims=post(c,a,'',{'realisation_id':real['id']},201)['creances'];assert len(claims)==1
+    claim=claims[0];ident=claim['id']
+    post(c,a,f'/{ident}/complements',{'revision':1,'complements':complete(claim),'motif':'Pièces présentes'})
+    post(c,a,f'/{ident}/verifier',{'revision':2,'conforme':True,'motif':'Dossier contrôlé'})
+    grant45(c,a);returned=ret(c,a,enc,20)
+    assert returned['montant_organismes_xaf']==claim['montant_xaf']
+    result=post(c,a,f'/{ident}/compensations-retour',{'retour_id':returned['id'],
+        'motif':'Retour intégral calculé depuis la réalisation'},200)
+    assert result['montant_xaf']==claim['montant_xaf'] and result['snapshot']==claim['snapshot']
+    assert result['montant_compense_xaf']==claim['montant_xaf'] and result['solde_effectif_xaf']==0
+    assert result['facturable'] is False
+    for operation in ENGAGEMENTS:
+        post(c,a,f'/{ident}/controle-engagement',{'revision':result['dossier']['revision'],'operation':operation},409)
+    from neosys_pharma.domain.organisation.permissions_systeme import permission_id
+    gen=db(c);s=next(gen)
+    try:
+        role=s.scalar(select(RoleModel).where(RoleModel.organisation_id==a['org'],RoleModel.code=='CATALOGUE'))
+        for code in ('tiers_payant.document.preparer','tiers_payant.document.consulter'):
+            s.add(RolePermissionModel(role_id=role.id_role,permission_id=permission_id(code)))
+        s.commit()
+    finally:gen.close()
+    login(c,a)
+    from test_p5c2_facturation import body as document_body,post as document_post
+    document_post(c,a,'/preparations',document_body([result]),409)
+    assert c.get(root(a)+f'/creances/{ident}').json()['solde_effectif_xaf']==0
+
+
+def test_annulation_sans_source_de_retour_certaine_refuse_sans_mutation(raw_client,account):
+    c,a=raw_client,account;sale,session,calc=prepare(c,a,single_payeur=True);real,_=realise(c,a,sale,session,calc)
+    claim=post(c,a,'',{'realisation_id':real['id']},201)['creances'][0]
+    # REG-01 ne relie actuellement que les retours portés par la réalisation;
+    # un identifiant d'annulation non rattaché ne fournit aucune ventilation historique.
+    missing_annulation_source=uuid4()
+    post(c,a,f"/{claim['id']}/compensations-retour",{'retour_id':str(missing_annulation_source),
+        'motif':'Annulation sans preuve financière rattachée'},404)
+    current=c.get(root(a)+f"/creances/{claim['id']}").json()
+    assert current['montant_xaf']==claim['montant_xaf'] and current['snapshot']==claim['snapshot']
+    assert current['solde_effectif_xaf']==claim['montant_xaf'] and current['compensations']==[]
 
 
 def test_legacy_non_configure_reste_non_facturable(raw_client,account):

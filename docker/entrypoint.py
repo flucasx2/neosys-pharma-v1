@@ -7,13 +7,22 @@ from urllib.parse import quote
 
 def configure():
     role = os.environ.get("NEOSYS_DOCKER_ROLE")
-    targets = {
-        "app": ("db", "neosys_dev", "neosys_docker_dev"),
-        "tests": ("test-db", "neosys_test", "neosys_docker_test"),
-    }
-    if role not in targets or Path(".env").exists():
+    if role == "tests-native":
+        database = os.environ.get("P4P5_CONFIRM_DATABASE", "")
+        if (not database.startswith("neosys_p4p5_")
+                or os.environ.get("CI", "").lower() != "true"
+                or os.environ.get("P5C2_DISPOSABLE_EMISSION") != "1"):
+            raise ValueError("An explicit isolated native-test target is required")
+        host, user = "localhost", "neosys_test"
+        port = 55432
+    elif role == "app":
+        host, user, database, port = "db", "neosys_dev", "neosys_docker_dev", 5432
+    elif role == "tests":
+        host, user, database, port = "test-db", "neosys_test", "neosys_docker_test", 5432
+    else:
+        raise ValueError("Unknown Docker role")
+    if Path(".env").exists():
         raise ValueError("Docker role required; application .env forbidden")
-    host, user, database = targets[role]
     # No inherited connection URL is trusted, even if it appears to match.
     for key, value in os.environ.items():
         if value and (key.endswith(("DATABASE_URL", "MIGRATION_URL", "ADMIN_URL"))
@@ -27,7 +36,7 @@ def configure():
     password = Path(secret_path).read_text(encoding="utf-8").rstrip("\r\n")
     if not password or password.startswith("REPLACE_") or any(c in password for c in "\r\n\x00"):
         raise ValueError("A local Docker-only password is required")
-    url = f"postgresql+psycopg://{user}:{quote(password, safe='')}@{host}:5432/{database}"
+    url = f"postgresql+psycopg://{user}:{quote(password, safe='')}@{host}:{port}/{database}"
     os.environ["DATABASE_URL"] = url
     if role == "tests":
         # Phase 1 runs SQLite fixtures only. Native migration variables are not set.
@@ -35,6 +44,8 @@ def configure():
                and v for k, v in os.environ.items()):
             raise ValueError("Native database tests require a dedicated future runner")
         os.environ["TEST_DATABASE_URL"] = "sqlite+pysqlite://"
+    elif role == "tests-native":
+        os.environ["TEST_DATABASE_URL"] = url
 
 
 def main():

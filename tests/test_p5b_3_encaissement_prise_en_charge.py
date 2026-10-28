@@ -35,7 +35,7 @@ from neosys_pharma.infrastructure.tiers_payants_models import (
 )
 
 
-def _prepare(c, a, *, inversion=False, inversion_refusee=False):
+def _prepare(c, a, *, inversion=False, inversion_refusee=False, single_payeur=False):
     product, pack, post_id, till_id = setup(c, a)
     # Le test utilise une vente > 1 000 XAF afin d'observer le barème approuvé
     # 1 point / 1 000 XAF, tout en conservant le prix catalogue du test P4.
@@ -117,7 +117,8 @@ def _prepare(c, a, *, inversion=False, inversion_refusee=False):
                     "baremes": [{"code": "BASE", "taux_numerateur": 20,
                         "taux_denominateur": 100, "plafond_ligne_xaf": None,
                         "produits_ids": [], "categories_ids": [], "arrondi": "PLANCHER"}],
-                    "exclusions": {"produits_ids": [], "categories_ids": []}},
+                    "exclusions": {"produits_ids": [product] if single_payeur and i == 1 else [],
+                                   "categories_ids": []}},
                 auteur_id=a["user"]))
         s.add(BeneficiaireCouvertureModel(id=beneficiary_id, organisation_id=a["org"],
             client_id=profile_id, nom="Bénéficiaire fictif", date_naissance=None,
