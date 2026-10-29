@@ -16,6 +16,8 @@ from neosys_pharma.infrastructure.organisation_models import EmplacementModel
 vente_api.POLICY.update({
     'creances_sources':'tiers_payant.creance.consulter','creances_liste':'tiers_payant.creance.consulter',
     'creance_detail':'tiers_payant.creance.consulter','creance_historique':'tiers_payant.creance.consulter',
+    'creances_rapprochements':'tiers_payant.creance.consulter',
+    'creance_rapprochement':'tiers_payant.creance.consulter',
     'creances_constituer':'tiers_payant.creance.constituer','creance_completer':'tiers_payant.creance.completer',
     'creance_verifier':'tiers_payant.creance.verifier','creance_engagement':'tiers_payant.creance.verifier',
     'creance_regulariser':'tiers_payant.creance.regulariser'})
@@ -55,6 +57,48 @@ def liste(organisme_id:UUID|None=None,page:int=Query(1,ge=1),page_size:int=Query
     return execute(lambda:{'items':[s.detail(x.id) for x in rows],'total':total,'page':page,'page_size':page_size})
 
 
+def _autoriser_emplacement_rapprochement(s,emplacement_id):
+    """Droits P5 cumulés et politique P4 existante en OU, sur ce même emplacement."""
+    s.stock.emplacement(emplacement_id,'tiers_payant.creance.consulter')
+    s.stock.emplacement(emplacement_id,'tiers_payant.document.consulter')
+    for permission in ('caisse.cloture.consulter','vente.retour.gerer'):
+        try:
+            s.stock.emplacement(emplacement_id,permission)
+            return
+        except PermissionError:
+            continue
+    raise PermissionError('Une permission de consultation P4 des retours est requise sur cet emplacement.')
+
+
+def perimetre_rapprochement(s):
+    """Intersection C1+C2 avec l’OU P4 appliqué individuellement à chaque emplacement."""
+    ids=[]
+    for row in s.s.scalars(select(EmplacementModel).where(
+            EmplacementModel.site_id==s.site,EmplacementModel.actif.is_(True))):
+        try:
+            _autoriser_emplacement_rapprochement(s,row.id_emplacement)
+            ids.append(row.id_emplacement)
+        except PermissionError:
+            continue
+    if not ids:
+        raise PermissionError('Aucun emplacement ne satisfait les permissions requises pour le rapprochement.')
+    return ids
+
+
+@router.get('/rapprochements',name='creances_rapprochements')
+def rapprochements(organisme_id:UUID|None=None,page:int=Query(1,ge=1),
+        page_size:int=Query(25,ge=1,le=100),s=Depends(service)):
+    allowed=execute(lambda:perimetre_rapprochement(s))
+    query=select(CreanceOrganismeModel).join(VenteModel,VenteModel.id==CreanceOrganismeModel.vente_id).where(
+        CreanceOrganismeModel.organisation_id==s.org,CreanceOrganismeModel.site_id==s.site,
+        VenteModel.emplacement_id.in_(allowed))
+    if organisme_id:query=query.where(CreanceOrganismeModel.organisme_id==organisme_id)
+    total,rows=s.stock.repo.paginer(query.order_by(CreanceOrganismeModel.cree_le.desc(),
+        CreanceOrganismeModel.id),page,page_size)
+    return execute(lambda:{'items':[s.rapprochement(x.id) for x in rows],
+        'total':total,'page':page,'page_size':page_size})
+
+
 class Constitution(vente_api.Mutation):realisation_id:UUID
 class Complement(vente_api.Revision):
     complements:dict=Field(default_factory=dict)
@@ -74,6 +118,16 @@ def constituer(data:Constitution,s=Depends(service)):
 
 @router.get('/{ident}',name='creance_detail')
 def detail(ident:UUID,s=Depends(service)):return execute(lambda:s.detail(ident))
+
+
+@router.get('/{ident}/rapprochement',name='creance_rapprochement')
+def rapprochement(ident:UUID,s=Depends(service)):
+    def read():
+        row=s.obtenir(ident)
+        vente=s.vente(row.vente_id,'tiers_payant.creance.consulter')
+        _autoriser_emplacement_rapprochement(s,vente.emplacement_id)
+        return s.rapprochement(ident)
+    return execute(read)
 
 
 @router.get('/{ident}/historique',name='creance_historique')
