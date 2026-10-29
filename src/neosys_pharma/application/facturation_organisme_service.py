@@ -151,6 +151,48 @@ class FacturationOrganismeService:
         self.creances.tiers._audit('PREPARATION_DOCUMENT',row.id,'PREPARATION_ABANDONNEE',{'revision':revision+1})
         return self.detail(row.id)
 
+    def regulariser_retour_preparation(self,preparation_id,creance_id,retour_id,revision,action,motif):
+        """Libère une créance puis la compense, dans la transaction du StockService."""
+        self.creances.tiers._organisation_verrouillee()
+        preparation,version=self.courant(preparation_id,revision,'tiers_payant.document.preparer')
+        if version.etat not in ('PREPARATION','VALIDEE'):
+            raise ConflitStock('Seule une préparation non émise peut être régularisée.')
+
+        claim=self.creances.obtenir(creance_id,'tiers_payant.creance.regulariser')
+        if claim.organisme_id!=preparation.organisme_id:
+            raise ConflitStock('La créance et la préparation ne concernent pas le même organisme.')
+        selected=[item for item in version.selection if UUID(str(item['creance_id']))==claim.id]
+        if len(selected)!=1:
+            raise ConflitStock('La créance doit apparaître une seule fois dans la sélection courante.')
+
+        # Valider la source et sa ventilation avant de changer la préparation.
+        retour=next((item for item in self.creances.retours(claim) if item.id==retour_id),None)
+        if retour is None:
+            raise LookupError('Retour absent de la réalisation de cette créance.')
+        allocations,_=self.creances._ventilation_retour(claim,retour)
+        if allocations.get(claim.organisme_id,0)<=0:
+            raise ConflitStock('Ce retour ne porte aucune part positive sur cette créance.')
+
+        motif=texte(motif,'Motif de régularisation',2000)
+        if action=='RETIRER':
+            selection=[item for item in version.selection if UUID(str(item['creance_id']))!=claim.id]
+            preparation_result=self.modifier(preparation.id,revision,selection,motif)
+        elif action=='ABANDONNER':
+            preparation_result=self.abandonner(preparation.id,revision,motif)
+        else:
+            raise ValueError('Action de régularisation inconnue.')
+
+        # REG-01 recontrôle ses gardes après libération. Toute erreur remonte à
+        # StockService.operation, qui annule alors aussi la version et les audits.
+        creance_result=self.creances.regulariser_retour(claim.id,retour.id,motif)
+        compensation=creance_result['compensation']
+        self.creances.tiers._audit('PREPARATION_DOCUMENT',preparation.id,'REGULARISATION_RETOUR',{
+            'action':action,'revision_avant':revision,'revision_apres':preparation_result['version']['revision'],
+            'creance_id':str(claim.id),'retour_id':str(retour.id),
+            'montant_compense_xaf':compensation['montant_xaf'],
+            'solde_effectif_xaf':creance_result['solde_effectif_xaf']})
+        return {'action':action,'preparation':preparation_result,'creance':creance_result}
+
     def valider(self,ident,revision,motif):
         row,v=self.courant(ident,revision,'tiers_payant.document.valider')
         self._selection(row,v.selection,'PRESENTER' if row.genre=='BORDEREAU' else 'VALIDER_FACTURE','tiers_payant.document.valider')

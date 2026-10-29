@@ -21,6 +21,7 @@ POLICY={
  'documents_activation':'tiers_payant.document.consulter','documents_preparations_liste':'tiers_payant.document.consulter',
  'documents_preparation_creer':'tiers_payant.document.preparer','documents_preparation_lire':'tiers_payant.document.consulter',
  'documents_preparation_modifier':'tiers_payant.document.preparer','documents_preparation_abandonner':'tiers_payant.document.preparer',
+ 'documents_preparation_regulariser_retour':'tiers_payant.creance.regulariser',
  'documents_preparation_valider':'tiers_payant.document.valider','documents_preparation_emettre':'tiers_payant.document.emettre',
  'documents_preparation_pdf':'tiers_payant.document.consulter','documents_pdf':'tiers_payant.document.consulter',
  'documents_regrouper':'tiers_payant.document.regrouper','documents_regroupement_lire':'tiers_payant.document.consulter',
@@ -55,6 +56,12 @@ class Modification(vente_api.Revision):
     selection:list[Selection]=Field(max_length=100)
     motif:str=Field(min_length=1,max_length=2000)
 class Action(vente_api.Revision):motif:str=Field(min_length=1,max_length=2000)
+class RegularisationPreparation(vente_api.Mutation):
+    creance_id:UUID
+    retour_id:UUID
+    revision:int=Field(strict=True,ge=1)
+    action:Literal['RETIRER','ABANDONNER']
+    motif:str=Field(min_length=1,max_length=2000)
 class Emission(Action):
     reference:str=Field(min_length=1,max_length=80)
     reference_validation:str=Field(min_length=1,max_length=200)
@@ -168,6 +175,16 @@ def modifier(ident:UUID,data:Modification,s=Depends(service)):
 def abandonner(ident:UUID,data:Action,s=Depends(service)):
     execute(lambda:s.obtenir(ident,'tiers_payant.document.preparer'))
     return mutate(s,data,'ABANDONNER:'+str(ident),lambda:s.abandonner(ident,data.revision,data.motif))
+
+
+@router.post('/preparations/{ident}/regulariser-retour',name='documents_preparation_regulariser_retour')
+def regulariser_retour_preparation(ident:UUID,data:RegularisationPreparation,s=Depends(service)):
+    # Autorisations vérifiées avant un éventuel rejeu d'idempotence.
+    execute(lambda:s.obtenir(ident,'tiers_payant.document.preparer'))
+    execute(lambda:s.creances.obtenir(data.creance_id,'tiers_payant.creance.regulariser'))
+    return mutate(s,data,'REGULARISER_RETOUR_PREPARATION:'+str(ident),
+        lambda:s.regulariser_retour_preparation(ident,data.creance_id,data.retour_id,
+            data.revision,data.action,data.motif))
 
 
 @router.post('/preparations/{ident}/valider',name='documents_preparation_valider')
